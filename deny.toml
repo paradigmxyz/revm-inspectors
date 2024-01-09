@@ -7,12 +7,15 @@ notice = "warn"
 
 [bans]
 multiple-versions = "warn"
-wildcards = "deny"
+wildcards = "allow"
 highlight = "all"
+deny = [{ name = "openssl" }]
+skip = []
+skip-tree = []
 
 [licenses]
 unlicensed = "deny"
-confidence-threshold = 0.9
+confidence-threshold = 0.8
 # copyleft = "deny"
 
 allow = [
@@ -25,18 +28,23 @@ allow = [
     "ISC",
     "Unicode-DFS-2016",
     "Unlicense",
-    "MPL-2.0",
     # https://github.com/briansmith/ring/issues/902
     "LicenseRef-ring",
     # https://github.com/briansmith/webpki/issues/148
     "LicenseRef-webpki",
+    # https://github.com/rustls/webpki/blob/main/LICENSE ISC Style
+    "LicenseRef-rustls-webpki",
 ]
 
 exceptions = [
     # CC0 is a permissive license but somewhat unclear status for source code
     # so we prefer to not have dependencies using it
     # https://tldrlegal.com/license/creative-commons-cc0-1.0-universal
+    { allow = ["CC0-1.0"], name = "secp256k1" },
+    { allow = ["CC0-1.0"], name = "secp256k1-sys" },
     { allow = ["CC0-1.0"], name = "tiny-keccak" },
+    { allow = ["CC0-1.0"], name = "more-asserts" },
+    { allow = ["CC0-1.0"], name = "aurora-engine-modexp" },
 ]
 
 [[licenses.clarify]]
@@ -49,6 +57,13 @@ name = "webpki"
 expression = "LicenseRef-webpki"
 license-files = [{ path = "LICENSE", hash = 0x001c7e6c }]
 
+[[licenses.clarify]]
+name = "rustls-webpki"
+expression = "LicenseRef-rustls-webpki"
+license-files = [{ path = "LICENSE", hash = 0x001c7e6c }]
+
 [sources]
-unknown-registry = "deny"
+unknown-registry = "warn"
 unknown-git = "deny"
+# TODO: remove, see ./Cargo.toml
+allow-git = ["https://github.com/alloy-rs/alloy", "https://github.com/bluealloy/revm"]

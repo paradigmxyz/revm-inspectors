@@ -1,5 +1,5 @@
 [package]
-name = "reth-revm-inspectors"
+name = "revm-inspectors"
 description = "Revm inspector implementations"
 version = "0.1.0"
 edition = "2021"
