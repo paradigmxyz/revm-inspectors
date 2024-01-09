@@ -22,10 +22,11 @@ rust.rust_2018_idioms = "deny"
 # eth
 alloy-sol-types = "0.5"
 alloy-primitives = "0.5"
-alloy-rpc-types = "0.1"
-alloy-rpc-trace-types = "0.1"
+alloy-rpc-types = { git = "https://github.com/alloy-rs/alloy" }
+alloy-rpc-trace-types = { git = "https://github.com/alloy-rs/alloy" }
 
-revm = "3.4"
+# revm = "3.4"
+revm = { git = "https://github.com/bluealloy/revm", branch = "reth_freeze" }
 
 # js-tracing-inspector
 boa_engine = { version = "0.17", optional = true }
@@ -40,8 +41,3 @@ tokio = { version = "1", features = ["sync"], optional = true }
 [features]
 default = []
 js-tracer = ["boa_engine", "boa_gc", "tokio", "thiserror", "serde_json"]
-
-[patch.crates-io]
-alloy-rpc-types = { git = "https://github.com/alloy-rs/alloy" }
-alloy-rpc-trace-types = { git = "https://github.com/alloy-rs/alloy" }
-revm = { git = "https://github.com/bluealloy/revm", branch = "reth_freeze" }
