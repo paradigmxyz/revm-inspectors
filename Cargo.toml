@@ -1,8 +1,47 @@
 [package]
-name = "evm-inspectors"
+name = "reth-revm-inspectors"
+description = "Revm inspector implementations"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.74.0"
+license = "MIT OR Apache-2.0"
+homepage = "https://github.com/paradigmxyz/evm-inspectors"
+repository = "https://github.com/paradigmxyz/evm-inspectors"
+categories = ["cryptography"]
+keywords = ["ethereum", "evm", "inspectors", "tracing", "debugging"]
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[lints]
+rust.missing_debug_implementations = "warn"
+rust.missing_docs = "warn"
+rust.unreachable_pub = "warn"
+rustdoc.all = "warn"
+rust.unused_must_use = "deny"
+rust.rust_2018_idioms = "deny"
 
 [dependencies]
+# eth
+alloy-sol-types = "0.5"
+alloy-primitives = "0.5"
+alloy-rpc-types = "0.1"
+alloy-rpc-trace-types = "0.1"
+
+revm = "3.4"
+
+# js-tracing-inspector
+boa_engine = { version = "0.17", optional = true }
+boa_gc = { version = "0.17", optional = true }
+
+serde = { version = "1", features = ["derive"] }
+thiserror = { version = "1", optional = true }
+serde_json = { version = "1", optional = true }
+
+tokio = { version = "1", features = ["sync"], optional = true }
+
+[features]
+default = []
+js-tracer = ["boa_engine", "boa_gc", "tokio", "thiserror", "serde_json"]
+
+[patch.crates-io]
+alloy-rpc-types = { git = "https://github.com/alloy-rs/alloy" }
+alloy-rpc-trace-types = { git = "https://github.com/alloy-rs/alloy" }
+revm = { git = "https://github.com/bluealloy/revm", branch = "reth_freeze" }
