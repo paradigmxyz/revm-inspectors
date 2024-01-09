@@ -93,12 +93,12 @@ impl ParityTraceBuilder {
     fn trace_address(&self, idx: usize) -> Vec<usize> {
         if idx == 0 {
             // root call has empty traceAddress
-            return vec![]
+            return vec![];
         }
         let mut graph = vec![];
         let mut node = &self.nodes[idx];
         if node.is_precompile() {
-            return graph
+            return graph;
         }
         while let Some(parent) = node.parent {
             // the index of the child call in the arena
@@ -226,7 +226,7 @@ impl ParityTraceBuilder {
         trace_types: &HashSet<TraceType>,
     ) -> (Option<Vec<TransactionTrace>>, Option<VmTrace>, Option<StateDiff>) {
         if trace_types.is_empty() || self.nodes.is_empty() {
-            return (None, None, None)
+            return (None, None, None);
         }
 
         let with_traces = trace_types.contains(&TraceType::Trace);
@@ -342,7 +342,7 @@ impl ParityTraceBuilder {
                         {
                             // This is a special case where there's a single STOP which is
                             // "optimised away", transfers for example
-                            break 'outer instructions
+                            break 'outer instructions;
                         }
 
                         instructions.push(self.make_instruction(step, maybe_sub_call));
@@ -428,7 +428,7 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(selfdestruct) = self.next_selfdestruct.take() {
-            return Some(selfdestruct)
+            return Some(selfdestruct);
         }
         let (mut trace, node) = self.iter.next()?;
         if node.is_selfdestruct() {
@@ -498,7 +498,7 @@ where
     for (addr, changed_acc) in account_diffs.into_iter() {
         // if the account was selfdestructed and created during the transaction, we can ignore it
         if changed_acc.is_selfdestructed() && changed_acc.is_created() {
-            continue
+            continue;
         }
 
         let addr = *addr;
@@ -534,13 +534,13 @@ where
             }
 
             // check if the account was changed at all
-            if entry.storage.is_empty() &&
-                db_acc == changed_acc.info &&
-                !changed_acc.is_selfdestructed()
+            if entry.storage.is_empty()
+                && db_acc == changed_acc.info
+                && !changed_acc.is_selfdestructed()
             {
                 // clear the entry if the account was not changed
                 state_diff.remove(&addr);
-                continue
+                continue;
             }
 
             entry.balance = if db_acc.balance == changed_acc.info.balance {
@@ -576,58 +576,58 @@ pub(crate) fn stack_push_count(step_op: OpCode) -> usize {
         opcode::PUSH0..=opcode::PUSH32 => 1,
         opcode::SWAP1..=opcode::SWAP16 => (step_op - opcode::SWAP1) as usize + 2,
         opcode::DUP1..=opcode::DUP16 => (step_op - opcode::DUP1) as usize + 2,
-        opcode::CALLDATALOAD |
-        opcode::SLOAD |
-        opcode::MLOAD |
-        opcode::CALLDATASIZE |
-        opcode::LT |
-        opcode::GT |
-        opcode::DIV |
-        opcode::SDIV |
-        opcode::SAR |
-        opcode::AND |
-        opcode::EQ |
-        opcode::CALLVALUE |
-        opcode::ISZERO |
-        opcode::ADD |
-        opcode::EXP |
-        opcode::CALLER |
-        opcode::KECCAK256 |
-        opcode::SUB |
-        opcode::ADDRESS |
-        opcode::GAS |
-        opcode::MUL |
-        opcode::RETURNDATASIZE |
-        opcode::NOT |
-        opcode::SHR |
-        opcode::SHL |
-        opcode::EXTCODESIZE |
-        opcode::SLT |
-        opcode::OR |
-        opcode::NUMBER |
-        opcode::PC |
-        opcode::TIMESTAMP |
-        opcode::BALANCE |
-        opcode::SELFBALANCE |
-        opcode::MULMOD |
-        opcode::ADDMOD |
-        opcode::BASEFEE |
-        opcode::BLOCKHASH |
-        opcode::BYTE |
-        opcode::XOR |
-        opcode::ORIGIN |
-        opcode::CODESIZE |
-        opcode::MOD |
-        opcode::SIGNEXTEND |
-        opcode::GASLIMIT |
-        opcode::DIFFICULTY |
-        opcode::SGT |
-        opcode::GASPRICE |
-        opcode::MSIZE |
-        opcode::EXTCODEHASH |
-        opcode::SMOD |
-        opcode::CHAINID |
-        opcode::COINBASE => 1,
+        opcode::CALLDATALOAD
+        | opcode::SLOAD
+        | opcode::MLOAD
+        | opcode::CALLDATASIZE
+        | opcode::LT
+        | opcode::GT
+        | opcode::DIV
+        | opcode::SDIV
+        | opcode::SAR
+        | opcode::AND
+        | opcode::EQ
+        | opcode::CALLVALUE
+        | opcode::ISZERO
+        | opcode::ADD
+        | opcode::EXP
+        | opcode::CALLER
+        | opcode::KECCAK256
+        | opcode::SUB
+        | opcode::ADDRESS
+        | opcode::GAS
+        | opcode::MUL
+        | opcode::RETURNDATASIZE
+        | opcode::NOT
+        | opcode::SHR
+        | opcode::SHL
+        | opcode::EXTCODESIZE
+        | opcode::SLT
+        | opcode::OR
+        | opcode::NUMBER
+        | opcode::PC
+        | opcode::TIMESTAMP
+        | opcode::BALANCE
+        | opcode::SELFBALANCE
+        | opcode::MULMOD
+        | opcode::ADDMOD
+        | opcode::BASEFEE
+        | opcode::BLOCKHASH
+        | opcode::BYTE
+        | opcode::XOR
+        | opcode::ORIGIN
+        | opcode::CODESIZE
+        | opcode::MOD
+        | opcode::SIGNEXTEND
+        | opcode::GASLIMIT
+        | opcode::DIFFICULTY
+        | opcode::SGT
+        | opcode::GASPRICE
+        | opcode::MSIZE
+        | opcode::EXTCODEHASH
+        | opcode::SMOD
+        | opcode::CHAINID
+        | opcode::COINBASE => 1,
         _ => 0,
     }
 }

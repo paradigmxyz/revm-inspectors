@@ -583,12 +583,12 @@ impl CallTraceStep {
     pub(crate) fn is_calllike_op(&self) -> bool {
         matches!(
             self.op.get(),
-            opcode::CALL |
-                opcode::DELEGATECALL |
-                opcode::STATICCALL |
-                opcode::CREATE |
-                opcode::CALLCODE |
-                opcode::CREATE2
+            opcode::CALL
+                | opcode::DELEGATECALL
+                | opcode::STATICCALL
+                | opcode::CREATE
+                | opcode::CALLCODE
+                | opcode::CREATE2
         )
     }
 

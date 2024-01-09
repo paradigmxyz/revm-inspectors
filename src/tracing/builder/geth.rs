@@ -89,7 +89,7 @@ impl GethTraceBuilder {
         opts: GethDefaultTracingOptions,
     ) -> DefaultFrame {
         if self.nodes.is_empty() {
-            return Default::default()
+            return Default::default();
         }
         // Fetch top-level trace
         let main_trace_node = &self.nodes[0];
@@ -116,7 +116,7 @@ impl GethTraceBuilder {
     /// [ExecutionResult](revm::primitives::ExecutionResult) of the executed transaction.
     pub fn geth_call_traces(&self, opts: CallConfig, gas_used: u64) -> CallFrame {
         if self.nodes.is_empty() {
-            return Default::default()
+            return Default::default();
         }
 
         let include_logs = opts.with_log.unwrap_or_default();
@@ -132,7 +132,7 @@ impl GethTraceBuilder {
         }
 
         if opts.only_top_call.unwrap_or_default() {
-            return root_call_frame
+            return root_call_frame;
         }
 
         // fill all the call frames in the root call frame with the recorded traces.
@@ -164,7 +164,7 @@ impl GethTraceBuilder {
                 parent_frame.1.calls.insert(0, call);
             } else {
                 debug_assert!(call_frames.is_empty(), "only one root node has no parent");
-                return call
+                return call;
             }
         }
     }
@@ -306,7 +306,7 @@ impl GethTraceBuilder {
         post.retain(|addr, post_state| {
             // Don't keep destroyed accounts in the post state
             if change_type.get(addr).map(|ty| ty.1.is_selfdestruct()).unwrap_or(false) {
-                return false
+                return false;
             }
             if let Some(pre_state) = pre.get(addr) {
                 // remove any unchanged account info

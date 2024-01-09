@@ -100,7 +100,7 @@ impl JsInspector {
             .cloned()
             .ok_or(JsInspectorError::ResultFunctionMissing)?;
         if !result_fn.is_callable() {
-            return Err(JsInspectorError::ResultFunctionMissing)
+            return Err(JsInspectorError::ResultFunctionMissing);
         }
 
         let fault_fn = obj
@@ -109,7 +109,7 @@ impl JsInspector {
             .cloned()
             .ok_or(JsInspectorError::FaultFunctionMissing)?;
         if !result_fn.is_callable() {
-            return Err(JsInspectorError::FaultFunctionMissing)
+            return Err(JsInspectorError::FaultFunctionMissing);
         }
 
         let enter_fn = obj.get("enter", &mut ctx)?.as_object().cloned().filter(|o| o.is_callable());
@@ -121,7 +121,7 @@ impl JsInspector {
 
         if let Some(setup_fn) = obj.get("setup", &mut ctx)?.as_object() {
             if !setup_fn.is_callable() {
-                return Err(JsInspectorError::SetupFunctionNotCallable)
+                return Err(JsInspectorError::SetupFunctionNotCallable);
             }
 
             // call setup()
@@ -299,7 +299,7 @@ impl JsInspector {
     /// Registers the precompiles in the JS context
     fn register_precompiles(&mut self, precompiles: &Precompiles) {
         if !self.precompiles_registered {
-            return
+            return;
         }
         let precompiles = PrecompileList(precompiles.addresses().into_iter().copied().collect());
 
@@ -315,7 +315,7 @@ where
 {
     fn step(&mut self, interp: &mut Interpreter<'_>, data: &mut EVMData<'_, DB>) {
         if self.step_fn.is_none() {
-            return
+            return;
         }
 
         let (db, _db_guard) =
@@ -352,7 +352,7 @@ where
 
     fn step_end(&mut self, interp: &mut Interpreter<'_>, data: &mut EVMData<'_, DB>) {
         if self.step_fn.is_none() {
-            return
+            return;
         }
 
         if matches!(interp.instruction_result, return_revert!()) {
@@ -411,7 +411,7 @@ where
                 gas: inputs.gas_limit,
             };
             if let Err(err) = self.try_enter(frame) {
-                return (InstructionResult::Revert, Gas::new(0), err.to_string().into())
+                return (InstructionResult::Revert, Gas::new(0), err.to_string().into());
             }
         }
 
@@ -430,7 +430,7 @@ where
             let frame_result =
                 FrameResult { gas_used: remaining_gas.spend(), output: out.clone(), error: None };
             if let Err(err) = self.try_exit(frame_result) {
-                return (InstructionResult::Revert, Gas::new(0), err.to_string().into())
+                return (InstructionResult::Revert, Gas::new(0), err.to_string().into());
             }
         }
 
@@ -463,7 +463,7 @@ where
             let frame =
                 CallFrame { contract: call.contract.clone(), kind: call.kind, gas: call.gas_limit };
             if let Err(err) = self.try_enter(frame) {
-                return (InstructionResult::Revert, None, Gas::new(0), err.to_string().into())
+                return (InstructionResult::Revert, None, Gas::new(0), err.to_string().into());
             }
         }
 
@@ -483,7 +483,7 @@ where
             let frame_result =
                 FrameResult { gas_used: remaining_gas.spend(), output: out.clone(), error: None };
             if let Err(err) = self.try_exit(frame_result) {
-                return (InstructionResult::Revert, None, Gas::new(0), err.to_string().into())
+                return (InstructionResult::Revert, None, Gas::new(0), err.to_string().into());
             }
         }
 

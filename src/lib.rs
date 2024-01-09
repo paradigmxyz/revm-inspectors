@@ -2,8 +2,8 @@
 //!
 //! ## Feature Flags
 //!
-//! - `js-tracer`: Enables a JavaScript tracer implementation. This pulls in extra
-//!   dependencies (such as `boa`, `tokio` and `serde_json`).
+//! - `js-tracer`: Enables a JavaScript tracer implementation. This pulls in extra dependencies
+//!   (such as `boa`, `tokio` and `serde_json`).
 
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/paradigmxyz/reth/main/assets/reth-docs.png",

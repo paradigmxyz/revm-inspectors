@@ -73,11 +73,11 @@ where
                         .insert(B256::from(slot.to_be_bytes()));
                 }
             }
-            opcode::EXTCODECOPY |
-            opcode::EXTCODEHASH |
-            opcode::EXTCODESIZE |
-            opcode::BALANCE |
-            opcode::SELFDESTRUCT => {
+            opcode::EXTCODECOPY
+            | opcode::EXTCODEHASH
+            | opcode::EXTCODESIZE
+            | opcode::BALANCE
+            | opcode::SELFDESTRUCT => {
                 if let Ok(slot) = interpreter.stack().peek(0) {
                     let addr = Address::from_word(B256::from(slot.to_be_bytes()));
                     if !self.excluded.contains(&addr) {

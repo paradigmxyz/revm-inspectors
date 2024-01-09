@@ -33,10 +33,10 @@ pub(crate) fn from_buf(val: JsValue, context: &mut Context<'_>) -> JsResult<Vec<
     if let Some(obj) = val.as_object().cloned() {
         if obj.is_array_buffer() {
             let buf = JsArrayBuffer::from_object(obj)?;
-            return buf.take()
+            return buf.take();
         } else if obj.is_string() {
             let js_string = obj.borrow().as_string().unwrap();
-            return hex_decode_js_string(js_string)
+            return hex_decode_js_string(js_string);
         } else if obj.is_array() {
             let array = JsArray::from_object(obj)?;
             let len = array.length(context)?;
@@ -45,7 +45,7 @@ pub(crate) fn from_buf(val: JsValue, context: &mut Context<'_>) -> JsResult<Vec<
                 let val = array.get(i, context)?;
                 buf.push(val.to_number(context)? as u8);
             }
-            return Ok(buf)
+            return Ok(buf);
         }
     }
 
@@ -103,7 +103,7 @@ pub(crate) fn bytes_to_hash(buf: Vec<u8>) -> B256 {
 pub(crate) fn to_bigint(value: U256, ctx: &mut Context<'_>) -> JsResult<JsValue> {
     let bigint = ctx.global_object().get("bigint", ctx)?;
     if !bigint.is_callable() {
-        return Ok(JsValue::undefined())
+        return Ok(JsValue::undefined());
     }
     bigint.as_callable().unwrap().call(
         &JsValue::undefined(),
@@ -128,7 +128,9 @@ pub(crate) fn to_contract2(
             bytes_to_hash(buf)
         }
         Err(_) => {
-            return Err(JsError::from_native(JsNativeError::typ().with_message("invalid salt type")))
+            return Err(JsError::from_native(
+                JsNativeError::typ().with_message("invalid salt type"),
+            ))
         }
     };
 

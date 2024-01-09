@@ -26,7 +26,7 @@ impl CallTraceArena {
                 // The entry node, just update it
                 0 => {
                     self.arena[0].trace = new_trace;
-                    return 0
+                    return 0;
                 }
                 // We found the parent node, add the new trace as a child
                 _ if self.arena[entry].trace.depth == new_trace.depth - 1 => {
@@ -47,7 +47,7 @@ impl CallTraceArena {
                         parent.children.push(id);
                     }
 
-                    return id
+                    return id;
                 }
                 _ => {
                     // We haven't found the parent node, go deeper

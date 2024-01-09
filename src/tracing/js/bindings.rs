@@ -234,7 +234,7 @@ impl MemoryRef {
                             format!(
                                 "tracer accessed out of bound memory: offset {start}, end {end}"
                             ),
-                        )))
+                        )));
                     }
                     let start = start as usize;
                     let end = end as usize;
@@ -418,7 +418,7 @@ impl StackRef {
                             format!(
                                 "tracer accessed out of bound stack: size {len}, index {idx_f64}"
                             ),
-                        )))
+                        )));
                     }
                     stack.peek(idx, ctx)
                 },
@@ -705,14 +705,14 @@ impl EvmDbRef {
         let buf = from_buf(address, ctx)?;
         let address = bytes_to_address(buf);
         if let acc @ Some(_) = self.state.get_account(&address) {
-            return Ok(acc)
+            return Ok(acc);
         }
         let (tx, rx) = channel();
         if self.to_db.try_send(JsDbRequest::Basic { address, resp: tx }).is_err() {
             return Err(JsError::from_native(
                 JsNativeError::error()
                     .with_message(format!("Failed to read address {address:?} from database",)),
-            ))
+            ));
         }
 
         match rx.recv() {
@@ -728,7 +728,7 @@ impl EvmDbRef {
         let acc = self.read_basic(address, ctx)?;
         let code_hash = acc.map(|acc| acc.code_hash).unwrap_or(KECCAK_EMPTY);
         if code_hash == KECCAK_EMPTY {
-            return JsArrayBuffer::new(0, ctx)
+            return JsArrayBuffer::new(0, ctx);
         }
 
         let (tx, rx) = channel();
@@ -736,7 +736,7 @@ impl EvmDbRef {
             return Err(JsError::from_native(
                 JsNativeError::error()
                     .with_message(format!("Failed to read code hash {code_hash:?} from database",)),
-            ))
+            ));
         }
 
         let code = match rx.recv() {
@@ -771,7 +771,7 @@ impl EvmDbRef {
         {
             return Err(JsError::from_native(JsNativeError::error().with_message(format!(
                 "Failed to read state for {address:?} at {slot:?} from database",
-            ))))
+            ))));
         }
 
         let value = match rx.recv() {
