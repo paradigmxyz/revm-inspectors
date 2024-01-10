@@ -2,7 +2,7 @@
 
 use crate::tracing::{config::TraceStyle, utils, utils::convert_memory};
 pub use alloy_primitives::Log;
-use alloy_primitives::{Address, Bytes, U256, U64};
+use alloy_primitives::{Address, Bytes, LogData, U256, U64};
 
 use alloy_rpc_trace_types::{
     geth::{CallFrame, CallLogFrame, GethDefaultTracingOptions, StructLog},
@@ -130,7 +130,7 @@ pub struct CallTraceNode {
     /// The call trace
     pub trace: CallTrace,
     /// Recorded logs, if enabled
-    pub logs: Vec<Log>,
+    pub logs: Vec<LogData>,
     /// Ordering of child calls and logs
     pub ordering: Vec<LogCallOrder>,
 }
