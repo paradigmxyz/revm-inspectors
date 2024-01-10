@@ -6,8 +6,7 @@ use crate::tracing::{
     },
     utils::gas_used,
 };
-use alloy_primitives::{Address, Bytes, Log, B256, U256};
-pub use arena::CallTraceArena;
+use alloy_primitives::{Address, Bytes, LogData, B256, U256};
 use revm::{
     inspectors::GasInspector,
     interpreter::{
@@ -20,12 +19,14 @@ use revm::{
 use types::{CallTrace, CallTraceStep};
 
 mod arena;
+
 mod builder;
 mod config;
 mod fourbyte;
 mod opcount;
 pub mod types;
 mod utils;
+pub use arena::CallTraceArena;
 pub use builder::{
     geth::{self, GethTraceBuilder},
     parity::{self, ParityTraceBuilder},
@@ -424,7 +425,7 @@ where
 
         if self.config.record_logs {
             trace.ordering.push(LogCallOrder::Log(trace.logs.len()));
-            trace.logs.push(Log::new_unchecked(topics.to_vec(), data.clone()));
+            trace.logs.push(LogData::new_unchecked(topics.to_vec(), data.clone()));
         }
     }
 
