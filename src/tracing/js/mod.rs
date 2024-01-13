@@ -88,7 +88,7 @@ impl JsInspector {
         Self::with_transaction_context(code, config, to_db_service, Default::default())
     }
 
-    /// Creates a new inspector from a javascript code snipped. See also [Self::new].
+    /// Creates a new inspector from a javascript code snippet. See also [Self::new].
     ///
     /// This also accepts a [TransactionContext] that gives the JS code access to some contextual
     /// transaction infos.
