@@ -31,9 +31,13 @@ pub(crate) mod builtins;
 pub struct JsInspector {
     ctx: Context<'static>,
     /// The javascript config provided to the inspector.
-    _config: JsValue,
+    _js_config_value: JsValue,
+    /// The input config object.
+    config: serde_json::Value,
     /// The evaluated object that contains the inspector functions.
     obj: JsObject,
+    /// The context of the transaction that is being inspected.
+    transaction_context: TransactionContext,
 
     /// The javascript function that will be called when the result is requested.
     result_fn: JsObject,
@@ -81,6 +85,19 @@ impl JsInspector {
         config: serde_json::Value,
         to_db_service: mpsc::Sender<JsDbRequest>,
     ) -> Result<Self, JsInspectorError> {
+        Self::with_transaction_context(code, config, to_db_service, Default::default())
+    }
+
+    /// Creates a new inspector from a javascript code snippet. See also [Self::new].
+    ///
+    /// This also accepts a [TransactionContext] that gives the JS code access to some contextual
+    /// transaction infos.
+    pub fn with_transaction_context(
+        code: String,
+        config: serde_json::Value,
+        to_db_service: mpsc::Sender<JsDbRequest>,
+        transaction_context: TransactionContext,
+    ) -> Result<Self, JsInspectorError> {
         // Instantiate the execution context
         let mut ctx = Context::default();
         register_builtins(&mut ctx)?;
@@ -116,7 +133,7 @@ impl JsInspector {
         let exit_fn = obj.get("exit", &mut ctx)?.as_object().cloned().filter(|o| o.is_callable());
         let step_fn = obj.get("step", &mut ctx)?.as_object().cloned().filter(|o| o.is_callable());
 
-        let config =
+        let _js_config_value =
             JsValue::from_json(&config, &mut ctx).map_err(JsInspectorError::InvalidJsonConfig)?;
 
         if let Some(setup_fn) = obj.get("setup", &mut ctx)?.as_object() {
@@ -126,14 +143,16 @@ impl JsInspector {
 
             // call setup()
             setup_fn
-                .call(&(obj.clone().into()), &[config.clone()], &mut ctx)
+                .call(&(obj.clone().into()), &[_js_config_value.clone()], &mut ctx)
                 .map_err(JsInspectorError::SetupCallFailed)?;
         }
 
         Ok(Self {
             ctx,
-            _config: config,
+            _js_config_value,
+            config,
             obj,
+            transaction_context,
             result_fn,
             fault_fn,
             enter_fn,
@@ -143,6 +162,21 @@ impl JsInspector {
             to_db_service,
             precompiles_registered: false,
         })
+    }
+
+    /// Returns the config object.
+    pub fn config(&self) -> &serde_json::Value {
+        &self.config
+    }
+
+    /// Returns the transaction context.
+    pub fn transaction_context(&self) -> &TransactionContext {
+        &self.transaction_context
+    }
+
+    /// Sets the transaction context.
+    pub fn set_transaction_context(&mut self, transaction_context: TransactionContext) {
+        self.transaction_context = transaction_context;
     }
 
     /// Calls the result function and returns the result as [serde_json::Value].
@@ -199,11 +233,8 @@ impl JsInspector {
             block: env.block.number.try_into().unwrap_or(u64::MAX),
             output: output_bytes.unwrap_or_default(),
             time: env.block.timestamp.to_string(),
-            // TODO: fill in the following fields
             intrinsic_gas: 0,
-            block_hash: None,
-            tx_index: None,
-            tx_hash: None,
+            transaction_ctx: self.transaction_context.clone(),
         };
         let ctx = ctx.into_js_object(&mut self.ctx)?;
         let db = db.into_js_object(&mut self.ctx)?;
@@ -507,6 +538,44 @@ where
             let frame_result = FrameResult { gas_used: 0, output: Bytes::new(), error: None };
             let _ = self.try_exit(frame_result);
         }
+    }
+}
+
+/// Contains some contextual infos for a transaction execution that is made available to the JS
+/// object.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct TransactionContext {
+    /// Hash of the block the tx is contained within.
+    ///
+    /// `None` if this is a call.
+    pub block_hash: Option<B256>,
+    /// Index of the transaction within a block.
+    ///
+    /// `None` if this is a call.
+    pub tx_index: Option<usize>,
+    /// Hash of the transaction being traced.
+    ///
+    /// `None` if this is a call.
+    pub tx_hash: Option<B256>,
+}
+
+impl TransactionContext {
+    /// Sets the block hash.
+    pub fn with_block_hash(mut self, block_hash: B256) -> Self {
+        self.block_hash = Some(block_hash);
+        self
+    }
+
+    /// Sets the index of the transaction within a block.
+    pub fn with_tx_index(mut self, tx_index: usize) -> Self {
+        self.tx_index = Some(tx_index);
+        self
+    }
+
+    /// Sets the hash of the transaction.
+    pub fn with_tx_hash(mut self, tx_hash: B256) -> Self {
+        self.tx_hash = Some(tx_hash);
+        self
     }
 }
 

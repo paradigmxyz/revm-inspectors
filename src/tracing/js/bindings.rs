@@ -6,7 +6,7 @@ use crate::tracing::{
             address_to_buf, bytes_to_address, bytes_to_hash, from_buf, to_bigint, to_buf,
             to_buf_value,
         },
-        JsDbRequest,
+        JsDbRequest, TransactionContext,
     },
     types::CallKind,
 };
@@ -624,9 +624,7 @@ pub(crate) struct EvmContext {
     pub(crate) output: Bytes,
     /// Number, block number
     pub(crate) time: String,
-    pub(crate) block_hash: Option<B256>,
-    pub(crate) tx_index: Option<usize>,
-    pub(crate) tx_hash: Option<B256>,
+    pub(crate) transaction_ctx: TransactionContext,
 }
 
 impl EvmContext {
@@ -644,9 +642,7 @@ impl EvmContext {
             block,
             output,
             time,
-            block_hash,
-            tx_index,
-            tx_hash,
+            transaction_ctx,
         } = self;
         let obj = JsObject::default();
 
@@ -669,13 +665,13 @@ impl EvmContext {
         obj.set("block", block, false, ctx)?;
         obj.set("output", to_buf(output.to_vec(), ctx)?, false, ctx)?;
         obj.set("time", time, false, ctx)?;
-        if let Some(block_hash) = block_hash {
+        if let Some(block_hash) = transaction_ctx.block_hash {
             obj.set("blockHash", to_buf(block_hash.as_slice().to_vec(), ctx)?, false, ctx)?;
         }
-        if let Some(tx_index) = tx_index {
+        if let Some(tx_index) = transaction_ctx.tx_index {
             obj.set("txIndex", tx_index as u64, false, ctx)?;
         }
-        if let Some(tx_hash) = tx_hash {
+        if let Some(tx_hash) = transaction_ctx.tx_hash {
             obj.set("txHash", to_buf(tx_hash.as_slice().to_vec(), ctx)?, false, ctx)?;
         }
 
