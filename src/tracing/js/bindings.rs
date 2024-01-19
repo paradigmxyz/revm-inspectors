@@ -70,7 +70,7 @@ macro_rules! js_value_capture_getter {
 /// This type supports garbage collection of (rust) references and prevents access to the value if
 /// it has been dropped.
 #[derive(Debug, Clone)]
-pub(crate) struct GuardedNullableGc<Val: 'static> {
+struct GuardedNullableGc<Val: 'static> {
     /// The lifetime is a lie to make it possible to use a reference in boa which requires 'static
     inner: Rc<RefCell<Option<Guarded<'static, Val>>>>,
 }
@@ -79,14 +79,14 @@ impl<Val: 'static> GuardedNullableGc<Val> {
     /// Creates a garbage collectible value to the given reference.
     ///
     /// SAFETY; the caller must ensure that the guard is dropped before the value is dropped.
-    pub(crate) fn r#ref(val: &Val) -> (Self, GcGuard<'_, Val>) {
+    fn r#ref(val: &Val) -> (Self, GcGuard<'_, Val>) {
         Self::new(Guarded::Ref(val))
     }
 
     /// Creates a garbage collectible value to the given reference.
     ///
     /// SAFETY; the caller must ensure that the guard is dropped before the value is dropped.
-    pub(crate) fn r#owned<'a>(val: Val) -> (Self, GcGuard<'a, Val>) {
+    fn r#owned<'a>(val: Val) -> (Self, GcGuard<'a, Val>) {
         Self::new(Guarded::Owned(val))
     }
 
@@ -101,7 +101,7 @@ impl<Val: 'static> GuardedNullableGc<Val> {
     }
 
     /// Executes the given closure with a reference to the inner value if it is still present.
-    pub(crate) fn with_inner<F, R>(&self, f: F) -> Option<R>
+    fn with_inner<F, R>(&self, f: F) -> Option<R>
     where
         F: FnOnce(&Val) -> R,
     {
@@ -129,6 +129,7 @@ enum Guarded<'a, T> {
 ///
 /// This type guarantees that it never outlives the wrapped value.
 #[derive(Debug)]
+#[must_use]
 pub(crate) struct GcGuard<'a, Val> {
     inner: Rc<RefCell<Option<Guarded<'a, Val>>>>,
 }
@@ -217,7 +218,7 @@ impl StepLog {
 
 /// Represents the memory object
 #[derive(Debug, Clone)]
-pub(crate) struct MemoryRef(pub(crate) GuardedNullableGc<SharedMemory>);
+pub(crate) struct MemoryRef(GuardedNullableGc<SharedMemory>);
 
 impl MemoryRef {
     /// Creates a new stack reference
@@ -309,7 +310,7 @@ unsafe impl Trace for MemoryRef {
 
 /// Represents the state object
 #[derive(Debug, Clone)]
-pub(crate) struct StateRef(pub(crate) GuardedNullableGc<State>);
+pub(crate) struct StateRef(GuardedNullableGc<State>);
 
 impl StateRef {
     /// Creates a new stack reference
@@ -331,7 +332,7 @@ unsafe impl Trace for StateRef {
 
 /// Represents the database
 #[derive(Debug, Clone)]
-pub(crate) struct GcDb<DB: 'static>(pub(crate) GuardedNullableGc<DB>);
+pub(crate) struct GcDb<DB: 'static>(GuardedNullableGc<DB>);
 
 impl<DB> GcDb<DB>
 where
@@ -409,7 +410,7 @@ impl From<u8> for OpObj {
 
 /// Represents the stack object
 #[derive(Debug)]
-pub(crate) struct StackRef(pub(crate) GuardedNullableGc<Stack>);
+pub(crate) struct StackRef(GuardedNullableGc<Stack>);
 
 impl StackRef {
     /// Creates a new stack reference
@@ -722,6 +723,7 @@ impl EvmContext {
 }
 
 /// DB is the object that allows the js inspector to interact with the database.
+#[derive(Clone)]
 pub(crate) struct EvmDbRef {
     inner: Rc<EvmDbRefInner>,
 }
@@ -913,12 +915,6 @@ unsafe impl Trace for EvmDbRef {
     empty_trace!();
 }
 
-impl Clone for EvmDbRef {
-    fn clone(&self) -> Self {
-        Self { inner: Rc::clone(&self.inner) }
-    }
-}
-
 /// DB is the object that allows the js inspector to interact with the database.
 struct EvmDbRefInner {
     state: StateRef,
@@ -928,6 +924,7 @@ struct EvmDbRefInner {
 /// Guard the inner references, once this value is dropped the inner reference is also removed.
 ///
 /// This ensures that the guards are dropped within the lifetime of the borrowed values.
+#[must_use]
 pub(crate) struct EvmDbGuard<'a, 'b> {
     _state_guard: GcGuard<'a, State>,
     _db_guard: GcGuard<'b, Box<dyn DatabaseRef<Error = String> + 'static>>,
