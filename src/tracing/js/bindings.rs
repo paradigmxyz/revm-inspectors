@@ -738,7 +738,7 @@ impl EvmDbRef {
         // SAFETY:
         //
         // boa requires 'static lifetime for all objects.
-        // As mention in the `Safety` section of [GuardedNullableGc] the caller of this function
+        // As mentioned in the `Safety` section of [GuardedNullableGc] the caller of this function
         // needs to guarantee that the passed-in lifetime is sufficiently long for the lifetime of
         // the guard.
         let db = JsDb(db);
