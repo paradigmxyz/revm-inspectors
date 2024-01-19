@@ -10,6 +10,7 @@ use crate::tracing::{
     types::CallKind,
 };
 use alloy_primitives::{Address, Bytes, B256, U256};
+pub use boa_engine::vm::RuntimeLimits;
 use boa_engine::{Context, JsError, JsObject, JsResult, JsValue, Source};
 use revm::{
     interpreter::{
@@ -23,6 +24,17 @@ use tokio::sync::mpsc;
 
 pub(crate) mod bindings;
 pub(crate) mod builtins;
+
+/// The maximum number of iterations in a loop.
+///
+/// Once exceeded, the loop will throw an error.
+// An empty loop with this limit takes around 50ms to fail.
+pub const LOOP_ITERATION_LIMIT: u64 = 200_000;
+
+/// The recursion limit for function calls.
+///
+/// Once exceeded, the function will throw an error.
+pub const RECURSION_LIMIT: usize = 10_000;
 
 /// A javascript inspector that will delegate inspector functions to javascript functions
 ///
@@ -100,6 +112,12 @@ impl JsInspector {
     ) -> Result<Self, JsInspectorError> {
         // Instantiate the execution context
         let mut ctx = Context::default();
+
+        // Apply the default runtime limits
+        // This is a safe guard to prevent infinite loops
+        ctx.runtime_limits_mut().set_loop_iteration_limit(LOOP_ITERATION_LIMIT);
+        ctx.runtime_limits_mut().set_recursion_limit(RECURSION_LIMIT);
+
         register_builtins(&mut ctx)?;
 
         // evaluate the code
@@ -177,6 +195,13 @@ impl JsInspector {
     /// Sets the transaction context.
     pub fn set_transaction_context(&mut self, transaction_context: TransactionContext) {
         self.transaction_context = transaction_context;
+    }
+
+    /// Applies the runtime limits to the JS context.
+    ///
+    /// By default
+    pub fn set_runtime_limits(&mut self, limits: RuntimeLimits) {
+        self.ctx.set_runtime_limits(limits);
     }
 
     /// Calls the result function and returns the result as [serde_json::Value].
@@ -649,4 +674,27 @@ pub enum JsInspectorError {
     /// Invalid JSON configuration encountered.
     #[error("invalid JSON config: {0}")]
     InvalidJsonConfig(JsError),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_loop_iteration_limit() {
+        // Create the JavaScript context.
+        let mut context = Context::default();
+        context.runtime_limits_mut().set_loop_iteration_limit(LOOP_ITERATION_LIMIT);
+
+        // The code below iterates 5 times, so no error is thrown.
+        let result = context.eval(Source::from_bytes(
+            r"
+            let i = 0;
+            while (true) {
+                i++;
+            }
+        ",
+        ));
+        assert!(result.is_err());
+    }
 }
