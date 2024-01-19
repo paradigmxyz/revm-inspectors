@@ -49,7 +49,13 @@ pub(crate) fn from_buf(val: JsValue, context: &mut Context<'_>) -> JsResult<Vec<
         }
     }
 
-    Err(JsError::from_native(JsNativeError::typ().with_message("invalid buffer type")))
+    if let Some(js_string) = val.as_string().cloned() {
+        return hex_decode_js_string(js_string);
+    }
+
+    Err(JsError::from_native(
+        JsNativeError::typ().with_message(format!("invalid buffer type: {}", val.type_of())),
+    ))
 }
 
 /// Create a new array buffer from the address' bytes.
