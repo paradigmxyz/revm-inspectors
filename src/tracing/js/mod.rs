@@ -17,10 +17,9 @@ use revm::{
         return_revert, CallInputs, CallScheme, CreateInputs, Gas, InstructionResult, Interpreter,
     },
     precompile::Precompiles,
-    primitives::{AccountInfo, Env, ExecutionResult, Output, ResultAndState, TransactTo},
-    Database, EVMData, Inspector,
+    primitives::{Env, ExecutionResult, Output, ResultAndState, TransactTo},
+    Database, DatabaseRef, EVMData, Inspector,
 };
-use tokio::sync::mpsc;
 
 pub(crate) mod bindings;
 pub(crate) mod builtins;
@@ -70,8 +69,6 @@ pub struct JsInspector {
     step_fn: Option<JsObject>,
     /// Keeps track of the current call stack.
     call_stack: Vec<CallStackItem>,
-    /// sender half of a channel to communicate with the database service.
-    to_db_service: mpsc::Sender<JsDbRequest>,
     /// Marker to track whether the precompiles have been registered.
     precompiles_registered: bool,
 }
@@ -92,12 +89,8 @@ impl JsInspector {
     ///
     /// This also accepts a sender half of a channel to communicate with the database service so the
     /// DB can be queried from inside the inspector.
-    pub fn new(
-        code: String,
-        config: serde_json::Value,
-        to_db_service: mpsc::Sender<JsDbRequest>,
-    ) -> Result<Self, JsInspectorError> {
-        Self::with_transaction_context(code, config, to_db_service, Default::default())
+    pub fn new(code: String, config: serde_json::Value) -> Result<Self, JsInspectorError> {
+        Self::with_transaction_context(code, config, Default::default())
     }
 
     /// Creates a new inspector from a javascript code snippet. See also [Self::new].
@@ -107,7 +100,6 @@ impl JsInspector {
     pub fn with_transaction_context(
         code: String,
         config: serde_json::Value,
-        to_db_service: mpsc::Sender<JsDbRequest>,
         transaction_context: TransactionContext,
     ) -> Result<Self, JsInspectorError> {
         // Instantiate the execution context
@@ -177,7 +169,6 @@ impl JsInspector {
             exit_fn,
             step_fn,
             call_stack: Default::default(),
-            to_db_service,
             precompiles_registered: false,
         })
     }
@@ -207,18 +198,32 @@ impl JsInspector {
     /// Calls the result function and returns the result as [serde_json::Value].
     ///
     /// Note: This is supposed to be called after the inspection has finished.
-    pub fn json_result(
+    pub fn json_result<DB>(
         &mut self,
         res: ResultAndState,
         env: &Env,
-    ) -> Result<serde_json::Value, JsInspectorError> {
-        Ok(self.result(res, env)?.to_json(&mut self.ctx)?)
+        db: &DB,
+    ) -> Result<serde_json::Value, JsInspectorError>
+    where
+        DB: DatabaseRef,
+        <DB as DatabaseRef>::Error: std::fmt::Display,
+    {
+        Ok(self.result(res, env, db)?.to_json(&mut self.ctx)?)
     }
 
     /// Calls the result function and returns the result.
-    pub fn result(&mut self, res: ResultAndState, env: &Env) -> Result<JsValue, JsInspectorError> {
+    pub fn result<DB>(
+        &mut self,
+        res: ResultAndState,
+        env: &Env,
+        db: &DB,
+    ) -> Result<JsValue, JsInspectorError>
+    where
+        DB: DatabaseRef,
+        <DB as DatabaseRef>::Error: std::fmt::Display,
+    {
         let ResultAndState { result, state } = res;
-        let (db, _db_guard) = EvmDbRef::new(&state, self.to_db_service.clone());
+        let (db, _db_guard) = EvmDbRef::new(&state, db);
 
         let gas_used = result.gas_used();
         let mut to = None;
@@ -367,15 +372,15 @@ impl JsInspector {
 
 impl<DB> Inspector<DB> for JsInspector
 where
-    DB: Database,
+    DB: Database + DatabaseRef,
+    <DB as DatabaseRef>::Error: std::fmt::Display,
 {
     fn step(&mut self, interp: &mut Interpreter<'_>, data: &mut EVMData<'_, DB>) {
         if self.step_fn.is_none() {
             return;
         }
 
-        let (db, _db_guard) =
-            EvmDbRef::new(&data.journaled_state.state, self.to_db_service.clone());
+        let (db, _db_guard) = EvmDbRef::new(&data.journaled_state.state, &*data.db);
 
         let (stack, _stack_guard) = StackRef::new(&interp.stack);
         let (memory, _memory_guard) = MemoryRef::new(interp.shared_memory);
@@ -412,8 +417,7 @@ where
         }
 
         if matches!(interp.instruction_result, return_revert!()) {
-            let (db, _db_guard) =
-                EvmDbRef::new(&data.journaled_state.state, self.to_db_service.clone());
+            let (db, _db_guard) = EvmDbRef::new(&data.journaled_state.state, &*data.db);
 
             let (stack, _stack_guard) = StackRef::new(&interp.stack);
             let (memory, _memory_guard) = MemoryRef::new(interp.shared_memory);
@@ -602,34 +606,6 @@ impl TransactionContext {
         self.tx_hash = Some(tx_hash);
         self
     }
-}
-
-/// Request variants to be sent from the inspector to the database
-#[derive(Debug, Clone)]
-pub enum JsDbRequest {
-    /// Bindings for [Database::basic]
-    Basic {
-        /// The address of the account to be loaded
-        address: Address,
-        /// The response channel
-        resp: std::sync::mpsc::Sender<Result<Option<AccountInfo>, String>>,
-    },
-    /// Bindings for [Database::code_by_hash]
-    Code {
-        /// The code hash of the code to be loaded
-        code_hash: B256,
-        /// The response channel
-        resp: std::sync::mpsc::Sender<Result<Bytes, String>>,
-    },
-    /// Bindings for [Database::storage]
-    StorageAt {
-        /// The address of the account
-        address: Address,
-        /// Index of the storage slot
-        index: U256,
-        /// The response channel
-        resp: std::sync::mpsc::Sender<Result<U256, String>>,
-    },
 }
 
 /// Represents an active call
