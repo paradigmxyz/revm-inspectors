@@ -38,7 +38,7 @@ pub struct FourByteInspector {
 
 impl FourByteInspector {
     /// Returns the map of SELECTOR to number of occurrences entries
-    pub fn inner(&self) -> &HashMap<(Selector, usize), u64> {
+    pub const fn inner(&self) -> &HashMap<(Selector, usize), u64> {
         &self.inner
     }
 }

@@ -570,7 +570,7 @@ where
 /// The value is obvious for most opcodes, but SWAP* and DUP* are a bit weird,
 /// and we handle those as they are handled in parity vmtraces.
 /// For reference: <https://github.com/ledgerwatch/erigon/blob/9b74cf0384385817459f88250d1d9c459a18eab1/turbo/jsonrpc/trace_adhoc.go#L451>
-pub(crate) fn stack_push_count(step_op: OpCode) -> usize {
+pub(crate) const fn stack_push_count(step_op: OpCode) -> usize {
     let step_op = step_op.get();
     match step_op {
         opcode::PUSH0..=opcode::PUSH32 => 1,

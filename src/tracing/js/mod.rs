@@ -174,12 +174,12 @@ impl JsInspector {
     }
 
     /// Returns the config object.
-    pub fn config(&self) -> &serde_json::Value {
+    pub const fn config(&self) -> &serde_json::Value {
         &self.config
     }
 
     /// Returns the transaction context.
-    pub fn transaction_context(&self) -> &TransactionContext {
+    pub const fn transaction_context(&self) -> &TransactionContext {
         &self.transaction_context
     }
 
@@ -264,7 +264,7 @@ impl JsInspector {
             output: output_bytes.unwrap_or_default(),
             time: env.block.timestamp.to_string(),
             intrinsic_gas: 0,
-            transaction_ctx: self.transaction_context.clone(),
+            transaction_ctx: self.transaction_context,
         };
         let ctx = ctx.into_js_object(&mut self.ctx)?;
         let db = db.into_js_object(&mut self.ctx)?;
@@ -572,7 +572,7 @@ where
 
 /// Contains some contextual infos for a transaction execution that is made available to the JS
 /// object.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TransactionContext {
     /// Hash of the block the tx is contained within.
     ///
@@ -590,19 +590,19 @@ pub struct TransactionContext {
 
 impl TransactionContext {
     /// Sets the block hash.
-    pub fn with_block_hash(mut self, block_hash: B256) -> Self {
+    pub const fn with_block_hash(mut self, block_hash: B256) -> Self {
         self.block_hash = Some(block_hash);
         self
     }
 
     /// Sets the index of the transaction within a block.
-    pub fn with_tx_index(mut self, tx_index: usize) -> Self {
+    pub const fn with_tx_index(mut self, tx_index: usize) -> Self {
         self.tx_index = Some(tx_index);
         self
     }
 
     /// Sets the hash of the transaction.
-    pub fn with_tx_hash(mut self, tx_hash: B256) -> Self {
+    pub const fn with_tx_hash(mut self, tx_hash: B256) -> Self {
         self.tx_hash = Some(tx_hash);
         self
     }
