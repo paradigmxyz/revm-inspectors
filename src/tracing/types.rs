@@ -139,7 +139,7 @@ impl CallTraceNode {
     /// Returns the call context's execution address
     ///
     /// See `Inspector::call` impl of [TracingInspector](crate::tracing::TracingInspector)
-    pub fn execution_address(&self) -> Address {
+    pub const fn execution_address(&self) -> Address {
         if self.trace.kind.is_delegate() {
             self.trace.caller
         } else {
@@ -391,19 +391,19 @@ pub enum CallKind {
 impl CallKind {
     /// Returns true if the call is a create
     #[inline]
-    pub fn is_any_create(&self) -> bool {
+    pub const fn is_any_create(&self) -> bool {
         matches!(self, CallKind::Create | CallKind::Create2)
     }
 
     /// Returns true if the call is a delegate of some sorts
     #[inline]
-    pub fn is_delegate(&self) -> bool {
+    pub const fn is_delegate(&self) -> bool {
         matches!(self, CallKind::DelegateCall | CallKind::CallCode)
     }
 
     /// Returns true if the call is [CallKind::StaticCall].
     #[inline]
-    pub fn is_static_call(&self) -> bool {
+    pub const fn is_static_call(&self) -> bool {
         matches!(self, CallKind::StaticCall)
     }
 }
@@ -488,7 +488,7 @@ pub(crate) struct CallTraceStepStackItem<'a> {
 }
 
 /// Ordering enum for calls and logs
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LogCallOrder {
     /// Contains the index of the corresponding log
     Log(usize),
@@ -573,14 +573,14 @@ impl CallTraceStep {
 
     /// Returns true if the step is a STOP opcode
     #[inline]
-    pub(crate) fn is_stop(&self) -> bool {
+    pub(crate) const fn is_stop(&self) -> bool {
         matches!(self.op.get(), opcode::STOP)
     }
 
     /// Returns true if the step is a call operation, any of
     /// CALL, CALLCODE, DELEGATECALL, STATICCALL, CREATE, CREATE2
     #[inline]
-    pub(crate) fn is_calllike_op(&self) -> bool {
+    pub(crate) const fn is_calllike_op(&self) -> bool {
         matches!(
             self.op.get(),
             opcode::CALL
@@ -594,7 +594,7 @@ impl CallTraceStep {
 
     // Returns true if the status code is an error or revert, See [InstructionResult::Revert]
     #[inline]
-    pub(crate) fn is_error(&self) -> bool {
+    pub(crate) const fn is_error(&self) -> bool {
         self.status as u8 >= InstructionResult::Revert as u8
     }
 

@@ -100,36 +100,36 @@ impl TracingInspectorConfig {
     /// Configure whether calls to precompiles should be ignored.
     ///
     /// If set to `true`, calls to precompiles without value transfers will be ignored.
-    pub fn set_exclude_precompile_calls(mut self, exclude_precompile_calls: bool) -> Self {
+    pub const fn set_exclude_precompile_calls(mut self, exclude_precompile_calls: bool) -> Self {
         self.exclude_precompile_calls = exclude_precompile_calls;
         self
     }
 
     /// Configure whether individual opcode level steps should be recorded
-    pub fn set_steps(mut self, record_steps: bool) -> Self {
+    pub const fn set_steps(mut self, record_steps: bool) -> Self {
         self.record_steps = record_steps;
         self
     }
 
     /// Configure whether the tracer should record memory snapshots
-    pub fn set_memory_snapshots(mut self, record_memory_snapshots: bool) -> Self {
+    pub const fn set_memory_snapshots(mut self, record_memory_snapshots: bool) -> Self {
         self.record_memory_snapshots = record_memory_snapshots;
         self
     }
 
     /// Configure how the tracer should record stack snapshots
-    pub fn set_stack_snapshots(mut self, record_stack_snapshots: StackSnapshotType) -> Self {
+    pub const fn set_stack_snapshots(mut self, record_stack_snapshots: StackSnapshotType) -> Self {
         self.record_stack_snapshots = record_stack_snapshots;
         self
     }
 
     /// Sets state diff recording to true.
-    pub fn with_state_diffs(self) -> Self {
+    pub const fn with_state_diffs(self) -> Self {
         self.set_steps_and_state_diffs(true)
     }
 
     /// Configure whether the tracer should record state diffs
-    pub fn set_state_diffs(mut self, record_state_diff: bool) -> Self {
+    pub const fn set_state_diffs(mut self, record_state_diff: bool) -> Self {
         self.record_state_diff = record_state_diff;
         self
     }
@@ -138,14 +138,14 @@ impl TracingInspectorConfig {
     ///
     /// This is a convenience method for setting both [TracingInspectorConfig::set_steps] and
     /// [TracingInspectorConfig::set_state_diffs] since tracking state diffs requires steps tracing.
-    pub fn set_steps_and_state_diffs(mut self, steps_and_diffs: bool) -> Self {
+    pub const fn set_steps_and_state_diffs(mut self, steps_and_diffs: bool) -> Self {
         self.record_steps = steps_and_diffs;
         self.record_state_diff = steps_and_diffs;
         self
     }
 
     /// Configure whether the tracer should record logs
-    pub fn set_record_logs(mut self, record_logs: bool) -> Self {
+    pub const fn set_record_logs(mut self, record_logs: bool) -> Self {
         self.record_logs = record_logs;
         self
     }
@@ -165,13 +165,13 @@ pub enum StackSnapshotType {
 impl StackSnapshotType {
     /// Returns true if this is the [StackSnapshotType::Full] variant
     #[inline]
-    pub fn is_full(self) -> bool {
+    pub const fn is_full(self) -> bool {
         matches!(self, Self::Full)
     }
 
     /// Returns true if this is the [StackSnapshotType::Pushes] variant
     #[inline]
-    pub fn is_pushes(self) -> bool {
+    pub const fn is_pushes(self) -> bool {
         matches!(self, Self::Pushes)
     }
 }
