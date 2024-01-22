@@ -3,22 +3,23 @@
 use crate::tracing::{
     js::{
         bindings::{
-            CallFrame, Contract, EvmContext, EvmDbRef, FrameResult, MemoryRef, StackRef, StepLog,
+            CallFrame, Contract, EvmDbRef, FrameResult, JsEvmContext, MemoryRef, StackRef, StepLog,
         },
         builtins::{register_builtins, PrecompileList},
     },
     types::CallKind,
 };
-use alloy_primitives::{Address, Bytes, B256, U256};
+use alloy_primitives::{Address, Bytes, Log, B256, U256};
 pub use boa_engine::vm::RuntimeLimits;
 use boa_engine::{Context, JsError, JsObject, JsResult, JsValue, Source};
 use revm::{
     interpreter::{
-        return_revert, CallInputs, CallScheme, CreateInputs, Gas, InstructionResult, Interpreter,
+        return_revert, CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, Gas,
+        InstructionResult, Interpreter, InterpreterResult,
     },
     precompile::Precompiles,
     primitives::{Env, ExecutionResult, Output, ResultAndState, TransactTo},
-    Database, DatabaseRef, EVMData, Inspector,
+    Database, DatabaseRef, EvmContext, Inspector,
 };
 
 pub(crate) mod bindings;
@@ -244,7 +245,7 @@ impl JsInspector {
             ExecutionResult::Halt { .. } => {}
         };
 
-        let ctx = EvmContext {
+        let ctx = JsEvmContext {
             r#type: match env.tx.transact_to {
                 TransactTo::Call(target) => {
                     to = Some(target);
@@ -362,7 +363,7 @@ impl JsInspector {
         if !self.precompiles_registered {
             return;
         }
-        let precompiles = PrecompileList(precompiles.addresses().into_iter().copied().collect());
+        let precompiles = PrecompileList(precompiles.addresses().copied().collect());
 
         let _ = precompiles.register_callable(&mut self.ctx);
 
@@ -375,15 +376,15 @@ where
     DB: Database + DatabaseRef,
     <DB as DatabaseRef>::Error: std::fmt::Display,
 {
-    fn step(&mut self, interp: &mut Interpreter<'_>, data: &mut EVMData<'_, DB>) {
+    fn step(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
         if self.step_fn.is_none() {
             return;
         }
 
-        let (db, _db_guard) = EvmDbRef::new(&data.journaled_state.state, &*data.db);
+        let (db, _db_guard) = EvmDbRef::new(&context.journaled_state.state, &context.db);
 
         let (stack, _stack_guard) = StackRef::new(&interp.stack);
-        let (memory, _memory_guard) = MemoryRef::new(interp.shared_memory);
+        let (memory, _memory_guard) = MemoryRef::new(&interp.shared_memory);
         let step = StepLog {
             stack,
             op: interp.current_opcode().into(),
@@ -391,7 +392,7 @@ where
             pc: interp.program_counter() as u64,
             gas_remaining: interp.gas.remaining(),
             cost: interp.gas.spend(),
-            depth: data.journaled_state.depth(),
+            depth: context.journaled_state.depth(),
             refund: interp.gas.refunded() as u64,
             error: None,
             contract: self.active_call().contract.clone(),
@@ -402,25 +403,16 @@ where
         }
     }
 
-    fn log(
-        &mut self,
-        _evm_data: &mut EVMData<'_, DB>,
-        _address: &Address,
-        _topics: &[B256],
-        _data: &Bytes,
-    ) {
-    }
-
-    fn step_end(&mut self, interp: &mut Interpreter<'_>, data: &mut EVMData<'_, DB>) {
+    fn step_end(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
         if self.step_fn.is_none() {
             return;
         }
 
         if matches!(interp.instruction_result, return_revert!()) {
-            let (db, _db_guard) = EvmDbRef::new(&data.journaled_state.state, &*data.db);
+            let (db, _db_guard) = EvmDbRef::new(&context.journaled_state.state, &context.db);
 
             let (stack, _stack_guard) = StackRef::new(&interp.stack);
-            let (memory, _memory_guard) = MemoryRef::new(interp.shared_memory);
+            let (memory, _memory_guard) = MemoryRef::new(&interp.shared_memory);
             let step = StepLog {
                 stack,
                 op: interp.current_opcode().into(),
@@ -428,7 +420,7 @@ where
                 pc: interp.program_counter() as u64,
                 gas_remaining: interp.gas.remaining(),
                 cost: interp.gas.spend(),
-                depth: data.journaled_state.depth(),
+                depth: context.journaled_state.depth(),
                 refund: interp.gas.refunded() as u64,
                 error: Some(format!("{:?}", interp.instruction_result)),
                 contract: self.active_call().contract.clone(),
@@ -438,12 +430,14 @@ where
         }
     }
 
+    fn log(&mut self, _context: &mut EvmContext<DB>, _log: &Log) {}
+
     fn call(
         &mut self,
-        data: &mut EVMData<'_, DB>,
+        context: &mut EvmContext<DB>,
         inputs: &mut CallInputs,
-    ) -> (InstructionResult, Gas, Bytes) {
-        self.register_precompiles(&data.precompiles);
+    ) -> Option<CallOutcome> {
+        self.register_precompiles(&context.precompiles);
 
         // determine correct `from` and `to` based on the call scheme
         let (from, to) = match inputs.context.scheme {
@@ -470,44 +464,45 @@ where
                 kind: call.kind,
                 gas: inputs.gas_limit,
             };
-            if let Err(err) = self.try_enter(frame) {
-                return (InstructionResult::Revert, Gas::new(0), err.to_string().into());
+            if let Err(_err) = self.try_enter(frame) {
+                todo!("return revert")
+                // return (InstructionResult::Revert, Gas::new(0), err.to_string().into());
             }
         }
 
-        (InstructionResult::Continue, Gas::new(0), Bytes::new())
+        None
     }
 
     fn call_end(
         &mut self,
-        _data: &mut EVMData<'_, DB>,
-        _inputs: &CallInputs,
-        remaining_gas: Gas,
-        ret: InstructionResult,
-        out: Bytes,
-    ) -> (InstructionResult, Gas, Bytes) {
+        _context: &mut EvmContext<DB>,
+        mut result: InterpreterResult,
+    ) -> InterpreterResult {
         if self.can_call_exit() {
-            let frame_result =
-                FrameResult { gas_used: remaining_gas.spend(), output: out.clone(), error: None };
+            let frame_result = FrameResult {
+                gas_used: result.gas.spend(),
+                output: result.output.clone(),
+                error: None,
+            };
             if let Err(err) = self.try_exit(frame_result) {
-                return (InstructionResult::Revert, Gas::new(0), err.to_string().into());
+                result = js_error_to_revert(err);
             }
         }
 
         self.pop_call();
 
-        (ret, remaining_gas, out)
+        result
     }
 
     fn create(
         &mut self,
-        data: &mut EVMData<'_, DB>,
+        context: &mut EvmContext<DB>,
         inputs: &mut CreateInputs,
-    ) -> (InstructionResult, Option<Address>, Gas, Bytes) {
-        self.register_precompiles(&data.precompiles);
+    ) -> Option<CreateOutcome> {
+        self.register_precompiles(&context.precompiles);
 
-        let _ = data.journaled_state.load_account(inputs.caller, data.db);
-        let nonce = data.journaled_state.account(inputs.caller).info.nonce;
+        let _ = context.load_account(inputs.caller);
+        let nonce = context.journaled_state.account(inputs.caller).info.nonce;
         let address = inputs.created_address(nonce);
         self.push_call(
             address,
@@ -523,33 +518,33 @@ where
             let frame =
                 CallFrame { contract: call.contract.clone(), kind: call.kind, gas: call.gas_limit };
             if let Err(err) = self.try_enter(frame) {
-                return (InstructionResult::Revert, None, Gas::new(0), err.to_string().into());
+                return Some(CreateOutcome::new(js_error_to_revert(err), None));
             }
         }
 
-        (InstructionResult::Continue, None, Gas::new(inputs.gas_limit), Bytes::default())
+        None
     }
 
     fn create_end(
         &mut self,
-        _data: &mut EVMData<'_, DB>,
-        _inputs: &CreateInputs,
-        ret: InstructionResult,
+        _context: &mut EvmContext<DB>,
+        mut result: InterpreterResult,
         address: Option<Address>,
-        remaining_gas: Gas,
-        out: Bytes,
-    ) -> (InstructionResult, Option<Address>, Gas, Bytes) {
+    ) -> CreateOutcome {
         if self.can_call_exit() {
-            let frame_result =
-                FrameResult { gas_used: remaining_gas.spend(), output: out.clone(), error: None };
+            let frame_result = FrameResult {
+                gas_used: result.gas.spend(),
+                output: result.output.clone(),
+                error: None,
+            };
             if let Err(err) = self.try_exit(frame_result) {
-                return (InstructionResult::Revert, None, Gas::new(0), err.to_string().into());
+                result = js_error_to_revert(err);
             }
         }
 
         self.pop_call();
 
-        (ret, address, remaining_gas, out)
+        CreateOutcome::new(result, address)
     }
 
     fn selfdestruct(&mut self, _contract: Address, _target: Address, _value: U256) {
@@ -650,6 +645,16 @@ pub enum JsInspectorError {
     /// Invalid JSON configuration encountered.
     #[error("invalid JSON config: {0}")]
     InvalidJsonConfig(JsError),
+}
+
+/// Converts a JavaScript error into a [InstructionResult::Revert] [InterpreterResult].
+#[inline]
+fn js_error_to_revert(err: JsError) -> InterpreterResult {
+    InterpreterResult {
+        result: InstructionResult::Revert,
+        output: err.to_string().into(),
+        gas: Gas::new(0),
+    }
 }
 
 #[cfg(test)]

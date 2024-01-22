@@ -1,8 +1,10 @@
-use alloy_primitives::U256;
+use alloy_primitives::{Log, U256};
 use revm::{
-    interpreter::{CallInputs, CreateInputs, Gas, InstructionResult, Interpreter},
-    primitives::{db::Database, Address, Bytes, B256},
-    EVMData, Inspector,
+    interpreter::{
+        CallInputs, CallOutcome, CreateInputs, CreateOutcome, Interpreter, InterpreterResult,
+    },
+    primitives::{db::Database, Address},
+    EvmContext, Inspector,
 };
 use std::{
     cell::{Ref, RefCell},
@@ -69,102 +71,81 @@ where
     DB: Database,
     INSP: Inspector<DB>,
 {
-    fn initialize_interp(&mut self, interp: &mut Interpreter<'_>, data: &mut EVMData<'_, DB>) {
-        match self {
-            MaybeOwnedInspector::Owned(insp) => insp.borrow_mut().initialize_interp(interp, data),
-            MaybeOwnedInspector::Stacked(_) => {}
-        }
-    }
-
-    fn step(&mut self, interp: &mut Interpreter<'_>, data: &mut EVMData<'_, DB>) {
-        match self {
-            MaybeOwnedInspector::Owned(insp) => insp.borrow_mut().step(interp, data),
-            MaybeOwnedInspector::Stacked(_) => {}
-        }
-    }
-
-    fn log(
-        &mut self,
-        evm_data: &mut EVMData<'_, DB>,
-        address: &Address,
-        topics: &[B256],
-        data: &Bytes,
-    ) {
+    fn initialize_interp(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
         match self {
             MaybeOwnedInspector::Owned(insp) => {
-                return insp.borrow_mut().log(evm_data, address, topics, data)
+                insp.borrow_mut().initialize_interp(interp, context)
             }
             MaybeOwnedInspector::Stacked(_) => {}
         }
     }
 
-    fn step_end(&mut self, interp: &mut Interpreter<'_>, data: &mut EVMData<'_, DB>) {
+    fn step(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
         match self {
-            MaybeOwnedInspector::Owned(insp) => insp.borrow_mut().step_end(interp, data),
+            MaybeOwnedInspector::Owned(insp) => insp.borrow_mut().step(interp, context),
+            MaybeOwnedInspector::Stacked(_) => {}
+        }
+    }
+
+    fn log(&mut self, context: &mut EvmContext<DB>, log: &Log) {
+        match self {
+            MaybeOwnedInspector::Owned(insp) => return insp.borrow_mut().log(context, log),
+            MaybeOwnedInspector::Stacked(_) => {}
+        }
+    }
+
+    fn step_end(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
+        match self {
+            MaybeOwnedInspector::Owned(insp) => insp.borrow_mut().step_end(interp, context),
             MaybeOwnedInspector::Stacked(_) => {}
         }
     }
 
     fn call(
         &mut self,
-        data: &mut EVMData<'_, DB>,
+        context: &mut EvmContext<DB>,
         inputs: &mut CallInputs,
-    ) -> (InstructionResult, Gas, Bytes) {
+    ) -> Option<CallOutcome> {
         match self {
-            MaybeOwnedInspector::Owned(insp) => return insp.borrow_mut().call(data, inputs),
-            MaybeOwnedInspector::Stacked(_) => {}
+            MaybeOwnedInspector::Owned(insp) => return insp.borrow_mut().call(context, inputs),
+            MaybeOwnedInspector::Stacked(_) => None,
         }
-
-        (InstructionResult::Continue, Gas::new(0), Bytes::new())
     }
 
     fn call_end(
         &mut self,
-        data: &mut EVMData<'_, DB>,
-        inputs: &CallInputs,
-        remaining_gas: Gas,
-        ret: InstructionResult,
-        out: Bytes,
-    ) -> (InstructionResult, Gas, Bytes) {
+        context: &mut EvmContext<DB>,
+        result: InterpreterResult,
+    ) -> InterpreterResult {
         match self {
-            MaybeOwnedInspector::Owned(insp) => {
-                return insp.borrow_mut().call_end(data, inputs, remaining_gas, ret, out)
-            }
-            MaybeOwnedInspector::Stacked(_) => {}
+            MaybeOwnedInspector::Owned(insp) => insp.borrow_mut().call_end(context, result),
+            MaybeOwnedInspector::Stacked(_) => result,
         }
-        (ret, remaining_gas, out)
     }
 
     fn create(
         &mut self,
-        data: &mut EVMData<'_, DB>,
+        context: &mut EvmContext<DB>,
         inputs: &mut CreateInputs,
-    ) -> (InstructionResult, Option<Address>, Gas, Bytes) {
+    ) -> Option<CreateOutcome> {
         match self {
-            MaybeOwnedInspector::Owned(insp) => return insp.borrow_mut().create(data, inputs),
-            MaybeOwnedInspector::Stacked(_) => {}
+            MaybeOwnedInspector::Owned(insp) => return insp.borrow_mut().create(context, inputs),
+            MaybeOwnedInspector::Stacked(_) => None,
         }
-
-        (InstructionResult::Continue, None, Gas::new(0), Bytes::default())
     }
 
     fn create_end(
         &mut self,
-        data: &mut EVMData<'_, DB>,
-        inputs: &CreateInputs,
-        ret: InstructionResult,
+        context: &mut EvmContext<DB>,
+        result: InterpreterResult,
         address: Option<Address>,
-        remaining_gas: Gas,
-        out: Bytes,
-    ) -> (InstructionResult, Option<Address>, Gas, Bytes) {
+    ) -> CreateOutcome {
         match self {
             MaybeOwnedInspector::Owned(insp) => {
-                return insp.borrow_mut().create_end(data, inputs, ret, address, remaining_gas, out)
+                return insp.borrow_mut().create_end(context, result, address)
             }
-            MaybeOwnedInspector::Stacked(_) => {}
+            MaybeOwnedInspector::Stacked(_) => CreateOutcome::new(result, address),
         }
-
-        (ret, address, remaining_gas, out)
     }
 
     fn selfdestruct(&mut self, contract: Address, target: Address, value: U256) {

@@ -2,7 +2,7 @@ use alloy_primitives::{Address, B256};
 use alloy_rpc_types::{AccessList, AccessListItem};
 use revm::{
     interpreter::{opcode, Interpreter},
-    Database, EVMData, Inspector,
+    Database, EvmContext, Inspector,
 };
 use std::collections::{BTreeSet, HashMap, HashSet};
 
@@ -62,11 +62,11 @@ impl<DB> Inspector<DB> for AccessListInspector
 where
     DB: Database,
 {
-    fn step(&mut self, interpreter: &mut Interpreter<'_>, _data: &mut EVMData<'_, DB>) {
-        match interpreter.current_opcode() {
+    fn step(&mut self, interp: &mut Interpreter, _context: &mut EvmContext<DB>) {
+        match interp.current_opcode() {
             opcode::SLOAD | opcode::SSTORE => {
-                if let Ok(slot) = interpreter.stack().peek(0) {
-                    let cur_contract = interpreter.contract.address;
+                if let Ok(slot) = interp.stack().peek(0) {
+                    let cur_contract = interp.contract.address;
                     self.access_list
                         .entry(cur_contract)
                         .or_default()
@@ -78,7 +78,7 @@ where
             | opcode::EXTCODESIZE
             | opcode::BALANCE
             | opcode::SELFDESTRUCT => {
-                if let Ok(slot) = interpreter.stack().peek(0) {
+                if let Ok(slot) = interp.stack().peek(0) {
                     let addr = Address::from_word(B256::from(slot.to_be_bytes()));
                     if !self.excluded.contains(&addr) {
                         self.access_list.entry(addr).or_default();
@@ -86,7 +86,7 @@ where
                 }
             }
             opcode::DELEGATECALL | opcode::CALL | opcode::STATICCALL | opcode::CALLCODE => {
-                if let Ok(slot) = interpreter.stack().peek(1) {
+                if let Ok(slot) = interp.stack().peek(1) {
                     let addr = Address::from_word(B256::from(slot.to_be_bytes()));
                     if !self.excluded.contains(&addr) {
                         self.access_list.entry(addr).or_default();

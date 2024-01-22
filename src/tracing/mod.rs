@@ -6,15 +6,15 @@ use crate::tracing::{
     },
     utils::gas_used,
 };
-use alloy_primitives::{Address, Bytes, LogData, B256, U256};
+use alloy_primitives::{Address, Bytes, Log, U256};
 use revm::{
     inspectors::GasInspector,
     interpreter::{
-        opcode, return_ok, CallInputs, CallScheme, CreateInputs, Gas, InstructionResult,
-        Interpreter, OpCode,
+        opcode, CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome,
+        InstructionResult, Interpreter, InterpreterResult, OpCode,
     },
     primitives::SpecId,
-    Database, EVMData, Inspector, JournalEntry,
+    Database, EvmContext, Inspector, JournalEntry,
 };
 use types::{CallTrace, CallTraceStep};
 
@@ -142,11 +142,11 @@ impl TracingInspector {
     #[inline]
     fn is_precompile_call<DB: Database>(
         &self,
-        data: &EVMData<'_, DB>,
+        context: &EvmContext<DB>,
         to: &Address,
         value: U256,
     ) -> bool {
-        if data.precompiles.contains(to) {
+        if context.precompiles.contains(to) {
             // only if this is _not_ the root call
             return self.is_deep() && value.is_zero();
         }
@@ -192,7 +192,7 @@ impl TracingInspector {
     #[allow(clippy::too_many_arguments)]
     fn start_trace_on_call<DB: Database>(
         &mut self,
-        data: &EVMData<'_, DB>,
+        context: &EvmContext<DB>,
         address: Address,
         input_data: Bytes,
         value: U256,
@@ -215,18 +215,18 @@ impl TracingInspector {
             // because initialization costs are already subtracted from gas_limit
             // For the root call this value should use the transaction's gas limit
             // See <https://github.com/paradigmxyz/reth/issues/3678> and <https://github.com/ethereum/go-ethereum/pull/27029>
-            gas_limit = data.env.tx.gas_limit;
+            gas_limit = context.env.tx.gas_limit;
 
             // we set the spec id here because we only need to do this once and this condition is
             // hit exactly once
-            self.spec_id = Some(data.env.cfg.spec_id);
+            self.spec_id = Some(context.spec_id());
         }
 
         self.trace_stack.push(self.traces.push_trace(
             0,
             push_kind,
             CallTrace {
-                depth: data.journaled_state.depth() as usize,
+                depth: context.journaled_state.depth() as usize,
                 address,
                 kind,
                 data: input_data,
@@ -249,25 +249,26 @@ impl TracingInspector {
     /// This expects an existing trace [Self::start_trace_on_call]
     fn fill_trace_on_call_end<DB: Database>(
         &mut self,
-        data: &EVMData<'_, DB>,
-        status: InstructionResult,
-        gas: &Gas,
-        output: Bytes,
+        context: &mut EvmContext<DB>,
+        result: InterpreterResult,
         created_address: Option<Address>,
     ) {
+        let InterpreterResult { result, output, gas } = result;
+
         let trace_idx = self.pop_trace_idx();
         let trace = &mut self.traces.arena[trace_idx].trace;
 
         if trace_idx == 0 {
             // this is the root call which should get the gas used of the transaction
             // refunds are applied after execution, which is when the root call ends
-            trace.gas_used = gas_used(data.env.cfg.spec_id, gas.spend(), gas.refunded() as u64);
+            trace.gas_used =
+                gas_used(context.spec_id(),  gas.spend(), gas.refunded() as u64);
         } else {
             trace.gas_used = gas.spend();
         }
 
-        trace.status = status;
-        trace.success = matches!(status, return_ok!());
+        trace.status = result;
+        trace.success = trace.status.is_ok();
         trace.output = output.clone();
 
         self.last_call_return_data = Some(output);
@@ -286,7 +287,7 @@ impl TracingInspector {
     ///
     /// This expects an existing [CallTrace], in other words, this panics if not within the context
     /// of a call.
-    fn start_step<DB: Database>(&mut self, interp: &Interpreter<'_>, data: &EVMData<'_, DB>) {
+    fn start_step<DB: Database>(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
         let trace_idx = self.last_trace_idx();
         let trace = &mut self.traces.arena[trace_idx];
 
@@ -314,7 +315,7 @@ impl TracingInspector {
             .expect("is valid opcode;");
 
         trace.trace.steps.push(CallTraceStep {
-            depth: data.journaled_state.depth(),
+            depth: context.journaled_state.depth(),
             pc: interp.program_counter(),
             op,
             contract: interp.contract.address,
@@ -337,8 +338,8 @@ impl TracingInspector {
     /// Invoked on [Inspector::step_end].
     fn fill_step_on_step_end<DB: Database>(
         &mut self,
-        interp: &Interpreter<'_>,
-        data: &EVMData<'_, DB>,
+        interp: &Interpreter,
+        context: &EvmContext<DB>,
     ) {
         let StackStep { trace_idx, step_idx } =
             self.step_stack.pop().expect("can't fill step without starting a step first");
@@ -359,7 +360,7 @@ impl TracingInspector {
         if self.config.record_state_diff {
             let op = step.op.get();
 
-            let journal_entry = data
+            let journal_entry = context
                 .journaled_state
                 .journal
                 .last()
@@ -374,7 +375,7 @@ impl TracingInspector {
                     Some(JournalEntry::StorageChange { address, key, had_value }),
                 ) => {
                     // SAFETY: (Address,key) exists if part if StorageChange
-                    let value = data.journaled_state.state[address].storage[key].present_value();
+                    let value = context.journaled_state.state[address].storage[key].present_value();
                     let reason = match op {
                         opcode::SLOAD => StorageChangeReason::SLOAD,
                         opcode::SSTORE => StorageChangeReason::SSTORE,
@@ -400,48 +401,43 @@ impl<DB> Inspector<DB> for TracingInspector
 where
     DB: Database,
 {
-    fn initialize_interp(&mut self, interp: &mut Interpreter<'_>, data: &mut EVMData<'_, DB>) {
-        self.gas_inspector.initialize_interp(interp, data)
+    #[inline]
+    fn initialize_interp(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
+        self.gas_inspector.initialize_interp(interp, context)
     }
 
-    fn step(&mut self, interp: &mut Interpreter<'_>, data: &mut EVMData<'_, DB>) {
+    fn step(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
         if self.config.record_steps {
-            self.gas_inspector.step(interp, data);
-            self.start_step(interp, data);
+            self.gas_inspector.step(interp, context);
+            self.start_step(interp, context);
         }
     }
 
-    fn log(
-        &mut self,
-        evm_data: &mut EVMData<'_, DB>,
-        address: &Address,
-        topics: &[B256],
-        data: &Bytes,
-    ) {
-        self.gas_inspector.log(evm_data, address, topics, data);
+    fn step_end(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
+        if self.config.record_steps {
+            self.gas_inspector.step_end(interp, context);
+            self.fill_step_on_step_end(interp, context);
+        }
+    }
+
+    fn log(&mut self, context: &mut EvmContext<DB>, log: &Log) {
+        self.gas_inspector.log(context, log);
 
         let trace_idx = self.last_trace_idx();
         let trace = &mut self.traces.arena[trace_idx];
 
         if self.config.record_logs {
             trace.ordering.push(LogCallOrder::Log(trace.logs.len()));
-            trace.logs.push(LogData::new_unchecked(topics.to_vec(), data.clone()));
-        }
-    }
-
-    fn step_end(&mut self, interp: &mut Interpreter<'_>, data: &mut EVMData<'_, DB>) {
-        if self.config.record_steps {
-            self.gas_inspector.step_end(interp, data);
-            self.fill_step_on_step_end(interp, data);
+            trace.logs.push(log.data.clone());
         }
     }
 
     fn call(
         &mut self,
-        data: &mut EVMData<'_, DB>,
+        context: &mut EvmContext<DB>,
         inputs: &mut CallInputs,
-    ) -> (InstructionResult, Gas, Bytes) {
-        self.gas_inspector.call(data, inputs);
+    ) -> Option<CallOutcome> {
+        self.gas_inspector.call(context, inputs);
 
         // determine correct `from` and `to` based on the call scheme
         let (from, to) = match inputs.context.scheme {
@@ -463,11 +459,13 @@ where
         };
 
         // if calls to precompiles should be excluded, check whether this is a call to a precompile
-        let maybe_precompile =
-            self.config.exclude_precompile_calls.then(|| self.is_precompile_call(data, &to, value));
+        let maybe_precompile = self
+            .config
+            .exclude_precompile_calls
+            .then(|| self.is_precompile_call(context, &to, value));
 
         self.start_trace_on_call(
-            data,
+            context,
             to,
             inputs.input.clone(),
             value,
@@ -477,35 +475,32 @@ where
             maybe_precompile,
         );
 
-        (InstructionResult::Continue, Gas::new(0), Bytes::new())
+        None
     }
 
     fn call_end(
         &mut self,
-        data: &mut EVMData<'_, DB>,
-        inputs: &CallInputs,
-        gas: Gas,
-        ret: InstructionResult,
-        out: Bytes,
-    ) -> (InstructionResult, Gas, Bytes) {
-        self.gas_inspector.call_end(data, inputs, gas, ret, out.clone());
+        context: &mut EvmContext<DB>,
+        result: InterpreterResult,
+    ) -> InterpreterResult {
+        self.gas_inspector.call_end(context, result.clone());
 
-        self.fill_trace_on_call_end(data, ret, &gas, out.clone(), None);
+        self.fill_trace_on_call_end(context, result.clone(), None);
 
-        (ret, gas, out)
+        result
     }
 
     fn create(
         &mut self,
-        data: &mut EVMData<'_, DB>,
+        context: &mut EvmContext<DB>,
         inputs: &mut CreateInputs,
-    ) -> (InstructionResult, Option<Address>, Gas, Bytes) {
-        self.gas_inspector.create(data, inputs);
+    ) -> Option<CreateOutcome> {
+        self.gas_inspector.create(context, inputs);
 
-        let _ = data.journaled_state.load_account(inputs.caller, data.db);
-        let nonce = data.journaled_state.account(inputs.caller).info.nonce;
+        let _ = context.load_account(inputs.caller);
+        let nonce = context.journaled_state.account(inputs.caller).info.nonce;
         self.start_trace_on_call(
-            data,
+            context,
             inputs.created_address(nonce),
             inputs.init_code.clone(),
             inputs.value,
@@ -515,7 +510,7 @@ where
             Some(false),
         );
 
-        (InstructionResult::Continue, None, Gas::new(inputs.gas_limit), Bytes::default())
+        None
     }
 
     /// Called when a contract has been created.
@@ -524,19 +519,17 @@ where
     /// remaining_gas, address, out)`) will alter the result of the create.
     fn create_end(
         &mut self,
-        data: &mut EVMData<'_, DB>,
-        inputs: &CreateInputs,
-        status: InstructionResult,
+        context: &mut EvmContext<DB>,
+        result: InterpreterResult,
         address: Option<Address>,
-        gas: Gas,
-        retdata: Bytes,
-    ) -> (InstructionResult, Option<Address>, Gas, Bytes) {
-        self.gas_inspector.create_end(data, inputs, status, address, gas, retdata.clone());
+    ) -> CreateOutcome {
+        self.gas_inspector.create_end(context, result.clone(), address);
 
         // get the code of the created contract
-        let code = address
+        let _code = address
             .and_then(|address| {
-                data.journaled_state
+                context
+                    .journaled_state
                     .account(address)
                     .info
                     .code
@@ -545,9 +538,9 @@ where
             })
             .unwrap_or_default();
 
-        self.fill_trace_on_call_end(data, status, &gas, code.into(), address);
+        self.fill_trace_on_call_end(context, result.clone(), address);
 
-        (status, address, gas, retdata)
+        CreateOutcome::new(result, address)
     }
 
     fn selfdestruct(&mut self, _contract: Address, target: Address, _value: U256) {

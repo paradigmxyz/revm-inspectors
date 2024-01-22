@@ -21,11 +21,11 @@
 //!
 //! See also <https://geth.ethereum.org/docs/developers/evm-tracing/built-in-tracers>
 
-use alloy_primitives::{hex, Bytes, Selector};
+use alloy_primitives::{hex, Selector};
 use alloy_rpc_trace_types::geth::FourByteFrame;
 use revm::{
-    interpreter::{CallInputs, Gas, InstructionResult},
-    Database, EVMData, Inspector,
+    interpreter::{CallInputs, CallOutcome},
+    Database, EvmContext, Inspector,
 };
 use std::collections::HashMap;
 
@@ -49,16 +49,17 @@ where
 {
     fn call(
         &mut self,
-        _data: &mut EVMData<'_, DB>,
-        call: &mut CallInputs,
-    ) -> (InstructionResult, Gas, Bytes) {
-        if call.input.len() >= 4 {
-            let selector = Selector::try_from(&call.input[..4]).expect("input is at least 4 bytes");
-            let calldata_size = call.input[4..].len();
+        _context: &mut EvmContext<DB>,
+        inputs: &mut CallInputs,
+    ) -> Option<CallOutcome> {
+        if inputs.input.len() >= 4 {
+            let selector =
+                Selector::try_from(&inputs.input[..4]).expect("input is at least 4 bytes");
+            let calldata_size = inputs.input[4..].len();
             *self.inner.entry((selector, calldata_size)).or_default() += 1;
         }
 
-        (InstructionResult::Continue, Gas::new(0), Bytes::new())
+        None
     }
 }
 
