@@ -115,15 +115,15 @@ where
         });
     }
 
-    fn log(&mut self, context: &mut EvmContext<DB>, log: &Log) {
-        call_inspectors!(inspector, [&mut self.custom_print_tracer], {
-            inspector.log(context, log);
-        });
-    }
-
     fn step_end(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
         call_inspectors!(inspector, [&mut self.custom_print_tracer], {
             inspector.step_end(interp, context);
+        });
+    }
+
+    fn log(&mut self, context: &mut EvmContext<DB>, log: &Log) {
+        call_inspectors!(inspector, [&mut self.custom_print_tracer], {
+            inspector.log(context, log);
         });
     }
 
