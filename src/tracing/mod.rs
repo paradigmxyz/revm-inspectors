@@ -40,7 +40,7 @@ pub mod js;
 
 /// An inspector that collects call traces.
 ///
-/// This [Inspector] can be hooked into the [EVM](revm::EVM) which then calls the inspector
+/// This [Inspector] can be hooked into revm's EVM which then calls the inspector
 /// functions, such as [Inspector::call] or [Inspector::call_end].
 ///
 /// The [TracingInspector] keeps track of everything by:

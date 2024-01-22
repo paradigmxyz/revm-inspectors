@@ -32,8 +32,9 @@ pub enum Hook {
 
 /// An inspector that calls multiple inspectors in sequence.
 ///
-/// If a call to an inspector returns a value other than [InstructionResult::Continue] (or
-/// equivalent) the remaining inspectors are not called.
+/// If a call to an inspector returns a value other than
+/// [revm::interpreter::InstructionResult::Continue] (or equivalent) the remaining inspectors are
+/// not called.
 #[derive(Default, Clone)]
 pub struct InspectorStack {
     /// An inspector that prints the opcode traces to the console.
