@@ -73,7 +73,7 @@ pub(crate) fn maybe_revert_reason(output: &[u8]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy_sol_types::{GenericContractError, SolInterface};
+    use alloy_sol_types::{GenericContractError, SolInterface, SolValue};
 
     #[test]
     fn decode_empty_revert() {
@@ -87,5 +87,27 @@ mod tests {
         let encoded = err.abi_encode();
         let reason = maybe_revert_reason(&encoded).unwrap();
         assert_eq!(reason, "my revert");
+    }
+
+    // <https://github.com/Uniswap/v2-periphery/blob/dda62473e2da448bc9cb8f4514dadda4aeede5f4/contracts/libraries/UniswapV2Library.sol#L44>
+    // <https://etherscan.io/tx/0x105707c8e3b3675a8424a7b0820b271cbe394eaf4d5065b03c273298e3a81314>
+    #[test]
+    fn decode_revert_reason_with_error() {
+        let err = hex!("08c379a000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000024556e697377617056323a20494e53554646494349454e545f494e5055545f414d4f554e5400000000000000000000000000000000000000000000000000000080");
+        let reason = maybe_revert_reason(&err[..]);
+
+        // let err = GenericContractError::Revert("UniswapV2Library:
+        // INSUFFICIENT_INPUT_AMOUNT".into()); let encoded = err.abi_encode();
+        //
+        // dbg!(hex::encode(&encoded));
+        //
+        // let s = "UniswapV2Library: INSUFFICIENT_INPUT_AMOUNT";
+        // let encoded = s.abi_encode();
+        // dbg!(hex::encode(&encoded));
+        // dbg!(reason);
+        // let err = GenericContractError::Revert("my revert".into());
+        // let encoded = err.abi_encode();
+        // let reason = maybe_revert_reason(&encoded).unwrap();
+        // assert_eq!(reason, "my revert");
     }
 }
