@@ -202,7 +202,8 @@ impl GethTraceBuilder {
                     Entry::Occupied(entry) => entry.into_mut(),
                 };
 
-                for (key, value) in node.touched_slots() {
+                // TODO is this even necessary if we only need the changed slots? because all of them should be included in the `account_diffs`
+                for (key, value) in node.touched_slots_original_values() {
                     match acc_state.storage.entry(key.into()) {
                         Entry::Vacant(entry) => {
                             entry.insert(value.into());
