@@ -195,7 +195,8 @@ impl GethTraceBuilder {
                     AccountState::from_account_info(db_acc.nonce, db_acc.balance, code);
 
                 // insert the original value of all modified storage slots
-                for (key, slot) in changed_acc.storage.iter() {
+                for (key, slot) in changed_acc.storage.iter().filter(|(_, slot)| slot.is_changed())
+                {
                     // empty slots are excluded
                     if slot.previous_or_original_value.is_zero() {
                         continue;
