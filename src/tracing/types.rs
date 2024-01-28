@@ -13,7 +13,7 @@ use alloy_rpc_trace_types::{
 };
 use revm::interpreter::{opcode, CallContext, CallScheme, CreateScheme, InstructionResult, OpCode};
 use serde::{Deserialize, Serialize};
-use std::collections::{VecDeque};
+use std::collections::VecDeque;
 
 /// A trace of a call.
 #[derive(Clone, Debug, PartialEq, Eq)]
