@@ -13,7 +13,7 @@ use alloy_rpc_trace_types::{
 };
 use revm::interpreter::{opcode, CallContext, CallScheme, CreateScheme, InstructionResult, OpCode};
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{VecDeque};
 
 /// A trace of a call.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -145,28 +145,6 @@ impl CallTraceNode {
         } else {
             self.trace.address
         }
-    }
-
-    /// Returns all storage slots touched by this trace and the original value of this storage.
-    ///
-    /// A touched slot is either a slot that was written to or read from.
-    ///
-    /// If the slot is accessed more than once, the result only includes the first time it was
-    /// accessed, in other words it only returns the original value of the slot.
-    pub fn touched_slots_original_values(&self) -> BTreeMap<U256, Option<U256>> {
-        let mut touched_slots = BTreeMap::new();
-        for change in self.trace.steps.iter().filter_map(|s| s.storage_change.as_ref()) {
-            match touched_slots.entry(change.key) {
-                std::collections::btree_map::Entry::Vacant(entry) => {
-                    entry.insert(change.had_value);
-                }
-                std::collections::btree_map::Entry::Occupied(_) => {
-                    // already touched
-                }
-            }
-        }
-
-        touched_slots
     }
 
     /// Pushes all steps onto the stack in reverse order
