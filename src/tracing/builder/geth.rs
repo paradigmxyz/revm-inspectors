@@ -11,7 +11,7 @@ use alloy_rpc_trace_types::geth::{
     GethDefaultTracingOptions, PreStateConfig, PreStateFrame, PreStateMode, StructLog,
 };
 use revm::{db::DatabaseRef, primitives::ResultAndState};
-use std::collections::{btree_map::Entry, BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 
 /// A type for creating geth style traces
 #[derive(Clone, Debug)]
@@ -187,61 +187,24 @@ impl GethTraceBuilder {
 
         if prestate_config.is_default_mode() {
             let mut prestate = PreStateMode::default();
-            // in default mode we __only__ return the touched state
-            for node in self.nodes.iter() {
-                let addr = node.trace.address;
-
-                let acc_state = match prestate.0.entry(addr) {
-                    Entry::Vacant(entry) => {
-                        let db_acc = db.basic_ref(addr)?.unwrap_or_default();
-                        let code = load_account_code(&db, &db_acc);
-                        let acc_state =
-                            AccountState::from_account_info(db_acc.nonce, db_acc.balance, code);
-                        entry.insert(acc_state)
-                    }
-                    Entry::Occupied(entry) => entry.into_mut(),
-                };
-
-                for (key, value) in node.touched_slots() {
-                    match acc_state.storage.entry(key.into()) {
-                        Entry::Vacant(entry) => {
-                            entry.insert(value.into());
-                        }
-                        Entry::Occupied(_) => {
-                            // we've already recorded this slot
-                        }
-                    }
-                }
-            }
-
-            // also need to check changed accounts for things like balance changes etc
+            // we only want changed accounts for things like balance changes etc
             for (addr, changed_acc) in account_diffs {
-                let acc_state = match prestate.0.entry(addr) {
-                    Entry::Vacant(entry) => {
-                        let db_acc = db.basic_ref(addr)?.unwrap_or_default();
-                        let code = load_account_code(&db, &db_acc);
-                        let acc_state =
-                            AccountState::from_account_info(db_acc.nonce, db_acc.balance, code);
-                        entry.insert(acc_state)
-                    }
-                    Entry::Occupied(entry) => {
-                        // already recorded via touched accounts
-                        entry.into_mut()
-                    }
-                };
+                let db_acc = db.basic_ref(addr)?.unwrap_or_default();
+                let code = load_account_code(&db, &db_acc);
+                let mut acc_state =
+                    AccountState::from_account_info(db_acc.nonce, db_acc.balance, code);
 
-                // in case we missed anything during the trace, we need to add the changed accounts
-                // storage
-                for (key, slot) in changed_acc.storage.iter() {
-                    match acc_state.storage.entry((*key).into()) {
-                        Entry::Vacant(entry) => {
-                            entry.insert(slot.previous_or_original_value.into());
-                        }
-                        Entry::Occupied(_) => {
-                            // we've already recorded this slot
-                        }
+                // insert the original value of all modified storage slots
+                for (key, slot) in changed_acc.storage.iter().filter(|(_, slot)| slot.is_changed())
+                {
+                    // empty slots are excluded
+                    if slot.previous_or_original_value.is_zero() {
+                        continue;
                     }
+                    acc_state.storage.insert((*key).into(), slot.previous_or_original_value.into());
                 }
+
+                prestate.0.insert(addr, acc_state);
             }
 
             Ok(PreStateFrame::Default(prestate))
