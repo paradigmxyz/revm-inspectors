@@ -262,10 +262,7 @@ impl CallTraceNode {
     }
 
     /// If the trace is a selfdestruct, returns the `TransactionTrace` for a parity trace.
-    pub fn parity_selfdestruct_trace(
-        &self,
-        trace_address: Vec<usize>,
-    ) -> Option<TransactionTrace> {
+    pub fn parity_selfdestruct_trace(&self, trace_address: Vec<usize>) -> Option<TransactionTrace> {
         let trace = self.parity_selfdestruct_action()?;
         Some(TransactionTrace {
             action: trace,
