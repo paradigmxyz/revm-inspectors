@@ -181,30 +181,30 @@ impl CallTraceNode {
 
     /// Returns true if this is a call to a precompile
     #[inline]
-    pub(crate) fn is_precompile(&self) -> bool {
+    pub fn is_precompile(&self) -> bool {
         self.trace.maybe_precompile.unwrap_or(false)
     }
 
     /// Returns the kind of call the trace belongs to
     #[inline]
-    pub(crate) const fn kind(&self) -> CallKind {
+    pub const fn kind(&self) -> CallKind {
         self.trace.kind
     }
 
     /// Returns the status of the call
     #[inline]
-    pub(crate) const fn status(&self) -> InstructionResult {
+    pub const fn status(&self) -> InstructionResult {
         self.trace.status
     }
 
     /// Returns true if the call was a selfdestruct
     #[inline]
-    pub(crate) fn is_selfdestruct(&self) -> bool {
+    pub fn is_selfdestruct(&self) -> bool {
         self.status() == InstructionResult::SelfDestruct
     }
 
     /// Converts this node into a parity `TransactionTrace`
-    pub(crate) fn parity_transaction_trace(&self, trace_address: Vec<usize>) -> TransactionTrace {
+    pub fn parity_transaction_trace(&self, trace_address: Vec<usize>) -> TransactionTrace {
         let action = self.parity_action();
         let result = if self.trace.is_error() && !self.trace.is_revert() {
             // if the trace is a selfdestruct or an error that is not a revert, the result is None
@@ -217,7 +217,7 @@ impl CallTraceNode {
     }
 
     /// Returns the `Output` for a parity trace
-    pub(crate) fn parity_trace_output(&self) -> TraceOutput {
+    pub fn parity_trace_output(&self) -> TraceOutput {
         match self.kind() {
             CallKind::Call | CallKind::StaticCall | CallKind::CallCode | CallKind::DelegateCall => {
                 TraceOutput::Call(CallOutput {
@@ -234,7 +234,7 @@ impl CallTraceNode {
     }
 
     /// If the trace is a selfdestruct, returns the `Action` for a parity trace.
-    pub(crate) fn parity_selfdestruct_action(&self) -> Option<Action> {
+    pub fn parity_selfdestruct_action(&self) -> Option<Action> {
         if self.is_selfdestruct() {
             Some(Action::Selfdestruct(SelfdestructAction {
                 address: self.trace.address,
@@ -247,7 +247,7 @@ impl CallTraceNode {
     }
 
     /// If the trace is a selfdestruct, returns the `CallFrame` for a geth call trace
-    pub(crate) fn geth_selfdestruct_call_trace(&self) -> Option<CallFrame> {
+    pub fn geth_selfdestruct_call_trace(&self) -> Option<CallFrame> {
         if self.is_selfdestruct() {
             Some(CallFrame {
                 typ: "SELFDESTRUCT".to_string(),
@@ -262,10 +262,7 @@ impl CallTraceNode {
     }
 
     /// If the trace is a selfdestruct, returns the `TransactionTrace` for a parity trace.
-    pub(crate) fn parity_selfdestruct_trace(
-        &self,
-        trace_address: Vec<usize>,
-    ) -> Option<TransactionTrace> {
+    pub fn parity_selfdestruct_trace(&self, trace_address: Vec<usize>) -> Option<TransactionTrace> {
         let trace = self.parity_selfdestruct_action()?;
         Some(TransactionTrace {
             action: trace,
@@ -280,7 +277,7 @@ impl CallTraceNode {
     ///
     /// Caution: This does not include the selfdestruct action, if the trace is a selfdestruct,
     /// since those are handled in addition to the call action.
-    pub(crate) fn parity_action(&self) -> Action {
+    pub fn parity_action(&self) -> Action {
         match self.kind() {
             CallKind::Call | CallKind::StaticCall | CallKind::CallCode | CallKind::DelegateCall => {
                 Action::Call(CallAction {
@@ -302,7 +299,7 @@ impl CallTraceNode {
     }
 
     /// Converts this call trace into an _empty_ geth [CallFrame]
-    pub(crate) fn geth_empty_call_frame(&self, include_logs: bool) -> CallFrame {
+    pub fn geth_empty_call_frame(&self, include_logs: bool) -> CallFrame {
         let mut call_frame = CallFrame {
             typ: self.trace.kind.to_string(),
             from: self.trace.caller,
