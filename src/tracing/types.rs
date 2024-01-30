@@ -71,7 +71,7 @@ impl CallTrace {
     }
 
     /// Returns the error message if it is an erroneous result.
-    pub fn as_error_msg(&self, kind: TraceStyle) -> Option<String> {
+    pub(crate) fn as_error_msg(&self, kind: TraceStyle) -> Option<String> {
         // See also <https://github.com/ethereum/go-ethereum/blob/34d507215951fb3f4a5983b65e127577989a6db8/eth/tracers/native/call_flat.go#L39-L55>
         self.is_error().then(|| match self.status {
             InstructionResult::Revert => {
