@@ -1,13 +1,12 @@
 use alloy_primitives::{Log, U256};
 use revm::{
-    interpreter::{
-        CallInputs, CallOutcome, CreateInputs, CreateOutcome, Interpreter, InterpreterResult,
-    },
+    interpreter::{CallInputs, CallOutcome, CreateInputs, CreateOutcome, Interpreter},
     primitives::{db::Database, Address},
     EvmContext, Inspector,
 };
 use std::{
     cell::{Ref, RefCell},
+    ops::Range,
     rc::Rc,
 };
 
@@ -105,9 +104,12 @@ where
         &mut self,
         context: &mut EvmContext<DB>,
         inputs: &mut CallInputs,
+        return_memory_offset: Range<usize>,
     ) -> Option<CallOutcome> {
         match self {
-            MaybeOwnedInspector::Owned(insp) => return insp.borrow_mut().call(context, inputs),
+            MaybeOwnedInspector::Owned(insp) => {
+                return insp.borrow_mut().call(context, inputs, return_memory_offset)
+            }
             MaybeOwnedInspector::Stacked(_) => None,
         }
     }
@@ -115,11 +117,14 @@ where
     fn call_end(
         &mut self,
         context: &mut EvmContext<DB>,
-        result: InterpreterResult,
-    ) -> InterpreterResult {
+        inputs: &CallInputs,
+        outcome: CallOutcome,
+    ) -> CallOutcome {
         match self {
-            MaybeOwnedInspector::Owned(insp) => insp.borrow_mut().call_end(context, result),
-            MaybeOwnedInspector::Stacked(_) => result,
+            MaybeOwnedInspector::Owned(insp) => {
+                insp.borrow_mut().call_end(context, inputs, outcome)
+            }
+            MaybeOwnedInspector::Stacked(_) => outcome,
         }
     }
 
@@ -137,14 +142,14 @@ where
     fn create_end(
         &mut self,
         context: &mut EvmContext<DB>,
-        result: InterpreterResult,
-        address: Option<Address>,
+        inputs: &CreateInputs,
+        outcome: CreateOutcome,
     ) -> CreateOutcome {
         match self {
             MaybeOwnedInspector::Owned(insp) => {
-                return insp.borrow_mut().create_end(context, result, address)
+                return insp.borrow_mut().create_end(context, inputs, outcome)
             }
-            MaybeOwnedInspector::Stacked(_) => CreateOutcome::new(result, address),
+            MaybeOwnedInspector::Stacked(_) => outcome,
         }
     }
 

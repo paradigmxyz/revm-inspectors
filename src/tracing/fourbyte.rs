@@ -27,7 +27,7 @@ use revm::{
     interpreter::{CallInputs, CallOutcome},
     Database, EvmContext, Inspector,
 };
-use std::collections::HashMap;
+use std::{collections::HashMap, ops::Range};
 
 /// Fourbyte tracing inspector that records all function selectors and their calldata sizes.
 #[derive(Debug, Clone, Default)]
@@ -51,6 +51,7 @@ where
         &mut self,
         _context: &mut EvmContext<DB>,
         inputs: &mut CallInputs,
+        _return_memory_offset: Range<usize>,
     ) -> Option<CallOutcome> {
         if inputs.input.len() >= 4 {
             let selector =

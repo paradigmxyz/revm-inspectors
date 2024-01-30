@@ -1,5 +1,7 @@
 //! Javascript inspector
 
+use std::ops::Range;
+
 use crate::tracing::{
     js::{
         bindings::{
@@ -436,6 +438,7 @@ where
         &mut self,
         context: &mut EvmContext<DB>,
         inputs: &mut CallInputs,
+        _return_memory_offset: Range<usize>,
     ) -> Option<CallOutcome> {
         self.register_precompiles(&context.precompiles);
 
@@ -476,22 +479,23 @@ where
     fn call_end(
         &mut self,
         _context: &mut EvmContext<DB>,
-        mut result: InterpreterResult,
-    ) -> InterpreterResult {
+        _inputs: &CallInputs,
+        mut outcome: CallOutcome,
+    ) -> CallOutcome {
         if self.can_call_exit() {
             let frame_result = FrameResult {
-                gas_used: result.gas.spend(),
-                output: result.output.clone(),
+                gas_used: outcome.result.gas.spend(),
+                output: outcome.result.output.clone(),
                 error: None,
             };
             if let Err(err) = self.try_exit(frame_result) {
-                result = js_error_to_revert(err);
+                outcome.result = js_error_to_revert(err);
             }
         }
 
         self.pop_call();
 
-        result
+        outcome
     }
 
     fn create(
@@ -528,23 +532,23 @@ where
     fn create_end(
         &mut self,
         _context: &mut EvmContext<DB>,
-        mut result: InterpreterResult,
-        address: Option<Address>,
+        _inputs: &CreateInputs,
+        mut outcome: CreateOutcome,
     ) -> CreateOutcome {
         if self.can_call_exit() {
             let frame_result = FrameResult {
-                gas_used: result.gas.spend(),
-                output: result.output.clone(),
+                gas_used: outcome.result.gas.spend(),
+                output: outcome.result.output.clone(),
                 error: None,
             };
             if let Err(err) = self.try_exit(frame_result) {
-                result = js_error_to_revert(err);
+                outcome.result = js_error_to_revert(err);
             }
         }
 
         self.pop_call();
 
-        CreateOutcome::new(result, address)
+        outcome
     }
 
     fn selfdestruct(&mut self, _contract: Address, _target: Address, _value: U256) {

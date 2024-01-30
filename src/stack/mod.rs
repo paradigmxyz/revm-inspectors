@@ -1,13 +1,11 @@
 use alloy_primitives::{Address, Log, B256, U256};
 use revm::{
     inspectors::CustomPrintTracer,
-    interpreter::{
-        CallInputs, CallOutcome, CreateInputs, CreateOutcome, Interpreter, InterpreterResult,
-    },
+    interpreter::{CallInputs, CallOutcome, CreateInputs, CreateOutcome, Interpreter},
     primitives::Env,
     Database, EvmContext, Inspector,
 };
-use std::fmt::Debug;
+use std::{fmt::Debug, ops::Range};
 
 /// A wrapped [Inspector] that can be reused in the stack
 mod maybe_owned;
@@ -131,9 +129,10 @@ where
         &mut self,
         context: &mut EvmContext<DB>,
         inputs: &mut CallInputs,
+        return_memory_offset: Range<usize>,
     ) -> Option<CallOutcome> {
         call_inspectors!(inspector, [&mut self.custom_print_tracer], {
-            if let Some(outcome) = inspector.call(context, inputs) {
+            if let Some(outcome) = inspector.call(context, inputs, return_memory_offset) {
                 return Some(outcome);
             }
         });
@@ -144,21 +143,20 @@ where
     fn call_end(
         &mut self,
         context: &mut EvmContext<DB>,
-        result: InterpreterResult,
-    ) -> InterpreterResult {
+        inputs: &CallInputs,
+        outcome: CallOutcome,
+    ) -> CallOutcome {
         call_inspectors!(inspector, [&mut self.custom_print_tracer], {
-            let new_ret = inspector.call_end(context, result.clone());
+            let new_ret = inspector.call_end(context, inputs, outcome.clone());
 
             // If the inspector returns a different ret or a revert with a non-empty message,
             // we assume it wants to tell us something
-            if new_ret.result != result.result
-                || (new_ret.result.is_revert() && new_ret.output != result.output)
-            {
+            if new_ret != outcome {
                 return new_ret;
             }
         });
 
-        result
+        outcome
     }
 
     fn create(
@@ -178,22 +176,20 @@ where
     fn create_end(
         &mut self,
         context: &mut EvmContext<DB>,
-        result: InterpreterResult,
-        address: Option<Address>,
+        inputs: &CreateInputs,
+        outcome: CreateOutcome,
     ) -> CreateOutcome {
         call_inspectors!(inspector, [&mut self.custom_print_tracer], {
-            let new_ret = inspector.create_end(context, result.clone(), address);
+            let new_ret = inspector.create_end(context, inputs, outcome.clone());
 
             // If the inspector returns a different ret or a revert with a non-empty message,
             // we assume it wants to tell us something
-            if new_ret.result.result != result.result
-                || (new_ret.result.result.is_revert() && new_ret.result.output != result.output)
-            {
+            if new_ret != outcome {
                 return new_ret;
             }
         });
 
-        CreateOutcome::new(result, address)
+        outcome
     }
 
     fn selfdestruct(&mut self, contract: Address, target: Address, value: U256) {

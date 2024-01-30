@@ -1,3 +1,5 @@
+use std::ops::Range;
+
 use self::parity::stack_push_count;
 use crate::tracing::{
     arena::PushTraceKind,
@@ -435,8 +437,9 @@ where
         &mut self,
         context: &mut EvmContext<DB>,
         inputs: &mut CallInputs,
+        return_memory_offset: Range<usize>,
     ) -> Option<CallOutcome> {
-        self.gas_inspector.call(context, inputs);
+        self.gas_inspector.call(context, inputs, return_memory_offset);
 
         // determine correct `from` and `to` based on the call scheme
         let (from, to) = match inputs.context.scheme {
@@ -480,13 +483,14 @@ where
     fn call_end(
         &mut self,
         context: &mut EvmContext<DB>,
-        result: InterpreterResult,
-    ) -> InterpreterResult {
-        self.gas_inspector.call_end(context, result.clone());
+        inputs: &CallInputs,
+        outcome: CallOutcome,
+    ) -> CallOutcome {
+        let outcome = self.gas_inspector.call_end(context, inputs, outcome);
 
-        self.fill_trace_on_call_end(context, result.clone(), None);
+        self.fill_trace_on_call_end(context, outcome.result.clone(), None);
 
-        result
+        outcome
     }
 
     fn create(
@@ -519,13 +523,14 @@ where
     fn create_end(
         &mut self,
         context: &mut EvmContext<DB>,
-        result: InterpreterResult,
-        address: Option<Address>,
+        inputs: &CreateInputs,
+        outcome: CreateOutcome,
     ) -> CreateOutcome {
-        self.gas_inspector.create_end(context, result.clone(), address);
+        let outcome = self.gas_inspector.create_end(context, inputs, outcome);
 
         // get the code of the created contract
-        let _code = address
+        let _code = outcome
+            .address
             .and_then(|address| {
                 context
                     .journaled_state
@@ -537,9 +542,9 @@ where
             })
             .unwrap_or_default();
 
-        self.fill_trace_on_call_end(context, result.clone(), address);
+        self.fill_trace_on_call_end(context, outcome.result.clone(), outcome.address);
 
-        CreateOutcome::new(result, address)
+        outcome
     }
 
     fn selfdestruct(&mut self, _contract: Address, target: Address, _value: U256) {
