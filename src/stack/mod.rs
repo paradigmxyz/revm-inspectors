@@ -3,7 +3,7 @@ use revm::{
     inspectors::CustomPrintTracer,
     interpreter::{CallInputs, CallOutcome, CreateInputs, CreateOutcome, Interpreter},
     primitives::Env,
-    Database, EvmContext, Inspector,
+    Database, EvmContext, GetInspector, Inspector,
 };
 use std::{fmt::Debug, ops::Range};
 
@@ -39,6 +39,12 @@ pub struct InspectorStack {
     pub custom_print_tracer: Option<CustomPrintTracer>,
     /// The provided hook
     pub hook: Hook,
+}
+
+impl<DB: Database> GetInspector<'_, DB> for InspectorStack {
+    fn get_inspector(&mut self) -> &mut dyn Inspector<DB> {
+        self
+    }
 }
 
 impl Debug for InspectorStack {
