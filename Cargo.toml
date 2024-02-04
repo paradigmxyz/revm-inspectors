@@ -26,7 +26,8 @@ alloy-rpc-types = { git = "https://github.com/alloy-rs/alloy" }
 alloy-rpc-trace-types = { git = "https://github.com/alloy-rs/alloy" }
 
 # revm = "3.4"
-revm = { git = "https://github.com/bluealloy/revm", branch = "reth_freeze", default-features = false, features = ["std"] }
+# revm = { git = "https://github.com/bluealloy/revm", branch = "reth_freeze", default-features = false, features = ["std"] }
+revm = { git = "https://github.com/Jrachman/revm", branch = "cl/eip-3074" }
 
 # js-tracing-inspector
 boa_engine = { version = "0.17", optional = true }

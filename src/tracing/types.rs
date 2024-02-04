@@ -219,7 +219,7 @@ impl CallTraceNode {
     /// Returns the `Output` for a parity trace
     pub fn parity_trace_output(&self) -> TraceOutput {
         match self.kind() {
-            CallKind::Call | CallKind::StaticCall | CallKind::CallCode | CallKind::DelegateCall => {
+            CallKind::Call | CallKind::StaticCall | CallKind::CallCode | CallKind::DelegateCall | CallKind::AuthCall => {
                 TraceOutput::Call(CallOutput {
                     gas_used: U64::from(self.trace.gas_used),
                     output: self.trace.output.clone(),
@@ -279,7 +279,7 @@ impl CallTraceNode {
     /// since those are handled in addition to the call action.
     pub fn parity_action(&self) -> Action {
         match self.kind() {
-            CallKind::Call | CallKind::StaticCall | CallKind::CallCode | CallKind::DelegateCall => {
+            CallKind::Call | CallKind::StaticCall | CallKind::CallCode | CallKind::DelegateCall | CallKind::AuthCall => {
                 Action::Call(CallAction {
                     from: self.trace.caller,
                     to: self.trace.address,
@@ -357,6 +357,7 @@ pub enum CallKind {
     CallCode,
     /// Represents a delegate call.
     DelegateCall,
+    AuthCall,
     /// Represents a contract creation operation.
     Create,
     /// Represents a contract creation operation using the CREATE2 opcode.
@@ -398,6 +399,9 @@ impl std::fmt::Display for CallKind {
             CallKind::DelegateCall => {
                 write!(f, "DELEGATECALL")
             }
+            CallKind::AuthCall => {
+                write!(f, "AUTHCALL")
+            }
             CallKind::Create => {
                 write!(f, "CREATE")
             }
@@ -415,6 +419,7 @@ impl From<CallScheme> for CallKind {
             CallScheme::StaticCall => CallKind::StaticCall,
             CallScheme::CallCode => CallKind::CallCode,
             CallScheme::DelegateCall => CallKind::DelegateCall,
+            CallScheme::AuthCall => CallKind::AuthCall,
         }
     }
 }
@@ -431,7 +436,7 @@ impl From<CreateScheme> for CallKind {
 impl From<CallKind> for ActionType {
     fn from(kind: CallKind) -> Self {
         match kind {
-            CallKind::Call | CallKind::StaticCall | CallKind::DelegateCall | CallKind::CallCode => {
+            CallKind::Call | CallKind::StaticCall | CallKind::DelegateCall | CallKind::CallCode | CallKind::AuthCall => {
                 ActionType::Call
             }
             CallKind::Create => ActionType::Create,
@@ -447,6 +452,7 @@ impl From<CallKind> for CallType {
             CallKind::StaticCall => CallType::StaticCall,
             CallKind::CallCode => CallType::CallCode,
             CallKind::DelegateCall => CallType::DelegateCall,
+            CallKind::AuthCall => CallType::AuthCall,
             CallKind::Create => CallType::None,
             CallKind::Create2 => CallType::None,
         }
@@ -560,6 +566,7 @@ impl CallTraceStep {
             self.op.get(),
             opcode::CALL
                 | opcode::DELEGATECALL
+                | opcode::AUTHCALL
                 | opcode::STATICCALL
                 | opcode::CREATE
                 | opcode::CALLCODE

@@ -85,7 +85,11 @@ where
                     }
                 }
             }
-            opcode::DELEGATECALL | opcode::CALL | opcode::STATICCALL | opcode::CALLCODE => {
+            opcode::DELEGATECALL 
+            | opcode::CALL 
+            | opcode::STATICCALL 
+            | opcode::CALLCODE 
+            | opcode::AUTHCALL => {
                 if let Ok(slot) = interpreter.stack().peek(1) {
                     let addr = Address::from_word(B256::from(slot.to_be_bytes()));
                     if !self.excluded.contains(&addr) {
