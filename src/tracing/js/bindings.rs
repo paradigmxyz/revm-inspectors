@@ -644,7 +644,7 @@ impl CallFrame {
 }
 
 /// The `ctx` object that represents the context in which the transaction is executed.
-pub(crate) struct EvmContext {
+pub(crate) struct JsEvmContext {
     /// String, one of the two values CALL and CREATE
     pub(crate) r#type: String,
     /// Sender of the transaction
@@ -670,7 +670,7 @@ pub(crate) struct EvmContext {
     pub(crate) transaction_ctx: TransactionContext,
 }
 
-impl EvmContext {
+impl JsEvmContext {
     pub(crate) fn into_js_object(self, ctx: &mut Context<'_>) -> JsResult<JsObject> {
         let Self {
             r#type,
