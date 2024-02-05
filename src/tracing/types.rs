@@ -3,7 +3,6 @@
 use crate::tracing::{config::TraceStyle, utils, utils::convert_memory};
 pub use alloy_primitives::Log;
 use alloy_primitives::{Address, Bytes, LogData, U256, U64};
-
 use alloy_rpc_trace_types::{
     geth::{CallFrame, CallLogFrame, GethDefaultTracingOptions, StructLog},
     parity::{
@@ -60,7 +59,7 @@ pub struct CallTrace {
 impl CallTrace {
     /// Returns true if the status code is an error or revert, See [InstructionResult::Revert]
     #[inline]
-    pub fn is_error(&self) -> bool {
+    pub const fn is_error(&self) -> bool {
         !self.status.is_ok()
     }
 
