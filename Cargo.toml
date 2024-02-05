@@ -26,7 +26,7 @@ alloy-rpc-types = { git = "https://github.com/alloy-rs/alloy" }
 alloy-rpc-trace-types = { git = "https://github.com/alloy-rs/alloy" }
 
 # revm = "4.0"
-revm = { git = "https://github.com/bluealloy/revm", branch = "tweeks", default-features = false, features = [
+revm = { git = "https://github.com/bluealloy/revm", branch = "main", default-features = false, features = [
     "std",
 ] }
 
