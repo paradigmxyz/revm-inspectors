@@ -32,8 +32,12 @@ pub struct CallTrace {
     ///
     /// Note: This is an Option because not all tracers make use of this
     pub maybe_precompile: Option<bool>,
-    /// Holds the target for the selfdestruct refund target if `status` is
-    /// [InstructionResult::SelfDestruct]
+    /// Holds the target for the __selfdestruct__ refund target
+    ///
+    /// This is only set if a selfdestruct was executed.
+    ///
+    /// Note: This not necessarily guarantees that the status is [InstructionResult::SelfDestruct]
+    /// There's an edge case where a new created contract is immediately selfdestructed.
     pub selfdestruct_refund_target: Option<Address>,
     /// The kind of call this is
     pub kind: CallKind,
@@ -197,9 +201,16 @@ impl CallTraceNode {
     }
 
     /// Returns true if the call was a selfdestruct
+    ///
+    /// A selfdestruct is marked by the refund target being set.
+    ///
+    /// See also `TracingInspector::selfdestruct`
+    ///
+    /// Note: We can't rely in the [Self::status] being [InstructionResult::SelfDestruct] because
+    /// there's an edge case where a new created contract (CREATE) is immediately selfdestructed.
     #[inline]
-    pub fn is_selfdestruct(&self) -> bool {
-        self.status() == InstructionResult::SelfDestruct
+    pub const fn is_selfdestruct(&self) -> bool {
+        self.trace.selfdestruct_refund_target.is_some()
     }
 
     /// Converts this node into a parity `TransactionTrace`
