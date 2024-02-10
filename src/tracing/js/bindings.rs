@@ -205,7 +205,7 @@ impl StepLog {
         let get_refund = js_value_getter!(refund, context);
         let get_depth = js_value_getter!(depth, context);
 
-        obj.set("getPc", get_pc, false, context)?;
+        obj.set("getPC", get_pc, false, context)?;
         obj.set("getError", get_error, false, context)?;
         obj.set("getGas", get_gas, false, context)?;
         obj.set("getCost", get_cost, false, context)?;
