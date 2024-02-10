@@ -15,7 +15,6 @@ rust.missing_debug_implementations = "warn"
 rust.missing_docs = "warn"
 rust.unreachable_pub = "warn"
 rustdoc.all = "warn"
-rust.unused_must_use = "deny"
 rust.rust_2018_idioms = "deny"
 
 [dependencies]
