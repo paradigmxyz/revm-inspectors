@@ -8,9 +8,9 @@ use std::collections::HashMap;
 #[derive(Default, Debug)]
 pub struct OpcodeCounterInspector {
     /// Map of opcode counts per transaction.
-    opcode_counts: HashMap<OpCode, u64>,
+    pub opcode_counts: HashMap<OpCode, u64>,
     /// Map of total gas used per opcode.
-    opcode_gas: HashMap<OpCode, u64>,
+    pub opcode_gas: HashMap<OpCode, u64>,
 }
 
 impl OpcodeCounterInspector {
