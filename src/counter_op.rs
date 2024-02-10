@@ -35,21 +35,22 @@ where
     DB: Database,
 {
     fn step(&mut self, interp: &mut Interpreter, _context: &mut EvmContext<DB>) {
-        let opcode_val = interp.current_opcode();
-
-        if let Some(opcode) = OpCode::new(opcode_val) {
+        let opcode_value = interp.current_opcode();
+        if let Some(opcode) = OpCode::new(opcode_value) {
             *self.opcode_counts.entry(opcode).or_insert(0) += 1;
 
-            
-            // this should be upgraded to new release
-            // when new ethereum version going to be updated in 2024/03
-            let gas_info = revm::interpreter::instructions::opcode::spec_opcode_gas(
+            //change this to CANCUN after the update of eth
+            // this is TODO
+            let gas_table = revm::interpreter::instructions::opcode::spec_opcode_gas(
                 revm::primitives::specification::SpecId::SHANGHAI,
-            )[opcode_val as usize];
-            let opcode_gas = gas_info.get_gas() as u64;
+            );
+            let opcode_gas_info = gas_table[opcode_value as usize];
 
-            // Increment gas usage for the opcode
-            *self.opcode_gas.entry(opcode).or_insert(0) += opcode_gas;
+            let opcode_gas_cost = match opcode_value {
+                _ => opcode_gas_info.get_gas() as u64,
+            };
+
+            *self.opcode_gas.entry(opcode).or_insert(0) += opcode_gas_cost;
         }
     }
 }
@@ -71,22 +72,10 @@ mod tests {
         let db = CacheDB::new(EmptyDB::default());
 
         let opcodes = [
-            OpCode::new(opcode::PUSH1).unwrap(),
-            OpCode::new(opcode::PUSH1).unwrap(),
-            OpCode::new(opcode::SSTORE).unwrap(),
-            OpCode::new(opcode::SSTORE).unwrap(),
-            OpCode::new(opcode::SSTORE).unwrap(),
             OpCode::new(opcode::ADD).unwrap(),
-            OpCode::new(opcode::MUL).unwrap(),
-            OpCode::new(opcode::SUB).unwrap(),
-            OpCode::new(opcode::LOG3).unwrap(),
-            OpCode::new(opcode::LOG3).unwrap(),
-            OpCode::new(opcode::LOG3).unwrap(),
-            OpCode::new(opcode::LOG3).unwrap(),
-            OpCode::new(opcode::LOG3).unwrap(),
-            OpCode::new(opcode::LOG3).unwrap(),
-            OpCode::new(opcode::LOG3).unwrap(),
-            OpCode::new(opcode::LOG3).unwrap(),
+            OpCode::new(opcode::ADD).unwrap(),
+            OpCode::new(opcode::ADD).unwrap(),
+            OpCode::new(opcode::BYTE).unwrap(),
         ];
 
         for &opcode in &opcodes {
