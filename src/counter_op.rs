@@ -39,11 +39,8 @@ where
         if let Some(opcode) = OpCode::new(opcode_value) {
             *self.opcode_counts.entry(opcode).or_insert(0) += 1;
 
-            //change this to CANCUN after the update of eth
-            // this is TODO
-            let gas_table = revm::interpreter::instructions::opcode::spec_opcode_gas(
-                revm::primitives::specification::SpecId::SHANGHAI,
-            );
+            let gas_table =
+                revm::interpreter::instructions::opcode::spec_opcode_gas(_context.spec_id());
             let opcode_gas_info = gas_table[opcode_value as usize];
 
             let opcode_gas_cost = match opcode_value {
