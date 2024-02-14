@@ -20,12 +20,12 @@ impl OpcodeCounterInspector {
     }
 
     /// Returns the opcode counts collected during transaction execution.
-    pub fn opcode_counts(&self) -> &HashMap<OpCode, u64> {
+    pub const fn opcode_counts(&self) -> &HashMap<OpCode, u64> {
         &self.opcode_counts
     }
 
     /// Returns the opcode gas usage collected during transaction execution.
-    pub fn opcode_gas(&self) -> &HashMap<OpCode, u64> {
+    pub const fn opcode_gas(&self) -> &HashMap<OpCode, u64> {
         &self.opcode_gas
     }
 }
@@ -43,9 +43,7 @@ where
                 revm::interpreter::instructions::opcode::spec_opcode_gas(_context.spec_id());
             let opcode_gas_info = gas_table[opcode_value as usize];
 
-            let opcode_gas_cost = match opcode_value {
-                _ => opcode_gas_info.get_gas() as u64,
-            };
+            let opcode_gas_cost = opcode_gas_info.get_gas() as u64;
 
             *self.opcode_gas.entry(opcode).or_insert(0) += opcode_gas_cost;
         }
@@ -64,7 +62,7 @@ mod tests {
     #[test]
     fn test_opcode_counter_inspector() {
         let mut opcode_counter = OpcodeCounterInspector::new();
-        let contract = Box::new(Contract::default());
+        let contract = Box::<Contract>::default();
         let mut interpreter = Interpreter::new(contract, 10000, false);
         let db = CacheDB::new(EmptyDB::default());
 
