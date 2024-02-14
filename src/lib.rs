@@ -26,10 +26,11 @@
 /// An inspector implementation for an EIP2930 Accesslist
 pub mod access_list;
 
+/// implementation of an opcode counter for the EVM.
+pub mod opcode;
 /// An inspector stack abstracting the implementation details of
 /// each inspector and allowing to hook on block/transaction execution,
 /// used in the main RETH executor.
 pub mod stack;
-
 /// An inspector for recording traces
 pub mod tracing;
