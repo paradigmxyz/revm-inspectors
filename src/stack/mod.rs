@@ -53,7 +53,7 @@ impl Debug for InspectorStack {
 impl InspectorStack {
     /// Create a new inspector stack.
     pub fn new(config: InspectorStackConfig) -> Self {
-        let mut stack = InspectorStack { hook: config.hook, ..Default::default() };
+        let mut stack = Self { hook: config.hook, ..Default::default() };
 
         if config.use_printer_tracer {
             stack.custom_print_tracer = Some(CustomPrintTracer::default());

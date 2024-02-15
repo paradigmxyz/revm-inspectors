@@ -378,35 +378,35 @@ impl CallKind {
     /// Returns true if the call is a create
     #[inline]
     pub const fn is_any_create(&self) -> bool {
-        matches!(self, CallKind::Create | CallKind::Create2)
+        matches!(self, Self::Create | Self::Create2)
     }
 
     /// Returns true if the call is a delegate of some sorts
     #[inline]
     pub const fn is_delegate(&self) -> bool {
-        matches!(self, CallKind::DelegateCall | CallKind::CallCode)
+        matches!(self, Self::DelegateCall | Self::CallCode)
     }
 
     /// Returns true if the call is [CallKind::StaticCall].
     #[inline]
     pub const fn is_static_call(&self) -> bool {
-        matches!(self, CallKind::StaticCall)
+        matches!(self, Self::StaticCall)
     }
 }
 
 impl std::fmt::Display for CallKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CallKind::Call => {
+            Self::Call => {
                 write!(f, "CALL")
             }
-            CallKind::StaticCall => {
+            Self::StaticCall => {
                 write!(f, "STATICCALL")
             }
-            CallKind::CallCode => {
+            Self::CallCode => {
                 write!(f, "CALLCODE")
             }
-            CallKind::DelegateCall => {
+            Self::DelegateCall => {
                 write!(f, "DELEGATECALL")
             }
             CallKind::AuthCall => {
@@ -415,7 +415,7 @@ impl std::fmt::Display for CallKind {
             CallKind::Create => {
                 write!(f, "CREATE")
             }
-            CallKind::Create2 => {
+            Self::Create2 => {
                 write!(f, "CREATE2")
             }
         }
@@ -425,11 +425,11 @@ impl std::fmt::Display for CallKind {
 impl From<CallScheme> for CallKind {
     fn from(scheme: CallScheme) -> Self {
         match scheme {
-            CallScheme::Call => CallKind::Call,
-            CallScheme::StaticCall => CallKind::StaticCall,
-            CallScheme::CallCode => CallKind::CallCode,
-            CallScheme::DelegateCall => CallKind::DelegateCall,
-            CallScheme::AuthCall => CallKind::AuthCall,
+            CallScheme::Call => Self::Call,
+            CallScheme::StaticCall => Self::StaticCall,
+            CallScheme::CallCode => Self::CallCode,
+            CallScheme::DelegateCall => Self::DelegateCall,
+            CallScheme::AuthCall => Self::AuthCall,
         }
     }
 }
@@ -437,8 +437,8 @@ impl From<CallScheme> for CallKind {
 impl From<CreateScheme> for CallKind {
     fn from(create: CreateScheme) -> Self {
         match create {
-            CreateScheme::Create => CallKind::Create,
-            CreateScheme::Create2 { .. } => CallKind::Create2,
+            CreateScheme::Create => Self::Create,
+            CreateScheme::Create2 { .. } => Self::Create2,
         }
     }
 }
@@ -447,10 +447,10 @@ impl From<CallKind> for ActionType {
     fn from(kind: CallKind) -> Self {
         match kind {
             CallKind::Call | CallKind::StaticCall | CallKind::DelegateCall | CallKind::CallCode | CallKind::AuthCall => {
-                ActionType::Call
+                Self::Call
             }
-            CallKind::Create => ActionType::Create,
-            CallKind::Create2 => ActionType::Create,
+            CallKind::Create => Self::Create,
+            CallKind::Create2 => Self::Create,
         }
     }
 }
@@ -458,13 +458,13 @@ impl From<CallKind> for ActionType {
 impl From<CallKind> for CallType {
     fn from(ty: CallKind) -> Self {
         match ty {
-            CallKind::Call => CallType::Call,
-            CallKind::StaticCall => CallType::StaticCall,
-            CallKind::CallCode => CallType::CallCode,
-            CallKind::DelegateCall => CallType::DelegateCall,
-            CallKind::AuthCall => CallType::AuthCall,
-            CallKind::Create => CallType::None,
-            CallKind::Create2 => CallType::None,
+            CallKind::Call => Self::Call,
+            CallKind::StaticCall => Self::StaticCall,
+            CallKind::CallCode => Self::CallCode,
+            CallKind::DelegateCall => Self::DelegateCall,
+            CallKind::AuthCall => Self::AuthCall,
+            CallKind::Create => Self::None,
+            CallKind::Create2 => Self::None,
         }
     }
 }

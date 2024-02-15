@@ -66,7 +66,7 @@ where
 
 impl From<FourByteInspector> for FourByteFrame {
     fn from(value: FourByteInspector) -> Self {
-        FourByteFrame(
+        Self(
             value
                 .inner
                 .into_iter()
