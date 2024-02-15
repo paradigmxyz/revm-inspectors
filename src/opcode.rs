@@ -16,7 +16,7 @@ pub struct OpcodeCounterInspector {
 impl OpcodeCounterInspector {
     /// Creates a new instance of the inspector.
     pub fn new() -> Self {
-        OpcodeCounterInspector { opcode_counts: HashMap::new(), opcode_gas: HashMap::new() }
+        Self { opcode_counts: HashMap::new(), opcode_gas: HashMap::new() }
     }
 
     /// Returns the opcode counts collected during transaction execution.

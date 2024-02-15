@@ -224,7 +224,7 @@ impl MemoryRef {
     /// Creates a new stack reference
     pub(crate) fn new(mem: &SharedMemory) -> (Self, GcGuard<'_, SharedMemory>) {
         let (inner, guard) = GuardedNullableGc::r#ref(mem);
-        (MemoryRef(inner), guard)
+        (Self(inner), guard)
     }
 
     fn len(&self) -> usize {
@@ -316,7 +316,7 @@ impl StateRef {
     /// Creates a new stack reference
     pub(crate) fn new(state: &State) -> (Self, GcGuard<'_, State>) {
         let (inner, guard) = GuardedNullableGc::r#ref(state);
-        (StateRef(inner), guard)
+        (Self(inner), guard)
     }
 
     fn get_account(&self, address: &Address) -> Option<AccountInfo> {
@@ -341,7 +341,7 @@ where
     /// Creates a new stack reference
     fn new<'a>(db: DB) -> (Self, GcGuard<'a, DB>) {
         let (inner, guard) = GuardedNullableGc::owned(db);
-        (GcDb(inner), guard)
+        (Self(inner), guard)
     }
 }
 
@@ -416,7 +416,7 @@ impl StackRef {
     /// Creates a new stack reference
     pub(crate) fn new(stack: &Stack) -> (Self, GcGuard<'_, Stack>) {
         let (inner, guard) = GuardedNullableGc::r#ref(stack);
-        (StackRef(inner), guard)
+        (Self(inner), guard)
     }
 
     fn peek(&self, idx: usize, ctx: &mut Context<'_>) -> JsResult<JsValue> {
@@ -497,7 +497,7 @@ impl Contract {
     ///
     /// Caution: this expects a global property `bigint` to be present.
     pub(crate) fn into_js_object(self, context: &mut Context<'_>) -> JsResult<JsObject> {
-        let Contract { caller, contract, value, input } = self;
+        let Self { caller, contract, value, input } = self;
         let obj = JsObject::default();
 
         let get_caller = FunctionObjectBuilder::new(
@@ -589,7 +589,7 @@ pub(crate) struct CallFrame {
 
 impl CallFrame {
     pub(crate) fn into_js_object(self, ctx: &mut Context<'_>) -> JsResult<JsObject> {
-        let CallFrame { contract: Contract { caller, contract, value, input }, kind, gas } = self;
+        let Self { contract: Contract { caller, contract, value, input }, kind, gas } = self;
         let obj = JsObject::default();
 
         let get_from = FunctionObjectBuilder::new(
