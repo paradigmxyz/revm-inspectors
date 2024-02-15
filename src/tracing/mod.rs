@@ -48,7 +48,7 @@ pub mod js;
 /// The [TracingInspector] keeps track of everything by:
 ///   1. start tracking steps/calls on [Inspector::step] and [Inspector::call]
 ///   2. complete steps/calls on [Inspector::step_end] and [Inspector::call_end]
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub struct TracingInspector {
     /// Configures what and how the inspector records traces.
     config: TracingInspectorConfig,
@@ -554,7 +554,7 @@ where
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct StackStep {
     trace_idx: usize,
     step_idx: usize,

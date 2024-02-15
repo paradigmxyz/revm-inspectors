@@ -571,7 +571,7 @@ where
 
 /// Contains some contextual infos for a transaction execution that is made available to the JS
 /// object.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct TransactionContext {
     /// Hash of the block the tx is contained within.
     ///

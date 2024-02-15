@@ -69,7 +69,7 @@ macro_rules! js_value_capture_getter {
 ///
 /// This type supports garbage collection of (rust) references and prevents access to the value if
 /// it has been dropped.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 struct GuardedNullableGc<Val: 'static> {
     /// The lifetime is a lie to make it possible to use a reference in boa which requires 'static
     inner: Rc<RefCell<Option<Guarded<'static, Val>>>>,
@@ -217,7 +217,7 @@ impl StepLog {
 }
 
 /// Represents the memory object
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct MemoryRef(GuardedNullableGc<SharedMemory>);
 
 impl MemoryRef {
@@ -309,7 +309,7 @@ unsafe impl Trace for MemoryRef {
 }
 
 /// Represents the state object
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct StateRef(GuardedNullableGc<State>);
 
 impl StateRef {
@@ -331,7 +331,7 @@ unsafe impl Trace for StateRef {
 }
 
 /// Represents the database
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct GcDb<DB: 'static>(GuardedNullableGc<DB>);
 
 impl<DB> GcDb<DB>
@@ -484,7 +484,7 @@ unsafe impl Trace for StackRef {
 }
 
 /// Represents the contract object
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub(crate) struct Contract {
     pub(crate) caller: Address,
     pub(crate) contract: Address,
