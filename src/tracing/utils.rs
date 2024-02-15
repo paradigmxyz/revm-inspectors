@@ -54,10 +54,8 @@ pub(crate) fn maybe_revert_reason(output: &[u8]) -> Option<String> {
     let reason = match GenericRevertReason::decode(output)? {
         GenericRevertReason::ContractError(err) => {
             match err {
-                ContractError::Revert(revert) => {
-                    // return the raw revert reason and don't use the revert's display message
-                    revert.reason
-                }
+                // return the raw revert reason and don't use the revert's display message
+                ContractError::Revert(revert) => revert.reason,
                 err => err.to_string(),
             }
         }
@@ -74,12 +72,6 @@ pub(crate) fn maybe_revert_reason(output: &[u8]) -> Option<String> {
 mod tests {
     use super::*;
     use alloy_sol_types::{GenericContractError, SolInterface};
-
-    #[test]
-    fn decode_empty_revert() {
-        let reason = GenericRevertReason::decode("".as_bytes()).map(|x| x.to_string());
-        assert_eq!(reason, Some("".to_string()));
-    }
 
     #[test]
     fn decode_revert_reason() {

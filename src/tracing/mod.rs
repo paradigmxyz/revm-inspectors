@@ -1,5 +1,3 @@
-use std::ops::Range;
-
 use self::parity::stack_push_count;
 use crate::tracing::{
     arena::PushTraceKind,
@@ -18,24 +16,33 @@ use revm::{
     primitives::SpecId,
     Database, EvmContext, Inspector, JournalEntry,
 };
-use types::{CallTrace, CallTraceStep};
+use std::ops::Range;
 
 mod arena;
+pub use arena::CallTraceArena;
 
 mod builder;
-mod config;
-mod fourbyte;
-mod opcount;
-pub mod types;
-mod utils;
-pub use arena::CallTraceArena;
 pub use builder::{
     geth::{self, GethTraceBuilder},
     parity::{self, ParityTraceBuilder},
 };
+
+mod config;
 pub use config::{StackSnapshotType, TracingInspectorConfig};
+
+mod fourbyte;
 pub use fourbyte::FourByteInspector;
+
+mod opcount;
 pub use opcount::OpcodeCountInspector;
+
+pub mod types;
+use types::{CallTrace, CallTraceStep};
+
+mod utils;
+
+mod writer;
+pub use writer::TraceWriter;
 
 #[cfg(feature = "js-tracer")]
 pub mod js;
@@ -391,7 +398,7 @@ impl TracingInspector {
 
         // The gas cost is the difference between the recorded gas remaining at the start of the
         // step the remaining gas here, at the end of the step.
-        step.gas_cost = step.gas_remaining - self.gas_inspector.gas_remaining();
+        // step.gas_cost = step.gas_remaining - self.gas_inspector.gas_remaining();
 
         // set the status
         step.status = interp.instruction_result;
