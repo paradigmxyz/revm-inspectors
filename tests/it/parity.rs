@@ -1,6 +1,6 @@
 //! Parity tests
 
-use crate::utils::inspect;
+use crate::utils::{inspect, print_traces};
 use alloy_primitives::{hex, Address};
 use alloy_rpc_types::TransactionInfo;
 use revm::{
@@ -122,7 +122,6 @@ fn test_parity_constructor_selfdestruct() {
     );
 
     let mut insp = TracingInspector::new(TracingInspectorConfig::default_parity());
-
     let (res, _) = inspect(&mut db, env, &mut insp).unwrap();
     let addr = match res.result {
         ExecutionResult::Success { output, .. } => match output {
@@ -132,6 +131,7 @@ fn test_parity_constructor_selfdestruct() {
         _ => panic!("Execution failed"),
     };
     db.commit(res.state);
+    print_traces(&insp);
 
     let mut insp = TracingInspector::new(TracingInspectorConfig::default_parity());
 
@@ -149,6 +149,7 @@ fn test_parity_constructor_selfdestruct() {
 
     let (res, _) = inspect(&mut db, env, &mut insp).unwrap();
     assert!(res.result.is_success());
+    print_traces(&insp);
 
     let traces = insp
         .with_transaction_gas_used(res.result.gas_used())
