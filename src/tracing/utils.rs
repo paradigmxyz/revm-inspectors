@@ -80,4 +80,12 @@ mod tests {
         let reason = maybe_revert_reason(&encoded).unwrap();
         assert_eq!(reason, "my revert");
     }
+
+    // <https://etherscan.io/tx/0x105707c8e3b3675a8424a7b0820b271cbe394eaf4d5065b03c273298e3a81314>
+    #[test]
+    fn decode_revert_reason_with_error() {
+        let err = hex!("08c379a000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000024556e697377617056323a20494e53554646494349454e545f494e5055545f414d4f554e5400000000000000000000000000000000000000000000000000000080");
+        let reason = maybe_revert_reason(&err[..]).unwrap();
+        assert_eq!(reason, "UniswapV2: INSUFFICIENT_INPUT_AMOUNT");
+    }
 }
