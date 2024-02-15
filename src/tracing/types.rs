@@ -15,7 +15,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
 
 /// A trace of a call.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CallTrace {
     /// The depth of the call
     pub depth: usize,
@@ -96,28 +96,6 @@ impl CallTrace {
             }
             status => format!("{:?}", status),
         })
-    }
-}
-
-impl Default for CallTrace {
-    fn default() -> Self {
-        Self {
-            depth: Default::default(),
-            success: Default::default(),
-            caller: Default::default(),
-            address: Default::default(),
-            selfdestruct_refund_target: None,
-            kind: Default::default(),
-            value: Default::default(),
-            data: Default::default(),
-            maybe_precompile: None,
-            output: Default::default(),
-            gas_used: Default::default(),
-            gas_limit: Default::default(),
-            status: InstructionResult::Continue,
-            call_context: Default::default(),
-            steps: Default::default(),
-        }
     }
 }
 
