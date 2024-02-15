@@ -15,7 +15,7 @@ pub use maybe_owned::MaybeOwnedInspector;
 /// - Block: Hook on block execution
 /// - BlockWithIndex: Hook on block execution transaction index
 /// - Transaction: Hook on a specific transaction hash
-#[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Hook {
     #[default]
     /// No hook.
@@ -33,7 +33,7 @@ pub enum Hook {
 /// If a call to an inspector returns a value other than
 /// [revm::interpreter::InstructionResult::Continue] (or equivalent) the remaining inspectors are
 /// not called.
-#[derive(Default, Clone)]
+#[derive(Clone, Default)]
 pub struct InspectorStack {
     /// An inspector that prints the opcode traces to the console.
     pub custom_print_tracer: Option<CustomPrintTracer>,
@@ -53,7 +53,7 @@ impl Debug for InspectorStack {
 impl InspectorStack {
     /// Create a new inspector stack.
     pub fn new(config: InspectorStackConfig) -> Self {
-        let mut stack = InspectorStack { hook: config.hook, ..Default::default() };
+        let mut stack = Self { hook: config.hook, ..Default::default() };
 
         if config.use_printer_tracer {
             stack.custom_print_tracer = Some(CustomPrintTracer::default());
@@ -74,7 +74,7 @@ impl InspectorStack {
 }
 
 /// Configuration for the inspectors.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct InspectorStackConfig {
     /// Enable revm inspector printer.
     /// In execution this will print opcode level traces directly to console.
@@ -85,16 +85,14 @@ pub struct InspectorStackConfig {
 }
 
 /// Helper macro to call the same method on multiple inspectors without resorting to dynamic
-/// dispatch
+/// dispatch.
 #[macro_export]
 macro_rules! call_inspectors {
-    ($id:ident, [ $($inspector:expr),+ ], $call:block) => {
-        $({
-            if let Some($id) = $inspector {
-                $call;
-            }
-        })+
-    }
+    ([$($inspector:expr),+ $(,)?], |$id:ident $(,)?| $call:expr $(,)?) => {{$(
+        if let Some($id) = $inspector {
+            $call
+        }
+    )+}}
 }
 
 impl<DB> Inspector<DB> for InspectorStack
@@ -102,25 +100,25 @@ where
     DB: Database,
 {
     fn initialize_interp(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
-        call_inspectors!(inspector, [&mut self.custom_print_tracer], {
+        call_inspectors!([&mut self.custom_print_tracer], |inspector| {
             inspector.initialize_interp(interp, context);
         });
     }
 
     fn step(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
-        call_inspectors!(inspector, [&mut self.custom_print_tracer], {
+        call_inspectors!([&mut self.custom_print_tracer], |inspector| {
             inspector.step(interp, context);
         });
     }
 
     fn step_end(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
-        call_inspectors!(inspector, [&mut self.custom_print_tracer], {
+        call_inspectors!([&mut self.custom_print_tracer], |inspector| {
             inspector.step_end(interp, context);
         });
     }
 
     fn log(&mut self, context: &mut EvmContext<DB>, log: &Log) {
-        call_inspectors!(inspector, [&mut self.custom_print_tracer], {
+        call_inspectors!([&mut self.custom_print_tracer], |inspector| {
             inspector.log(context, log);
         });
     }
@@ -131,7 +129,7 @@ where
         inputs: &mut CallInputs,
         return_memory_offset: Range<usize>,
     ) -> Option<CallOutcome> {
-        call_inspectors!(inspector, [&mut self.custom_print_tracer], {
+        call_inspectors!([&mut self.custom_print_tracer], |inspector| {
             if let Some(outcome) = inspector.call(context, inputs, return_memory_offset) {
                 return Some(outcome);
             }
@@ -146,7 +144,7 @@ where
         inputs: &CallInputs,
         outcome: CallOutcome,
     ) -> CallOutcome {
-        call_inspectors!(inspector, [&mut self.custom_print_tracer], {
+        call_inspectors!([&mut self.custom_print_tracer], |inspector| {
             let new_ret = inspector.call_end(context, inputs, outcome.clone());
 
             // If the inspector returns a different ret or a revert with a non-empty message,
@@ -164,7 +162,7 @@ where
         context: &mut EvmContext<DB>,
         inputs: &mut CreateInputs,
     ) -> Option<CreateOutcome> {
-        call_inspectors!(inspector, [&mut self.custom_print_tracer], {
+        call_inspectors!([&mut self.custom_print_tracer], |inspector| {
             if let Some(out) = inspector.create(context, inputs) {
                 return Some(out);
             }
@@ -179,7 +177,7 @@ where
         inputs: &CreateInputs,
         outcome: CreateOutcome,
     ) -> CreateOutcome {
-        call_inspectors!(inspector, [&mut self.custom_print_tracer], {
+        call_inspectors!([&mut self.custom_print_tracer], |inspector| {
             let new_ret = inspector.create_end(context, inputs, outcome.clone());
 
             // If the inspector returns a different ret or a revert with a non-empty message,
@@ -193,7 +191,7 @@ where
     }
 
     fn selfdestruct(&mut self, contract: Address, target: Address, value: U256) {
-        call_inspectors!(inspector, [&mut self.custom_print_tracer], {
+        call_inspectors!([&mut self.custom_print_tracer], |inspector| {
             Inspector::<DB>::selfdestruct(inspector, contract, target, value);
         });
     }

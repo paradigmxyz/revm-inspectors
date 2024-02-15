@@ -221,7 +221,7 @@ fn hex_decode_js_string(js_string: JsString) -> JsResult<Vec<u8>> {
 }
 
 /// A container for all precompile addresses used for the `isPrecompiled` global callable.
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub(crate) struct PrecompileList(pub(crate) HashSet<Address>);
 
 impl PrecompileList {

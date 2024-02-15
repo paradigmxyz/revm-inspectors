@@ -3,7 +3,7 @@ use crate::tracing::types::{CallTrace, CallTraceNode, LogCallOrder};
 /// An arena of recorded traces.
 ///
 /// This type will be populated via the [TracingInspector](crate::tracing::TracingInspector).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CallTraceArena {
     /// The arena of recorded trace nodes
     pub(crate) arena: Vec<CallTraceNode>,
@@ -80,13 +80,13 @@ pub(crate) enum PushTraceKind {
 impl PushTraceKind {
     #[inline]
     const fn is_attach_to_parent(&self) -> bool {
-        matches!(self, PushTraceKind::PushAndAttachToParent)
+        matches!(self, Self::PushAndAttachToParent)
     }
 }
 
 impl Default for CallTraceArena {
     fn default() -> Self {
         // The first node is the root node
-        CallTraceArena { arena: vec![Default::default()] }
+        Self { arena: vec![Default::default()] }
     }
 }

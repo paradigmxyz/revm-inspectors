@@ -25,23 +25,21 @@ pub enum MaybeOwnedInspector<I> {
 impl<I> MaybeOwnedInspector<I> {
     /// Create a new _owned_ instance
     pub fn new_owned(inspector: I) -> Self {
-        MaybeOwnedInspector::Owned(Rc::new(RefCell::new(inspector)))
+        Self::Owned(Rc::new(RefCell::new(inspector)))
     }
 
     /// Creates a [MaybeOwnedInspector::Stacked] clone of this type.
     pub fn clone_stacked(&self) -> Self {
         match self {
-            MaybeOwnedInspector::Owned(gas) | MaybeOwnedInspector::Stacked(gas) => {
-                MaybeOwnedInspector::Stacked(Rc::clone(gas))
-            }
+            Self::Owned(gas) | Self::Stacked(gas) => Self::Stacked(Rc::clone(gas)),
         }
     }
 
     /// Returns a reference to the inspector.
     pub fn as_ref(&self) -> Ref<'_, I> {
         match self {
-            MaybeOwnedInspector::Owned(insp) => insp.borrow(),
-            MaybeOwnedInspector::Stacked(insp) => insp.borrow(),
+            Self::Owned(insp) => insp.borrow(),
+            Self::Stacked(insp) => insp.borrow(),
         }
     }
 }
@@ -72,31 +70,29 @@ where
 {
     fn initialize_interp(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
         match self {
-            MaybeOwnedInspector::Owned(insp) => {
-                insp.borrow_mut().initialize_interp(interp, context)
-            }
-            MaybeOwnedInspector::Stacked(_) => {}
+            Self::Owned(insp) => insp.borrow_mut().initialize_interp(interp, context),
+            Self::Stacked(_) => {}
         }
     }
 
     fn step(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
         match self {
-            MaybeOwnedInspector::Owned(insp) => insp.borrow_mut().step(interp, context),
-            MaybeOwnedInspector::Stacked(_) => {}
-        }
-    }
-
-    fn log(&mut self, context: &mut EvmContext<DB>, log: &Log) {
-        match self {
-            MaybeOwnedInspector::Owned(insp) => insp.borrow_mut().log(context, log),
-            MaybeOwnedInspector::Stacked(_) => {}
+            Self::Owned(insp) => insp.borrow_mut().step(interp, context),
+            Self::Stacked(_) => {}
         }
     }
 
     fn step_end(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
         match self {
-            MaybeOwnedInspector::Owned(insp) => insp.borrow_mut().step_end(interp, context),
-            MaybeOwnedInspector::Stacked(_) => {}
+            Self::Owned(insp) => insp.borrow_mut().step_end(interp, context),
+            Self::Stacked(_) => {}
+        }
+    }
+
+    fn log(&mut self, context: &mut EvmContext<DB>, log: &Log) {
+        match self {
+            Self::Owned(insp) => insp.borrow_mut().log(context, log),
+            Self::Stacked(_) => {}
         }
     }
 
@@ -107,10 +103,8 @@ where
         return_memory_offset: Range<usize>,
     ) -> Option<CallOutcome> {
         match self {
-            MaybeOwnedInspector::Owned(insp) => {
-                insp.borrow_mut().call(context, inputs, return_memory_offset)
-            }
-            MaybeOwnedInspector::Stacked(_) => None,
+            Self::Owned(insp) => insp.borrow_mut().call(context, inputs, return_memory_offset),
+            Self::Stacked(_) => None,
         }
     }
 
@@ -121,10 +115,8 @@ where
         outcome: CallOutcome,
     ) -> CallOutcome {
         match self {
-            MaybeOwnedInspector::Owned(insp) => {
-                insp.borrow_mut().call_end(context, inputs, outcome)
-            }
-            MaybeOwnedInspector::Stacked(_) => outcome,
+            Self::Owned(insp) => insp.borrow_mut().call_end(context, inputs, outcome),
+            Self::Stacked(_) => outcome,
         }
     }
 
@@ -134,8 +126,8 @@ where
         inputs: &mut CreateInputs,
     ) -> Option<CreateOutcome> {
         match self {
-            MaybeOwnedInspector::Owned(insp) => insp.borrow_mut().create(context, inputs),
-            MaybeOwnedInspector::Stacked(_) => None,
+            Self::Owned(insp) => insp.borrow_mut().create(context, inputs),
+            Self::Stacked(_) => None,
         }
     }
 
@@ -146,19 +138,15 @@ where
         outcome: CreateOutcome,
     ) -> CreateOutcome {
         match self {
-            MaybeOwnedInspector::Owned(insp) => {
-                insp.borrow_mut().create_end(context, inputs, outcome)
-            }
-            MaybeOwnedInspector::Stacked(_) => outcome,
+            Self::Owned(insp) => insp.borrow_mut().create_end(context, inputs, outcome),
+            Self::Stacked(_) => outcome,
         }
     }
 
     fn selfdestruct(&mut self, contract: Address, target: Address, value: U256) {
         match self {
-            MaybeOwnedInspector::Owned(insp) => {
-                insp.borrow_mut().selfdestruct(contract, target, value)
-            }
-            MaybeOwnedInspector::Stacked(_) => {}
+            Self::Owned(insp) => insp.borrow_mut().selfdestruct(contract, target, value),
+            Self::Stacked(_) => {}
         }
     }
 }

@@ -5,7 +5,7 @@ use std::collections::HashSet;
 ///
 /// Use [TracingInspectorConfig::default_parity] or [TracingInspectorConfig::default_geth] to get
 /// the default configs for specific styles of traces.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TracingInspectorConfig {
     /// Whether to record every individual opcode level step.
     pub record_steps: bool,
@@ -76,7 +76,7 @@ impl TracingInspectorConfig {
         let needs_vm_trace = trace_types.contains(&TraceType::VmTrace);
         let snap_type =
             if needs_vm_trace { StackSnapshotType::Pushes } else { StackSnapshotType::None };
-        TracingInspectorConfig::default_parity()
+        Self::default_parity()
             .set_steps(needs_vm_trace)
             .set_stack_snapshots(snap_type)
             .set_memory_snapshots(needs_vm_trace)
@@ -152,7 +152,7 @@ impl TracingInspectorConfig {
 }
 
 /// How much of the stack to record. Nothing, just the items pushed, or the full stack
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StackSnapshotType {
     /// Don't record stack snapshots
     None,
@@ -179,7 +179,7 @@ impl StackSnapshotType {
 /// What kind of tracing style this is.
 ///
 /// This affects things like error messages.
-#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum TraceStyle {
     /// Parity style tracer
     Parity,

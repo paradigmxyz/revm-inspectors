@@ -5,7 +5,7 @@
 use revm::{interpreter::Interpreter, Database, EvmContext, Inspector};
 
 /// An inspector that counts all opcodes.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct OpcodeCountInspector {
     /// opcode counter
     count: usize,
