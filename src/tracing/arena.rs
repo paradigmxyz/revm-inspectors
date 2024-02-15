@@ -3,7 +3,7 @@ use crate::tracing::types::{CallTrace, CallTraceNode, LogCallOrder};
 /// An arena of recorded traces.
 ///
 /// This type will be populated via the [TracingInspector](crate::tracing::TracingInspector).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CallTraceArena {
     /// The arena of recorded trace nodes
     pub(crate) arena: Vec<CallTraceNode>,

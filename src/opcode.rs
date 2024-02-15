@@ -5,7 +5,7 @@ use revm::{
 use std::collections::HashMap;
 
 /// An Inspector that counts opcodes and measures gas usage per opcode.
-#[derive(Default, Debug, Clone)]
+#[derive(Clone, Debug, Default)]
 pub struct OpcodeCounterInspector {
     /// Map of opcode counts per transaction.
     pub opcode_counts: HashMap<OpCode, u64>,

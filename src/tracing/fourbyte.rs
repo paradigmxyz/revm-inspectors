@@ -30,7 +30,7 @@ use revm::{
 use std::{collections::HashMap, ops::Range};
 
 /// Fourbyte tracing inspector that records all function selectors and their calldata sizes.
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct FourByteInspector {
     /// The map of SELECTOR to number of occurrences entries
     inner: HashMap<(Selector, usize), u64>,
