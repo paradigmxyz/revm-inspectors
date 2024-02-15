@@ -80,13 +80,13 @@ pub(crate) enum PushTraceKind {
 impl PushTraceKind {
     #[inline]
     const fn is_attach_to_parent(&self) -> bool {
-        matches!(self, PushTraceKind::PushAndAttachToParent)
+        matches!(self, Self::PushAndAttachToParent)
     }
 }
 
 impl Default for CallTraceArena {
     fn default() -> Self {
         // The first node is the root node
-        CallTraceArena { arena: vec![Default::default()] }
+        Self { arena: vec![Default::default()] }
     }
 }

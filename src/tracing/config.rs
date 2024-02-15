@@ -76,7 +76,7 @@ impl TracingInspectorConfig {
         let needs_vm_trace = trace_types.contains(&TraceType::VmTrace);
         let snap_type =
             if needs_vm_trace { StackSnapshotType::Pushes } else { StackSnapshotType::None };
-        TracingInspectorConfig::default_parity()
+        Self::default_parity()
             .set_steps(needs_vm_trace)
             .set_stack_snapshots(snap_type)
             .set_memory_snapshots(needs_vm_trace)
