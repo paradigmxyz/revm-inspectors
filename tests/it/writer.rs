@@ -91,7 +91,7 @@ fn basic_trace_printing() {
     .assert_eq(&s);
 }
 
-// Without this `expect_test` fails on its own updated test output.
+// Without this, `expect_test` fails on its own updated test output.
 fn patch_output(s: &mut str) {
-    (unsafe { s.as_bytes_mut() })[0] = b'.';
+    (unsafe { s[0..1].as_bytes_mut() })[0] = b'.';
 }

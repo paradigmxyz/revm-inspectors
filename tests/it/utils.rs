@@ -32,10 +32,10 @@ impl TestEvm {
         let env = EnvWithHandlerCfg::new(
             Box::new(Env {
                 block: BlockEnv { gas_limit: U256::MAX, ..Default::default() },
-                tx: TxEnv { gas_limit: u32::MAX as _, gas_price: U256::ZERO, ..Default::default() },
+                tx: TxEnv { gas_limit: u64::MAX, gas_price: U256::ZERO, ..Default::default() },
                 ..Default::default()
             }),
-            SpecId::LATEST,
+            SpecId::CANCUN,
         );
         Self { db, env }
     }

@@ -398,7 +398,8 @@ impl TracingInspector {
 
         // The gas cost is the difference between the recorded gas remaining at the start of the
         // step the remaining gas here, at the end of the step.
-        // step.gas_cost = step.gas_remaining - self.gas_inspector.gas_remaining();
+        // TODO: Figure out why this can overflow. https://github.com/paradigmxyz/evm-inspectors/pull/38
+        step.gas_cost = step.gas_remaining.saturating_sub(self.gas_inspector.gas_remaining());
 
         // set the status
         step.status = interp.instruction_result;
