@@ -20,6 +20,12 @@ pub struct TestEvm {
     pub env: EnvWithHandlerCfg,
 }
 
+impl Default for TestEvm {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TestEvm {
     pub fn new() -> Self {
         let db = CacheDB::new(EmptyDB::default());

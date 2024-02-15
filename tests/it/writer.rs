@@ -92,6 +92,6 @@ fn basic_trace_printing() {
 }
 
 // Without this `expect_test` fails on its own updated test output.
-fn patch_output(s: &mut String) {
+fn patch_output(s: &mut str) {
     (unsafe { s.as_bytes_mut() })[0] = b'.';
 }

@@ -120,6 +120,7 @@ impl<W: Write> TraceWriter<W> {
         let address = trace.address.to_checksum_buffer(None);
 
         if trace.kind.is_any_create() {
+            #[allow(clippy::write_literal)] // TODO
             write!(
                 self.writer,
                 "{trace_kind_style}{CALL}new{trace_kind_style:#} {label}@{address}",
