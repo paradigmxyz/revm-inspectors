@@ -9,7 +9,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 /// An [Inspector] that collects touched accounts and storage slots.
 ///
 /// This can be used to construct an [AccessList] for a transaction via `eth_createAccessList`
-#[derive(Default, Debug)]
+#[derive(Debug, Default)]
 pub struct AccessListInspector {
     /// All addresses that should be excluded from the final accesslist
     excluded: HashSet<Address>,

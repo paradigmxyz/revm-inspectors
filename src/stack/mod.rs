@@ -15,7 +15,7 @@ pub use maybe_owned::MaybeOwnedInspector;
 /// - Block: Hook on block execution
 /// - BlockWithIndex: Hook on block execution transaction index
 /// - Transaction: Hook on a specific transaction hash
-#[derive(Debug, Default, Clone, Copy, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Hook {
     #[default]
     /// No hook.
@@ -33,7 +33,7 @@ pub enum Hook {
 /// If a call to an inspector returns a value other than
 /// [revm::interpreter::InstructionResult::Continue] (or equivalent) the remaining inspectors are
 /// not called.
-#[derive(Default, Clone)]
+#[derive(Clone, Default)]
 pub struct InspectorStack {
     /// An inspector that prints the opcode traces to the console.
     pub custom_print_tracer: Option<CustomPrintTracer>,
@@ -74,7 +74,7 @@ impl InspectorStack {
 }
 
 /// Configuration for the inspectors.
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct InspectorStackConfig {
     /// Enable revm inspector printer.
     /// In execution this will print opcode level traces directly to console.

@@ -122,7 +122,7 @@ impl Default for CallTrace {
 }
 
 /// A node in the arena
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CallTraceNode {
     /// Parent node index in the arena
     pub parent: Option<usize>,
@@ -355,7 +355,7 @@ impl CallTraceNode {
 }
 
 /// A unified representation of a call.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "UPPERCASE")]
 pub enum CallKind {
     /// Represents a regular call.
@@ -479,7 +479,7 @@ pub(crate) struct CallTraceStepStackItem<'a> {
 }
 
 /// Ordering enum for calls and logs
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LogCallOrder {
     /// Contains the index of the corresponding log
     Log(usize),
@@ -630,7 +630,7 @@ pub struct StorageChange {
 /// Represents the memory captured during execution
 ///
 /// This is a wrapper around the [SharedMemory](revm::interpreter::SharedMemory) context memory.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RecordedMemory(pub(crate) Vec<u8>);
 
 impl RecordedMemory {
