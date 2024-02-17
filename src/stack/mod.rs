@@ -5,7 +5,7 @@ use revm::{
     primitives::Env,
     Database, EvmContext, Inspector,
 };
-use std::{fmt::Debug, ops::Range};
+use std::fmt::Debug;
 
 /// A wrapped [Inspector] that can be reused in the stack
 mod maybe_owned;
@@ -127,10 +127,9 @@ where
         &mut self,
         context: &mut EvmContext<DB>,
         inputs: &mut CallInputs,
-        return_memory_offset: Range<usize>,
     ) -> Option<CallOutcome> {
         call_inspectors!([&mut self.custom_print_tracer], |inspector| {
-            if let Some(outcome) = inspector.call(context, inputs, return_memory_offset) {
+            if let Some(outcome) = inspector.call(context, inputs) {
                 return Some(outcome);
             }
         });
