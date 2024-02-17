@@ -1,22 +1,27 @@
 use revm::{
+    inspectors::GasInspector,
     interpreter::{opcode::OpCode, Interpreter},
     Database, EvmContext, Inspector,
 };
 use std::collections::HashMap;
-
 /// An Inspector that counts opcodes and measures gas usage per opcode.
-#[derive(Clone, Debug, Default)]
+#[derive(Default, Debug)]
 pub struct OpcodeCounterInspector {
     /// Map of opcode counts per transaction.
     pub opcode_counts: HashMap<OpCode, u64>,
     /// Map of total gas used per opcode.
     pub opcode_gas: HashMap<OpCode, u64>,
+    gas_inspector: GasInspector,
 }
 
 impl OpcodeCounterInspector {
     /// Creates a new instance of the inspector.
     pub fn new() -> Self {
-        Self { opcode_counts: HashMap::new(), opcode_gas: HashMap::new() }
+        OpcodeCounterInspector {
+            opcode_counts: HashMap::new(),
+            opcode_gas: HashMap::new(),
+            gas_inspector: GasInspector::default(),
+        }
     }
 
     /// Returns the opcode counts collected during transaction execution.
@@ -42,18 +47,25 @@ impl<DB> Inspector<DB> for OpcodeCounterInspector
 where
     DB: Database,
 {
-    fn step(&mut self, interp: &mut Interpreter, _context: &mut EvmContext<DB>) {
+    fn step(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
+        
+        self.gas_inspector.initialize_interp(interp, context);
+
         let opcode_value = interp.current_opcode();
         if let Some(opcode) = OpCode::new(opcode_value) {
             *self.opcode_counts.entry(opcode).or_insert(0) += 1;
+        }
 
-            let gas_table =
-                revm::interpreter::instructions::opcode::spec_opcode_gas(_context.spec_id());
-            let opcode_gas_info = gas_table[opcode_value as usize];
+        
+        self.gas_inspector.step_end(interp, context);
+        let gas_table = revm::interpreter::instructions::opcode::spec_opcode_gas(context.spec_id());
+        let opcode_gas_info = gas_table[opcode_value as usize];
 
-            let opcode_gas_cost = opcode_gas_info.get_gas() as u64;
+        let opcode_gas_cost = opcode_gas_info.get_gas() as u64;
 
-            *self.opcode_gas.entry(opcode).or_insert(0) += opcode_gas_cost;
+        if let Some(opcode) = OpCode::new(opcode_value) {
+            let gas_used = self.gas_inspector.last_gas_cost();
+            *self.opcode_gas.entry(opcode).or_insert(0) += gas_used + opcode_gas_cost;
         }
     }
 }
