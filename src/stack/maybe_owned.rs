@@ -6,7 +6,6 @@ use revm::{
 };
 use std::{
     cell::{Ref, RefCell},
-    ops::Range,
     rc::Rc,
 };
 
@@ -100,10 +99,9 @@ where
         &mut self,
         context: &mut EvmContext<DB>,
         inputs: &mut CallInputs,
-        return_memory_offset: Range<usize>,
     ) -> Option<CallOutcome> {
         match self {
-            Self::Owned(insp) => insp.borrow_mut().call(context, inputs, return_memory_offset),
+            Self::Owned(insp) => insp.borrow_mut().call(context, inputs),
             Self::Stacked(_) => None,
         }
     }
