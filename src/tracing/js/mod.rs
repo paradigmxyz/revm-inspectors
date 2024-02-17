@@ -1,7 +1,5 @@
 //! Javascript inspector
 
-use std::ops::Range;
-
 use crate::tracing::{
     js::{
         bindings::{
@@ -438,7 +436,6 @@ where
         &mut self,
         context: &mut EvmContext<DB>,
         inputs: &mut CallInputs,
-        _return_memory_offset: Range<usize>,
     ) -> Option<CallOutcome> {
         self.register_precompiles(&context.precompiles);
 

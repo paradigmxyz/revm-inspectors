@@ -4,8 +4,8 @@ use revm::{
     db::{CacheDB, EmptyDB},
     inspector_handle_register,
     primitives::{
-        BlockEnv, CreateScheme, EVMError, Env, EnvWithHandlerCfg, ExecutionResult, Output,
-        ResultAndState, SpecId, TransactTo, TxEnv,
+        BlockEnv, CreateScheme, EVMError, Env, EnvWithHandlerCfg, ExecutionResult, HandlerCfg,
+        Output, ResultAndState, SpecId, TransactTo, TxEnv,
     },
     Database, DatabaseCommit, GetInspector,
 };
@@ -35,7 +35,7 @@ impl TestEvm {
                 tx: TxEnv { gas_limit: u64::MAX, gas_price: U256::ZERO, ..Default::default() },
                 ..Default::default()
             }),
-            SpecId::CANCUN,
+            HandlerCfg::new(SpecId::CANCUN),
         );
         Self { db, env }
     }

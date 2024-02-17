@@ -7,8 +7,8 @@ use revm::{
     db::{CacheDB, EmptyDB},
     interpreter::CreateScheme,
     primitives::{
-        BlockEnv, CfgEnv, CfgEnvWithHandlerCfg, EnvWithHandlerCfg, ExecutionResult, Output, SpecId,
-        TransactTo, TxEnv,
+        BlockEnv, CfgEnv, CfgEnvWithHandlerCfg, EnvWithHandlerCfg, ExecutionResult, HandlerCfg,
+        Output, SpecId, TransactTo, TxEnv,
     },
     DatabaseCommit,
 };
@@ -31,7 +31,7 @@ fn test_parity_selfdestruct() {
 
     let mut db = CacheDB::new(EmptyDB::default());
 
-    let cfg = CfgEnvWithHandlerCfg::new(CfgEnv::default(), SpecId::LONDON);
+    let cfg = CfgEnvWithHandlerCfg::new(CfgEnv::default(), HandlerCfg::new(SpecId::LONDON));
 
     let env = EnvWithHandlerCfg::new_with_cfg_env(
         cfg.clone(),
@@ -107,7 +107,7 @@ fn test_parity_constructor_selfdestruct() {
 
     let mut db = CacheDB::new(EmptyDB::default());
 
-    let cfg = CfgEnvWithHandlerCfg::new(CfgEnv::default(), SpecId::LONDON);
+    let cfg = CfgEnvWithHandlerCfg::new(CfgEnv::default(), HandlerCfg::new(SpecId::LONDON));
 
     let env = EnvWithHandlerCfg::new_with_cfg_env(
         cfg.clone(),

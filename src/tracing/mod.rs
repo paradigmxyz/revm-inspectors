@@ -16,7 +16,6 @@ use revm::{
     primitives::SpecId,
     Database, EvmContext, Inspector, JournalEntry,
 };
-use std::ops::Range;
 
 mod arena;
 pub use arena::CallTraceArena;
@@ -445,9 +444,8 @@ where
         &mut self,
         context: &mut EvmContext<DB>,
         inputs: &mut CallInputs,
-        return_memory_offset: Range<usize>,
     ) -> Option<CallOutcome> {
-        self.gas_inspector.call(context, inputs, return_memory_offset);
+        self.gas_inspector.call(context, inputs);
 
         // determine correct `from` and `to` based on the call scheme
         let (from, to) = match inputs.context.scheme {
