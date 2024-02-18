@@ -154,10 +154,10 @@ mod tests {
         let opcodes = [
             opcode::PUSH1,
             opcode::PUSH1,
-            opcode::ADD, 
+            opcode::ADD,
             opcode::PUSH1,
-            opcode::SSTORE, 
-            opcode::STOP,  
+            opcode::SSTORE,
+            opcode::STOP,
         ];
 
         for opcode in opcodes.iter() {
