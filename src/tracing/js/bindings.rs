@@ -959,7 +959,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use boa_engine::{object::builtins::JsArrayBuffer, property::Attribute, Source};
+    use boa_engine::{property::Attribute, Source};
     use revm::db::{CacheDB, EmptyDB};
 
     use crate::tracing::js::builtins::BIG_INT_JS;
