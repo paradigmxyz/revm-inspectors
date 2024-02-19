@@ -63,8 +63,7 @@ mod tests {
     use super::*;
     use revm::{
         db::{CacheDB, EmptyDB},
-        interpreter::{opcode, Contract, Interpreter},
-        EvmContext, Inspector,
+        interpreter::{opcode, Contract},
     };
 
     #[test]

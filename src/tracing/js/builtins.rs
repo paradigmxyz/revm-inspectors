@@ -252,7 +252,6 @@ unsafe impl Trace for PrecompileList {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use boa_engine::Source;
 
     #[test]
     fn test_install_bigint() {
