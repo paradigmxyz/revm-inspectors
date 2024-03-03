@@ -148,7 +148,7 @@ impl GethTraceBuilder {
                 call_frames.last_mut().expect("not empty").1.calls.push(selfdestruct);
             }
 
-            // include logs only if call and all its parent were successful
+            // include logs only if call and all its parents were successful
             let include_logs = include_logs && !self.call_or_parent_failed(trace);
             call_frames.push((idx, trace.geth_empty_call_frame(include_logs)));
         }
