@@ -317,8 +317,7 @@ impl CallTraceNode {
             call_frame.error = self.trace.as_error_msg(TraceStyle::Parity);
         }
 
-        // populate logs only if call was successful
-        if self.trace.success && include_logs && !self.logs.is_empty() {
+        if include_logs && !self.logs.is_empty() {
             call_frame.logs = self
                 .logs
                 .iter()

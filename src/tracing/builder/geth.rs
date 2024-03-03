@@ -147,6 +147,9 @@ impl GethTraceBuilder {
             if let Some(selfdestruct) = trace.geth_selfdestruct_call_trace() {
                 call_frames.last_mut().expect("not empty").1.calls.push(selfdestruct);
             }
+
+            // include logs only if call and all its parent were successful
+            let include_logs = include_logs && !self.call_or_parent_failed(trace);
             call_frames.push((idx, trace.geth_empty_call_frame(include_logs)));
         }
 
@@ -167,6 +170,18 @@ impl GethTraceBuilder {
                 return call;
             }
         }
+    }
+
+    /// Returns true if the given trace or any of its parents failed.
+    fn call_or_parent_failed(&self, node: &CallTraceNode) -> bool {
+        if node.trace.is_error() {
+            return true;
+        }
+
+        if let Some(parent) = node.parent {
+            return self.call_or_parent_failed(&self.nodes[parent]);
+        }
+        false
     }
 
     ///  Returns the accounts necessary for transaction execution.
