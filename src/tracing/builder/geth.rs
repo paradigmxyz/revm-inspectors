@@ -178,8 +178,14 @@ impl GethTraceBuilder {
             return true;
         }
 
-        if let Some(parent) = node.parent {
-            return self.call_or_parent_failed(&self.nodes[parent]);
+        let mut parent_idx = node.parent;
+        while let Some(idx) = parent_idx {
+            let next = &self.nodes[idx];
+            if next.trace.is_error() {
+                return true;
+            }
+
+            parent_idx = next.parent;
         }
         false
     }
