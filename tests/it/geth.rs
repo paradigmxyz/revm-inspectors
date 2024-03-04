@@ -103,7 +103,7 @@ fn test_geth_calltracer_logs() {
         .into_geth_builder()
         .geth_call_traces(CallConfig::default().with_log(), res.result.gas_used());
 
-    // two subcalls
+    // three subcalls
     assert_eq!(call_frame.calls.len(), 3);
 
     // top-level call emitted one log
