@@ -1,17 +1,18 @@
 use revm::{
-    inspectors::GasInspector,
     interpreter::{opcode::OpCode, Interpreter},
     Database, EvmContext, Inspector,
 };
 use std::collections::HashMap;
+
 /// An Inspector that counts opcodes and measures gas usage per opcode.
 #[derive(Clone, Debug, Default)]
 pub struct OpcodeCounterInspector {
     /// Map of opcode counts per transaction.
-    pub opcode_counts: HashMap<OpCode, u64>,
+    opcode_counts: HashMap<OpCode, u64>,
     /// Map of total gas used per opcode.
-    pub opcode_gas: HashMap<OpCode, u64>,
-    gas_inspector: GasInspector,
+    opcode_gas: HashMap<OpCode, u64>,
+    /// Keep track of the last opcode executed and the remaining gas
+    last_opcode_gas_remaining: Option<(OpCode, u64)>,
 }
 
 impl OpcodeCounterInspector {
@@ -20,7 +21,7 @@ impl OpcodeCounterInspector {
         OpcodeCounterInspector {
             opcode_counts: HashMap::new(),
             opcode_gas: HashMap::new(),
-            gas_inspector: GasInspector::default(),
+            last_opcode_gas_remaining: None,
         }
     }
 
@@ -34,7 +35,7 @@ impl OpcodeCounterInspector {
         &self.opcode_gas
     }
 
-    /// Returns an iterator over all opcodes with their count and gas usage.
+    /// Returns an iterator over all opcodes with their count and combined gas usage.
     pub fn iter_opcodes(&self) -> impl Iterator<Item = (OpCode, (u64, u64))> + '_ {
         self.opcode_counts.iter().map(move |(&opcode, &count)| {
             let gas = self.opcode_gas.get(&opcode).copied().unwrap_or_default();
@@ -47,66 +48,32 @@ impl<DB> Inspector<DB> for OpcodeCounterInspector
 where
     DB: Database,
 {
-    fn step(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
-        self.initialize_interp(interp, context);
-
+    fn step(&mut self, interp: &mut Interpreter, _context: &mut EvmContext<DB>) {
         let opcode_value = interp.current_opcode();
         if let Some(opcode) = OpCode::new(opcode_value) {
-            *self.opcode_counts.entry(opcode).or_insert(0) += 1;
-        }
+            // keep track of opcode counts
+            *self.opcode_counts.entry(opcode).or_default() += 1;
 
-        self.step_end(interp, context);
-        let gas_table = revm::interpreter::instructions::opcode::spec_opcode_gas(context.spec_id());
-        let opcode_gas_info = gas_table[opcode_value as usize];
-
-        let opcode_gas_cost = opcode_gas_info.get_gas() as u64;
-
-        if let Some(opcode) = OpCode::new(opcode_value) {
-            let gas_used = self.gas_inspector.last_gas_cost();
-            *self.opcode_gas.entry(opcode).or_insert(0) += gas_used + opcode_gas_cost;
+            // keep track of the last opcode executed
+            self.last_opcode_gas_remaining = Some((opcode, interp.gas().remaining()));
         }
     }
 
     fn step_end(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
-        self.gas_inspector.step_end(interp, context);
-    }
-    fn call(
-        &mut self,
-        context: &mut EvmContext<DB>,
-        inputs: &mut revm::interpreter::CallInputs,
-    ) -> Option<revm::interpreter::CallOutcome> {
-        self.gas_inspector.call(context, inputs)
-    }
-    fn call_end(
-        &mut self,
-        context: &mut EvmContext<DB>,
-        inputs: &revm::interpreter::CallInputs,
-        outcome: revm::interpreter::CallOutcome,
-    ) -> revm::interpreter::CallOutcome {
-        self.gas_inspector.call_end(context, inputs, outcome)
-    }
+        // update gas usage for the last opcode
+        if let Some((opcode, gas_remaining)) = self.last_opcode_gas_remaining.take() {
+            let gas_table =
+                revm::interpreter::instructions::opcode::spec_opcode_gas(context.spec_id());
+            let opcode_gas_info = gas_table[opcode.get() as usize];
 
-    fn create(
-        &mut self,
-        context: &mut EvmContext<DB>,
-        inputs: &mut revm::interpreter::CreateInputs,
-    ) -> Option<revm::interpreter::CreateOutcome> {
-        self.gas_inspector.create(context, inputs)
-    }
+            let mut gas_cost = opcode_gas_info.get_gas() as u64;
+            // if gas cost is 0 then this is dynamic gas and we need to use the gas inspector
+            if gas_cost == 0 {
+                gas_cost = gas_remaining.saturating_sub(interp.gas().remaining());
+            }
 
-    fn create_end(
-        &mut self,
-        context: &mut EvmContext<DB>,
-        inputs: &revm::interpreter::CreateInputs,
-        outcome: revm::interpreter::CreateOutcome,
-    ) -> revm::interpreter::CreateOutcome {
-        self.gas_inspector.create_end(context, inputs, outcome)
-    }
-    fn initialize_interp(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
-        self.gas_inspector.initialize_interp(interp, context);
-    }
-    fn log(&mut self, context: &mut EvmContext<DB>, log: &alloy_primitives::Log) {
-        self.gas_inspector.log(context, log)
+            *self.opcode_gas.entry(opcode).or_default() += gas_cost;
+        }
     }
 }
 
