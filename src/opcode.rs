@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 /// An Inspector that counts opcodes and measures gas usage per opcode.
 #[derive(Clone, Debug, Default)]
-pub struct OpcodeCounterInspector {
+pub struct OpcodeGasInspector {
     /// Map of opcode counts per transaction.
     opcode_counts: HashMap<OpCode, u64>,
     /// Map of total gas used per opcode.
@@ -16,7 +16,7 @@ pub struct OpcodeCounterInspector {
     last_opcode_gas_remaining: Option<(OpCode, u64)>,
 }
 
-impl OpcodeCounterInspector {
+impl OpcodeGasInspector {
     /// Creates a new instance of the inspector.
     pub fn new() -> Self {
         Self::default()
@@ -54,7 +54,7 @@ impl OpcodeCounterInspector {
     }
 }
 
-impl<DB> Inspector<DB> for OpcodeCounterInspector
+impl<DB> Inspector<DB> for OpcodeGasInspector
 where
     DB: Database,
 {
@@ -97,7 +97,7 @@ mod tests {
 
     #[test]
     fn test_opcode_counter_inspector() {
-        let mut opcode_counter = OpcodeCounterInspector::new();
+        let mut opcode_counter = OpcodeGasInspector::new();
         let contract = Box::<Contract>::default();
         let mut interpreter = Interpreter::new(contract, 10000, false);
         let db = CacheDB::new(EmptyDB::default());
@@ -117,7 +117,7 @@ mod tests {
 
     #[test]
     fn test_with_variety_of_opcodes() {
-        let mut opcode_counter = OpcodeCounterInspector::new();
+        let mut opcode_counter = OpcodeGasInspector::new();
         let contract = Box::<Contract>::default();
         let mut interpreter = Interpreter::new(contract, 2024, false);
         let db = CacheDB::new(EmptyDB::default());
