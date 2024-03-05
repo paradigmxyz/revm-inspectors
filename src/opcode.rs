@@ -100,13 +100,8 @@ mod tests {
             interpreter.instruction_pointer = &opcode.get();
             opcode_counter.step(&mut interpreter, &mut EvmContext::new(db.clone()));
         }
-
-        let opcode_counts = opcode_counter.opcode_counts();
-        println!("Opcode Counts: {:?}", opcode_counts);
-
-        let opcode_gas = opcode_counter.opcode_gas();
-        println!("Opcode Gas Usage: {:?}", opcode_gas);
     }
+
     #[test]
     fn test_with_variety_of_opcodes() {
         let mut opcode_counter = OpcodeCounterInspector::new();
@@ -127,12 +122,5 @@ mod tests {
             interpreter.instruction_pointer = opcode;
             opcode_counter.step(&mut interpreter, &mut EvmContext::new(db.clone()));
         }
-
-        let opcode_counts = opcode_counter.opcode_counts();
-
-        println!("{:?}", opcode_counts);
-
-        let opcode_gas = opcode_counter.opcode_gas();
-        println!("Opcode Gas Usage: {:?}", opcode_gas);
     }
 }
