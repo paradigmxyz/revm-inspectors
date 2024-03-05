@@ -8,15 +8,17 @@ use std::collections::HashMap;
 #[derive(Clone, Debug, Default)]
 pub struct OpcodeCounterInspector {
     /// Map of opcode counts per transaction.
-    pub opcode_counts: HashMap<OpCode, u64>,
+    opcode_counts: HashMap<OpCode, u64>,
     /// Map of total gas used per opcode.
-    pub opcode_gas: HashMap<OpCode, u64>,
+    opcode_gas: HashMap<OpCode, u64>,
+    /// Keep track of the last opcode executed and the remaining gas
+    last_opcode_gas_remaining: Option<(OpCode, u64)>,
 }
 
 impl OpcodeCounterInspector {
     /// Creates a new instance of the inspector.
     pub fn new() -> Self {
-        Self { opcode_counts: HashMap::new(), opcode_gas: HashMap::new() }
+        Self::default()
     }
 
     /// Returns the opcode counts collected during transaction execution.
@@ -29,7 +31,7 @@ impl OpcodeCounterInspector {
         &self.opcode_gas
     }
 
-    /// Returns an iterator over all opcodes with their count and gas usage.
+    /// Returns an iterator over all opcodes with their count and combined gas usage.
     pub fn iter_opcodes(&self) -> impl Iterator<Item = (OpCode, (u64, u64))> + '_ {
         self.opcode_counts.iter().map(move |(&opcode, &count)| {
             let gas = self.opcode_gas.get(&opcode).copied().unwrap_or_default();
@@ -45,15 +47,28 @@ where
     fn step(&mut self, interp: &mut Interpreter, _context: &mut EvmContext<DB>) {
         let opcode_value = interp.current_opcode();
         if let Some(opcode) = OpCode::new(opcode_value) {
-            *self.opcode_counts.entry(opcode).or_insert(0) += 1;
+            // keep track of opcode counts
+            *self.opcode_counts.entry(opcode).or_default() += 1;
 
+            // keep track of the last opcode executed
+            self.last_opcode_gas_remaining = Some((opcode, interp.gas().remaining()));
+        }
+    }
+
+    fn step_end(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
+        // update gas usage for the last opcode
+        if let Some((opcode, gas_remaining)) = self.last_opcode_gas_remaining.take() {
             let gas_table =
-                revm::interpreter::instructions::opcode::spec_opcode_gas(_context.spec_id());
-            let opcode_gas_info = gas_table[opcode_value as usize];
+                revm::interpreter::instructions::opcode::spec_opcode_gas(context.spec_id());
+            let opcode_gas_info = gas_table[opcode.get() as usize];
 
-            let opcode_gas_cost = opcode_gas_info.get_gas() as u64;
+            let mut gas_cost = opcode_gas_info.get_gas() as u64;
+            // if gas cost is 0 then this is dynamic gas and we need to use the tracked gas
+            if gas_cost == 0 {
+                gas_cost = gas_remaining.saturating_sub(interp.gas().remaining());
+            }
 
-            *self.opcode_gas.entry(opcode).or_insert(0) += opcode_gas_cost;
+            *self.opcode_gas.entry(opcode).or_default() += gas_cost;
         }
     }
 }
@@ -84,11 +99,27 @@ mod tests {
             interpreter.instruction_pointer = &opcode.get();
             opcode_counter.step(&mut interpreter, &mut EvmContext::new(db.clone()));
         }
+    }
 
-        let opcode_counts = opcode_counter.opcode_counts();
-        println!("Opcode Counts: {:?}", opcode_counts);
+    #[test]
+    fn test_with_variety_of_opcodes() {
+        let mut opcode_counter = OpcodeCounterInspector::new();
+        let contract = Box::<Contract>::default();
+        let mut interpreter = Interpreter::new(contract, 2024, false);
+        let db = CacheDB::new(EmptyDB::default());
 
-        let opcode_gas = opcode_counter.opcode_gas();
-        println!("Opcode Gas Usage: {:?}", opcode_gas);
+        let opcodes = [
+            opcode::PUSH1,
+            opcode::PUSH1,
+            opcode::ADD,
+            opcode::PUSH1,
+            opcode::SSTORE,
+            opcode::STOP,
+        ];
+
+        for opcode in opcodes.iter() {
+            interpreter.instruction_pointer = opcode;
+            opcode_counter.step(&mut interpreter, &mut EvmContext::new(db.clone()));
+        }
     }
 }
