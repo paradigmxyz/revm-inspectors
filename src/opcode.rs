@@ -18,11 +18,7 @@ pub struct OpcodeCounterInspector {
 impl OpcodeCounterInspector {
     /// Creates a new instance of the inspector.
     pub fn new() -> Self {
-        OpcodeCounterInspector {
-            opcode_counts: HashMap::new(),
-            opcode_gas: HashMap::new(),
-            last_opcode_gas_remaining: None,
-        }
+        Self::default()
     }
 
     /// Returns the opcode counts collected during transaction execution.
@@ -67,7 +63,7 @@ where
             let opcode_gas_info = gas_table[opcode.get() as usize];
 
             let mut gas_cost = opcode_gas_info.get_gas() as u64;
-            // if gas cost is 0 then this is dynamic gas and we need to use the gas inspector
+            // if gas cost is 0 then this is dynamic gas and we need to use the tracked gas
             if gas_cost == 0 {
                 gas_cost = gas_remaining.saturating_sub(interp.gas().remaining());
             }
