@@ -1,3 +1,4 @@
+use alloy_rpc_trace_types::opcode::OpcodeGas;
 use revm::{
     interpreter::{opcode::OpCode, Interpreter},
     Database, EvmContext, Inspector,
@@ -32,10 +33,23 @@ impl OpcodeCounterInspector {
     }
 
     /// Returns an iterator over all opcodes with their count and combined gas usage.
-    pub fn iter_opcodes(&self) -> impl Iterator<Item = (OpCode, (u64, u64))> + '_ {
+    ///
+    /// Note: this returns in no particular order.
+    pub fn opcode_iter(&self) -> impl Iterator<Item = (OpCode, (u64, u64))> + '_ {
         self.opcode_counts.iter().map(move |(&opcode, &count)| {
             let gas = self.opcode_gas.get(&opcode).copied().unwrap_or_default();
             (opcode, (count, gas))
+        })
+    }
+
+    /// Returns an iterator over all opcodes with their count and combined gas usage.
+    ///
+    /// Note: this returns in no particular order.
+    pub fn opcode_gas_iter(&self) -> impl Iterator<Item = OpcodeGas> + '_ {
+        self.opcode_iter().map(|(opcode, (count, gas_used))| OpcodeGas {
+            opcode: opcode.to_string(),
+            count,
+            gas_used,
         })
     }
 }
