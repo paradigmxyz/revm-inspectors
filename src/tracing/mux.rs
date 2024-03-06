@@ -37,7 +37,7 @@ impl MuxInspector {
     pub fn try_into_mux_frame<DB: DatabaseRef>(
         self,
         result: &ResultAndState,
-        db: DB,
+        db: &DB,
     ) -> Result<MuxFrame, DB::Error> {
         let mut frame = HashMap::with_capacity(self.inspectors.len());
         for (tracer_type, inspector) in self.inspectors {
@@ -50,11 +50,11 @@ impl MuxInspector {
                     .geth_call_traces(config, result.result.gas_used())
                     .into(),
                 MultiInspector::PrestateInspector(config, inspector) => {
-                    inspector.into_geth_builder().geth_prestate_traces(result, config, &db)?.into()
+                    inspector.into_geth_builder().geth_prestate_traces(result, config, db)?.into()
                 }
                 MultiInspector::NoopInspector => NoopFrame::default().into(),
                 MultiInspector::MuxInspector(inspector) => {
-                    inspector.into_mux_frame(result, &db).map(GethTrace::MuxTracer)?
+                    inspector.try_into_mux_frame(result, db).map(GethTrace::MuxTracer)?
                 }
             };
 
