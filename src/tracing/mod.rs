@@ -534,20 +534,6 @@ where
     ) -> CreateOutcome {
         let outcome = self.gas_inspector.create_end(context, inputs, outcome);
 
-        // get the code of the created contract
-        let _code = outcome
-            .address
-            .and_then(|address| {
-                context
-                    .journaled_state
-                    .account(address)
-                    .info
-                    .code
-                    .as_ref()
-                    .map(|code| code.bytes()[..code.len()].to_vec())
-            })
-            .unwrap_or_default();
-
         self.fill_trace_on_call_end(context, outcome.result.clone(), outcome.address);
 
         outcome
