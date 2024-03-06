@@ -47,7 +47,7 @@ pub use writer::TraceWriter;
 pub mod js;
 
 mod mux;
-pub use mux::MuxInspector;
+pub use mux::{Error as MuxError, MuxInspector};
 
 /// An inspector that collects call traces.
 ///
