@@ -46,6 +46,9 @@ pub use writer::TraceWriter;
 #[cfg(feature = "js-tracer")]
 pub mod js;
 
+mod mux;
+pub use mux::MuxInspector;
+
 /// An inspector that collects call traces.
 ///
 /// This [Inspector] can be hooked into revm's EVM which then calls the inspector
