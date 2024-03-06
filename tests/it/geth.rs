@@ -210,7 +210,7 @@ fn test_geth_mux_tracer() {
         ]),
     };
 
-    let mut insp = MuxInspector::try_new(config.clone()).unwrap();
+    let mut insp = MuxInspector::try_from_config(config.clone()).unwrap();
 
     // Create contract
     let (res, _) = inspect(&mut db, env, &mut insp).unwrap();
@@ -223,7 +223,7 @@ fn test_geth_mux_tracer() {
     };
     db.commit(res.state);
 
-    let mut insp = MuxInspector::try_new(config.clone()).unwrap();
+    let mut insp = MuxInspector::try_from_config(config.clone()).unwrap();
 
     let env = EnvWithHandlerCfg::new_with_cfg_env(
         cfg,

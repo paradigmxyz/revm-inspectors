@@ -22,12 +22,12 @@ pub struct MuxInspector {
 
 impl MuxInspector {
     /// Try creating a new instance of [MuxInspector] from the given [MuxConfig].
-    pub fn try_new(config: MuxConfig) -> Result<MuxInspector, Error> {
+    pub fn try_from_config(config: MuxConfig) -> Result<MuxInspector, Error> {
         let inspectors = config
             .tracers
             .into_iter()
             .map(|(tracer_type, tracer_config)| {
-                MultiInspector::try_new(tracer_type, tracer_config.clone())
+                MultiInspector::try_from_config(tracer_type, tracer_config.clone())
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -178,7 +178,7 @@ enum MultiInspector {
 
 impl MultiInspector {
     /// Try creating a new instance of [MultiInspector] from the given tracer type and config.
-    pub(crate) fn try_new(
+    pub(crate) fn try_from_config(
         tracer_type: GethDebugBuiltInTracerType,
         tracer_config: Option<GethDebugTracerConfig>,
     ) -> Result<(GethDebugBuiltInTracerType, MultiInspector), Error> {
@@ -226,7 +226,7 @@ impl MultiInspector {
                     .ok_or_else(|| Error::MissingConfig(tracer_type))?
                     .into_mux_config()?;
 
-                Ok(MultiInspector::MuxInspector(MuxInspector::try_new(config)?))
+                Ok(MultiInspector::MuxInspector(MuxInspector::try_from_config(config)?))
             }
         };
 
