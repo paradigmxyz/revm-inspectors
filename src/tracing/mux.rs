@@ -14,6 +14,7 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 /// Mux tracing inspector that runs and collects results of multiple inspectors at once.
+#[derive(Clone, Debug)]
 pub struct MuxInspector {
     /// The list of tracer types with its inspectors.
     inspectors: Vec<(GethDebugBuiltInTracerType, MultiInspector)>,
@@ -166,6 +167,7 @@ where
 }
 
 /// An inspector that can delegate to multiple inspector types.
+#[derive(Clone, Debug)]
 enum MultiInspector {
     FourByteInspector(FourByteInspector),
     CallInspector(CallConfig, TracingInspector),
@@ -176,12 +178,15 @@ enum MultiInspector {
 
 impl MultiInspector {
     /// Try creating a new instance of [MultiInspector] from the given tracer type and config.
-    pub fn try_new(
+    pub(crate) fn try_new(
         tracer_type: GethDebugBuiltInTracerType,
         tracer_config: Option<GethDebugTracerConfig>,
     ) -> Result<(GethDebugBuiltInTracerType, MultiInspector), Error> {
         let inspector = match tracer_type {
             GethDebugBuiltInTracerType::FourByteTracer => {
+                if tracer_config.is_some() {
+                    return Err(Error::UnexpectedConfig(tracer_type));
+                }
                 Ok(MultiInspector::FourByteInspector(FourByteInspector::default()))
             }
             GethDebugBuiltInTracerType::CallTracer => {
@@ -210,7 +215,12 @@ impl MultiInspector {
 
                 Ok(MultiInspector::PrestateInspector(prestate_config, inspector))
             }
-            GethDebugBuiltInTracerType::NoopTracer => Ok(MultiInspector::NoopInspector),
+            GethDebugBuiltInTracerType::NoopTracer => {
+                if tracer_config.is_some() {
+                    return Err(Error::UnexpectedConfig(tracer_type));
+                }
+                Ok(MultiInspector::NoopInspector)
+            }
             GethDebugBuiltInTracerType::MuxTracer => {
                 let config = tracer_config
                     .ok_or_else(|| Error::MissingConfig(tracer_type))?
@@ -386,6 +396,9 @@ impl MultiInspector {
 /// Error type for [MuxInspector]
 #[derive(Debug, Error)]
 pub enum Error {
+    /// Config was provided for a tracer that does not expect it
+    #[error("unexpected config for tracer '{0:?}'")]
+    UnexpectedConfig(GethDebugBuiltInTracerType),
     /// Expected config is missing
     #[error("expected config is missing for tracer '{0:?}'")]
     MissingConfig(GethDebugBuiltInTracerType),
