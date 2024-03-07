@@ -103,7 +103,9 @@ where
         inputs: &mut CallInputs,
     ) -> Option<CallOutcome> {
         for (_, inspector) in &mut self.inspectors {
-            let _ = inspector.call(context, inputs);
+            if let Some(outcome) = inspector.call(context, inputs) {
+                return Some(outcome);
+            }
         }
 
         None
@@ -131,7 +133,9 @@ where
         inputs: &mut CreateInputs,
     ) -> Option<CreateOutcome> {
         for (_, inspector) in &mut self.inspectors {
-            let _ = inspector.create(context, inputs);
+            if let Some(outcome) = inspector.create(context, inputs) {
+                return Some(outcome);
+            }
         }
 
         None
