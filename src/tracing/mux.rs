@@ -14,24 +14,23 @@ use std::collections::HashMap;
 use thiserror::Error;
 
 /// Mux tracing inspector that runs and collects results of multiple inspectors at once.
+///
+/// Contains a list of tracer types with its inspectors.
 #[derive(Clone, Debug)]
-pub struct MuxInspector {
-    /// The list of tracer types with its inspectors.
-    inspectors: Vec<(GethDebugBuiltInTracerType, DelegatingInspector)>,
-}
+pub struct MuxInspector(Vec<(GethDebugBuiltInTracerType, DelegatingInspector)>);
 
 impl MuxInspector {
     /// Try creating a new instance of [MuxInspector] from the given [MuxConfig].
     pub fn try_from_config(config: MuxConfig) -> Result<MuxInspector, Error> {
         let inspectors = config
-            .tracers
+            .0
             .into_iter()
             .map(|(tracer_type, tracer_config)| {
                 DelegatingInspector::try_from_config(tracer_type, tracer_config.clone())
             })
             .collect::<Result<Vec<_>, _>>()?;
 
-        Ok(MuxInspector { inspectors })
+        Ok(MuxInspector(inspectors))
     }
 
     /// Try converting this [MuxInspector] into a [MuxFrame].
@@ -40,8 +39,8 @@ impl MuxInspector {
         result: &ResultAndState,
         db: &DB,
     ) -> Result<MuxFrame, DB::Error> {
-        let mut frame = HashMap::with_capacity(self.inspectors.len());
-        for (tracer_type, inspector) in self.inspectors {
+        let mut frame = HashMap::with_capacity(self.0.len());
+        for (tracer_type, inspector) in self.0 {
             let trace = match inspector {
                 DelegatingInspector::FourByte(inspector) => FourByteFrame::from(inspector).into(),
                 DelegatingInspector::Call(config, inspector) => inspector
@@ -70,28 +69,28 @@ where
 {
     #[inline]
     fn initialize_interp(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
-        for (_, inspector) in &mut self.inspectors {
+        for (_, inspector) in &mut self.0 {
             inspector.initialize_interp(interp, context);
         }
     }
 
     #[inline]
     fn step(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
-        for (_, inspector) in &mut self.inspectors {
+        for (_, inspector) in &mut self.0 {
             inspector.step(interp, context);
         }
     }
 
     #[inline]
     fn step_end(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
-        for (_, inspector) in &mut self.inspectors {
+        for (_, inspector) in &mut self.0 {
             inspector.step_end(interp, context);
         }
     }
 
     #[inline]
     fn log(&mut self, context: &mut EvmContext<DB>, log: &Log) {
-        for (_, inspector) in &mut self.inspectors {
+        for (_, inspector) in &mut self.0 {
             inspector.log(context, log);
         }
     }
@@ -102,7 +101,7 @@ where
         context: &mut EvmContext<DB>,
         inputs: &mut CallInputs,
     ) -> Option<CallOutcome> {
-        for (_, inspector) in &mut self.inspectors {
+        for (_, inspector) in &mut self.0 {
             if let Some(outcome) = inspector.call(context, inputs) {
                 return Some(outcome);
             }
@@ -119,7 +118,7 @@ where
         outcome: CallOutcome,
     ) -> CallOutcome {
         let mut outcome = outcome;
-        for (_, inspector) in &mut self.inspectors {
+        for (_, inspector) in &mut self.0 {
             outcome = inspector.call_end(context, inputs, outcome);
         }
 
@@ -132,7 +131,7 @@ where
         context: &mut EvmContext<DB>,
         inputs: &mut CreateInputs,
     ) -> Option<CreateOutcome> {
-        for (_, inspector) in &mut self.inspectors {
+        for (_, inspector) in &mut self.0 {
             if let Some(outcome) = inspector.create(context, inputs) {
                 return Some(outcome);
             }
@@ -149,7 +148,7 @@ where
         outcome: CreateOutcome,
     ) -> CreateOutcome {
         let mut outcome = outcome;
-        for (_, inspector) in &mut self.inspectors {
+        for (_, inspector) in &mut self.0 {
             outcome = inspector.create_end(context, inputs, outcome);
         }
 
@@ -158,7 +157,7 @@ where
 
     #[inline]
     fn selfdestruct(&mut self, contract: Address, target: Address, value: U256) {
-        for (_, inspector) in &mut self.inspectors {
+        for (_, inspector) in &mut self.0 {
             inspector.selfdestruct::<DB>(contract, target, value);
         }
     }

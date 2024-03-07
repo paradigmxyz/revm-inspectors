@@ -185,30 +185,26 @@ fn test_geth_mux_tracer() {
     let prestate_config = PreStateConfig { diff_mode: Some(false) };
 
     let nested_call_config = CallConfig { only_top_call: Some(true), with_log: Some(false) };
-    let nested_mux_config = MuxConfig {
-        tracers: HashMap::from([(
-            GethDebugBuiltInTracerType::CallTracer,
-            Some(GethDebugTracerConfig(serde_json::to_value(nested_call_config).unwrap())),
-        )]),
-    };
+    let nested_mux_config = MuxConfig(HashMap::from([(
+        GethDebugBuiltInTracerType::CallTracer,
+        Some(GethDebugTracerConfig(serde_json::to_value(nested_call_config).unwrap())),
+    )]));
 
-    let config = MuxConfig {
-        tracers: HashMap::from([
-            (GethDebugBuiltInTracerType::FourByteTracer, None),
-            (
-                GethDebugBuiltInTracerType::CallTracer,
-                Some(GethDebugTracerConfig(serde_json::to_value(call_config).unwrap())),
-            ),
-            (
-                GethDebugBuiltInTracerType::PreStateTracer,
-                Some(GethDebugTracerConfig(serde_json::to_value(prestate_config).unwrap())),
-            ),
-            (
-                GethDebugBuiltInTracerType::MuxTracer,
-                Some(GethDebugTracerConfig(serde_json::to_value(nested_mux_config).unwrap())),
-            ),
-        ]),
-    };
+    let config = MuxConfig(HashMap::from([
+        (GethDebugBuiltInTracerType::FourByteTracer, None),
+        (
+            GethDebugBuiltInTracerType::CallTracer,
+            Some(GethDebugTracerConfig(serde_json::to_value(call_config).unwrap())),
+        ),
+        (
+            GethDebugBuiltInTracerType::PreStateTracer,
+            Some(GethDebugTracerConfig(serde_json::to_value(prestate_config).unwrap())),
+        ),
+        (
+            GethDebugBuiltInTracerType::MuxTracer,
+            Some(GethDebugTracerConfig(serde_json::to_value(nested_mux_config).unwrap())),
+        ),
+    ]));
 
     let mut insp = MuxInspector::try_from_config(config.clone()).unwrap();
 
