@@ -17,7 +17,7 @@ use thiserror::Error;
 #[derive(Clone, Debug)]
 pub struct MuxInspector {
     /// The list of tracer types with its inspectors.
-    inspectors: Vec<(GethDebugBuiltInTracerType, MultiInspector)>,
+    inspectors: Vec<(GethDebugBuiltInTracerType, DelegatingInspector)>,
 }
 
 impl MuxInspector {
@@ -27,7 +27,7 @@ impl MuxInspector {
             .tracers
             .into_iter()
             .map(|(tracer_type, tracer_config)| {
-                MultiInspector::try_from_config(tracer_type, tracer_config.clone())
+                DelegatingInspector::try_from_config(tracer_type, tracer_config.clone())
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -43,16 +43,16 @@ impl MuxInspector {
         let mut frame = HashMap::with_capacity(self.inspectors.len());
         for (tracer_type, inspector) in self.inspectors {
             let trace = match inspector {
-                MultiInspector::FourByte(inspector) => FourByteFrame::from(inspector).into(),
-                MultiInspector::Call(config, inspector) => inspector
+                DelegatingInspector::FourByte(inspector) => FourByteFrame::from(inspector).into(),
+                DelegatingInspector::Call(config, inspector) => inspector
                     .into_geth_builder()
                     .geth_call_traces(config, result.result.gas_used())
                     .into(),
-                MultiInspector::Prestate(config, inspector) => {
+                DelegatingInspector::Prestate(config, inspector) => {
                     inspector.into_geth_builder().geth_prestate_traces(result, config, db)?.into()
                 }
-                MultiInspector::Noop => NoopFrame::default().into(),
-                MultiInspector::Mux(inspector) => {
+                DelegatingInspector::Noop => NoopFrame::default().into(),
+                DelegatingInspector::Mux(inspector) => {
                     inspector.try_into_mux_frame(result, db).map(GethTrace::MuxTracer)?
                 }
             };
@@ -103,9 +103,7 @@ where
         inputs: &mut CallInputs,
     ) -> Option<CallOutcome> {
         for (_, inspector) in &mut self.inspectors {
-            if let Some(outcome) = inspector.call(context, inputs) {
-                return Some(outcome);
-            }
+            let _ = inspector.call(context, inputs);
         }
 
         None
@@ -133,9 +131,7 @@ where
         inputs: &mut CreateInputs,
     ) -> Option<CreateOutcome> {
         for (_, inspector) in &mut self.inspectors {
-            if let Some(outcome) = inspector.create(context, inputs) {
-                return Some(outcome);
-            }
+            let _ = inspector.create(context, inputs);
         }
 
         None
@@ -166,7 +162,7 @@ where
 
 /// An inspector that can delegate to multiple inspector types.
 #[derive(Clone, Debug)]
-enum MultiInspector {
+enum DelegatingInspector {
     FourByte(FourByteInspector),
     Call(CallConfig, TracingInspector),
     Prestate(PreStateConfig, TracingInspector),
@@ -174,18 +170,18 @@ enum MultiInspector {
     Mux(MuxInspector),
 }
 
-impl MultiInspector {
-    /// Try creating a new instance of [MultiInspector] from the given tracer type and config.
+impl DelegatingInspector {
+    /// Try creating a new instance of [DelegatingInspector] from the given tracer type and config.
     pub(crate) fn try_from_config(
         tracer_type: GethDebugBuiltInTracerType,
         tracer_config: Option<GethDebugTracerConfig>,
-    ) -> Result<(GethDebugBuiltInTracerType, MultiInspector), Error> {
+    ) -> Result<(GethDebugBuiltInTracerType, DelegatingInspector), Error> {
         let inspector = match tracer_type {
             GethDebugBuiltInTracerType::FourByteTracer => {
                 if tracer_config.is_some() {
                     return Err(Error::UnexpectedConfig(tracer_type));
                 }
-                Ok(MultiInspector::FourByte(FourByteInspector::default()))
+                Ok(DelegatingInspector::FourByte(FourByteInspector::default()))
             }
             GethDebugBuiltInTracerType::CallTracer => {
                 let call_config = tracer_config
@@ -197,7 +193,7 @@ impl MultiInspector {
                         .set_record_logs(call_config.with_log.unwrap_or_default()),
                 );
 
-                Ok(MultiInspector::Call(call_config, inspector))
+                Ok(DelegatingInspector::Call(call_config, inspector))
             }
             GethDebugBuiltInTracerType::PreStateTracer => {
                 let prestate_config = tracer_config
@@ -211,20 +207,20 @@ impl MultiInspector {
                         .set_steps_and_state_diffs(prestate_config.is_default_mode()),
                 );
 
-                Ok(MultiInspector::Prestate(prestate_config, inspector))
+                Ok(DelegatingInspector::Prestate(prestate_config, inspector))
             }
             GethDebugBuiltInTracerType::NoopTracer => {
                 if tracer_config.is_some() {
                     return Err(Error::UnexpectedConfig(tracer_type));
                 }
-                Ok(MultiInspector::Noop)
+                Ok(DelegatingInspector::Noop)
             }
             GethDebugBuiltInTracerType::MuxTracer => {
                 let config = tracer_config
                     .ok_or_else(|| Error::MissingConfig(tracer_type))?
                     .into_mux_config()?;
 
-                Ok(MultiInspector::Mux(MuxInspector::try_from_config(config)?))
+                Ok(DelegatingInspector::Mux(MuxInspector::try_from_config(config)?))
             }
         };
 
@@ -238,44 +234,48 @@ impl MultiInspector {
         context: &mut EvmContext<DB>,
     ) {
         match self {
-            MultiInspector::FourByte(inspector) => inspector.initialize_interp(interp, context),
-            MultiInspector::Call(_, inspector) => inspector.initialize_interp(interp, context),
-            MultiInspector::Prestate(_, inspector) => inspector.initialize_interp(interp, context),
-            MultiInspector::Noop => {}
-            MultiInspector::Mux(inspector) => inspector.initialize_interp(interp, context),
+            DelegatingInspector::FourByte(inspector) => {
+                inspector.initialize_interp(interp, context)
+            }
+            DelegatingInspector::Call(_, inspector) => inspector.initialize_interp(interp, context),
+            DelegatingInspector::Prestate(_, inspector) => {
+                inspector.initialize_interp(interp, context)
+            }
+            DelegatingInspector::Noop => {}
+            DelegatingInspector::Mux(inspector) => inspector.initialize_interp(interp, context),
         }
     }
 
     #[inline]
     fn step<DB: Database>(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
         match self {
-            MultiInspector::FourByte(inspector) => inspector.step(interp, context),
-            MultiInspector::Call(_, inspector) => inspector.step(interp, context),
-            MultiInspector::Prestate(_, inspector) => inspector.step(interp, context),
-            MultiInspector::Noop => {}
-            MultiInspector::Mux(inspector) => inspector.step(interp, context),
+            DelegatingInspector::FourByte(inspector) => inspector.step(interp, context),
+            DelegatingInspector::Call(_, inspector) => inspector.step(interp, context),
+            DelegatingInspector::Prestate(_, inspector) => inspector.step(interp, context),
+            DelegatingInspector::Noop => {}
+            DelegatingInspector::Mux(inspector) => inspector.step(interp, context),
         }
     }
 
     #[inline]
     fn step_end<DB: Database>(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
         match self {
-            MultiInspector::FourByte(inspector) => inspector.step_end(interp, context),
-            MultiInspector::Call(_, inspector) => inspector.step_end(interp, context),
-            MultiInspector::Prestate(_, inspector) => inspector.step_end(interp, context),
-            MultiInspector::Noop => {}
-            MultiInspector::Mux(inspector) => inspector.step_end(interp, context),
+            DelegatingInspector::FourByte(inspector) => inspector.step_end(interp, context),
+            DelegatingInspector::Call(_, inspector) => inspector.step_end(interp, context),
+            DelegatingInspector::Prestate(_, inspector) => inspector.step_end(interp, context),
+            DelegatingInspector::Noop => {}
+            DelegatingInspector::Mux(inspector) => inspector.step_end(interp, context),
         }
     }
 
     #[inline]
     fn log<DB: Database>(&mut self, context: &mut EvmContext<DB>, log: &Log) {
         match self {
-            MultiInspector::FourByte(inspector) => inspector.log(context, log),
-            MultiInspector::Call(_, inspector) => inspector.log(context, log),
-            MultiInspector::Prestate(_, inspector) => inspector.log(context, log),
-            MultiInspector::Noop => {}
-            MultiInspector::Mux(inspector) => inspector.log(context, log),
+            DelegatingInspector::FourByte(inspector) => inspector.log(context, log),
+            DelegatingInspector::Call(_, inspector) => inspector.log(context, log),
+            DelegatingInspector::Prestate(_, inspector) => inspector.log(context, log),
+            DelegatingInspector::Noop => {}
+            DelegatingInspector::Mux(inspector) => inspector.log(context, log),
         }
     }
 
@@ -286,11 +286,11 @@ impl MultiInspector {
         inputs: &mut CallInputs,
     ) -> Option<CallOutcome> {
         match self {
-            MultiInspector::FourByte(inspector) => inspector.call(context, inputs),
-            MultiInspector::Call(_, inspector) => inspector.call(context, inputs),
-            MultiInspector::Prestate(_, inspector) => inspector.call(context, inputs),
-            MultiInspector::Noop => None,
-            MultiInspector::Mux(inspector) => inspector.call(context, inputs),
+            DelegatingInspector::FourByte(inspector) => inspector.call(context, inputs),
+            DelegatingInspector::Call(_, inspector) => inspector.call(context, inputs),
+            DelegatingInspector::Prestate(_, inspector) => inspector.call(context, inputs),
+            DelegatingInspector::Noop => None,
+            DelegatingInspector::Mux(inspector) => inspector.call(context, inputs),
         };
 
         None
@@ -304,11 +304,15 @@ impl MultiInspector {
         outcome: CallOutcome,
     ) -> CallOutcome {
         match self {
-            MultiInspector::FourByte(inspector) => inspector.call_end(context, inputs, outcome),
-            MultiInspector::Call(_, inspector) => inspector.call_end(context, inputs, outcome),
-            MultiInspector::Prestate(_, inspector) => inspector.call_end(context, inputs, outcome),
-            MultiInspector::Noop => outcome,
-            MultiInspector::Mux(inspector) => inspector.call_end(context, inputs, outcome),
+            DelegatingInspector::FourByte(inspector) => {
+                inspector.call_end(context, inputs, outcome)
+            }
+            DelegatingInspector::Call(_, inspector) => inspector.call_end(context, inputs, outcome),
+            DelegatingInspector::Prestate(_, inspector) => {
+                inspector.call_end(context, inputs, outcome)
+            }
+            DelegatingInspector::Noop => outcome,
+            DelegatingInspector::Mux(inspector) => inspector.call_end(context, inputs, outcome),
         }
     }
 
@@ -319,11 +323,11 @@ impl MultiInspector {
         inputs: &mut CreateInputs,
     ) -> Option<CreateOutcome> {
         match self {
-            MultiInspector::FourByte(inspector) => inspector.create(context, inputs),
-            MultiInspector::Call(_, inspector) => inspector.create(context, inputs),
-            MultiInspector::Prestate(_, inspector) => inspector.create(context, inputs),
-            MultiInspector::Noop => None,
-            MultiInspector::Mux(inspector) => inspector.create(context, inputs),
+            DelegatingInspector::FourByte(inspector) => inspector.create(context, inputs),
+            DelegatingInspector::Call(_, inspector) => inspector.create(context, inputs),
+            DelegatingInspector::Prestate(_, inspector) => inspector.create(context, inputs),
+            DelegatingInspector::Noop => None,
+            DelegatingInspector::Mux(inspector) => inspector.create(context, inputs),
         };
 
         None
@@ -337,36 +341,40 @@ impl MultiInspector {
         outcome: CreateOutcome,
     ) -> CreateOutcome {
         match self {
-            MultiInspector::FourByte(inspector) => inspector.create_end(context, inputs, outcome),
-            MultiInspector::Call(_, inspector) => inspector.create_end(context, inputs, outcome),
-            MultiInspector::Prestate(_, inspector) => {
+            DelegatingInspector::FourByte(inspector) => {
                 inspector.create_end(context, inputs, outcome)
             }
-            MultiInspector::Noop => outcome,
-            MultiInspector::Mux(inspector) => inspector.create_end(context, inputs, outcome),
+            DelegatingInspector::Call(_, inspector) => {
+                inspector.create_end(context, inputs, outcome)
+            }
+            DelegatingInspector::Prestate(_, inspector) => {
+                inspector.create_end(context, inputs, outcome)
+            }
+            DelegatingInspector::Noop => outcome,
+            DelegatingInspector::Mux(inspector) => inspector.create_end(context, inputs, outcome),
         }
     }
 
     #[inline]
     fn selfdestruct<DB: Database>(&mut self, contract: Address, target: Address, value: U256) {
         match self {
-            MultiInspector::FourByte(inspector) => {
+            DelegatingInspector::FourByte(inspector) => {
                 <FourByteInspector as Inspector<DB>>::selfdestruct(
                     inspector, contract, target, value,
                 )
             }
-            MultiInspector::Call(_, inspector) => {
+            DelegatingInspector::Call(_, inspector) => {
                 <TracingInspector as Inspector<DB>>::selfdestruct(
                     inspector, contract, target, value,
                 )
             }
-            MultiInspector::Prestate(_, inspector) => {
+            DelegatingInspector::Prestate(_, inspector) => {
                 <TracingInspector as Inspector<DB>>::selfdestruct(
                     inspector, contract, target, value,
                 )
             }
-            MultiInspector::Noop => {}
-            MultiInspector::Mux(inspector) => {
+            DelegatingInspector::Noop => {}
+            DelegatingInspector::Mux(inspector) => {
                 <MuxInspector as Inspector<DB>>::selfdestruct(inspector, contract, target, value)
             }
         }
