@@ -25,11 +25,11 @@ alloy-sol-types = "0.6"
 alloy-primitives = "0.6"
 alloy-rpc-types = { git = "https://github.com/alloy-rs/alloy", rev = "64d0352" }
 alloy-rpc-trace-types = { git = "https://github.com/alloy-rs/alloy", rev = "64d0352" }
-revm = { version = "6.0", default-features = false, features = ["std"] }
+revm = { version = "7.0", default-features = false, features = ["std"] }
 
 anstyle = "1.0"
 colorchoice = "1.0"
-thiserror = { version = "1"}
+thiserror = { version = "1" }
 
 # serde
 serde = { version = "1", optional = true, features = ["derive"] }
@@ -45,3 +45,9 @@ expect-test = "1.4"
 [features]
 serde = ["dep:serde", "revm/serde"]
 js-tracer = ["dep:boa_engine", "dep:boa_gc"]
+
+[patch.crates-io]
+revm = { git = "https://github.com/bluealloy/revm", branch = "inner_evm_context" }
+revm-precompile = { git = "https://github.com/bluealloy/revm", branch = "inner_evm_context" }
+revm-primitives = { git = "https://github.com/bluealloy/revm", branch = "inner_evm_context" }
+revm-interpreter = { git = "https://github.com/bluealloy/revm", branch = "inner_evm_context" }
