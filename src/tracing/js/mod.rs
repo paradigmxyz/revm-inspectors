@@ -17,9 +17,8 @@ use revm::{
         return_revert, CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, Gas,
         InstructionResult, Interpreter, InterpreterResult,
     },
-    precompile::Precompiles,
     primitives::{Env, ExecutionResult, Output, ResultAndState, TransactTo},
-    Database, DatabaseRef, EvmContext, Inspector,
+    ContextPrecompiles, Database, DatabaseRef, EvmContext, Inspector,
 };
 
 pub(crate) mod bindings;
@@ -359,7 +358,7 @@ impl JsInspector {
     }
 
     /// Registers the precompiles in the JS context
-    fn register_precompiles(&mut self, precompiles: &Precompiles) {
+    fn register_precompiles<DB: Database>(&mut self, precompiles: &ContextPrecompiles<DB>) {
         if !self.precompiles_registered {
             return;
         }
