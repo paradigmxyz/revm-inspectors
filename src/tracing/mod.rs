@@ -157,7 +157,7 @@ impl TracingInspector {
         to: &Address,
         value: U256,
     ) -> bool {
-        if context.precompiles.contains(to) {
+        if context.precompiles.contains_key(to) {
             // only if this is _not_ the root call
             return self.is_deep() && value.is_zero();
         }
