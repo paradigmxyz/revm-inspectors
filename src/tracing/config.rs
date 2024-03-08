@@ -118,7 +118,7 @@ impl TracingInspectorConfig {
     /// This returns [Self::none] and enables [TracingInspectorConfig::record_logs] if configured in
     /// the given [CallConfig]
     #[inline]
-    pub const fn from_geth_call_config(config: &CallConfig) -> Self {
+    pub fn from_geth_call_config(config: &CallConfig) -> Self {
         Self::none()
             // call tracer is similar parity tracer with optional support for logs
             .set_record_logs(config.with_log.unwrap_or_default())
@@ -148,7 +148,7 @@ impl TracingInspectorConfig {
     }
 
     /// Enable recording of individual opcode level steps
-    pub const fn steps(mut self) -> Self {
+    pub const fn steps(self) -> Self {
         self.set_steps(true)
     }
 
@@ -164,7 +164,7 @@ impl TracingInspectorConfig {
     }
 
     /// Enable recording of individual memory snapshots
-    pub const fn memory_snapshots(mut self) -> Self {
+    pub const fn memory_snapshots(self) -> Self {
         self.set_memory_snapshots(true)
     }
 
@@ -180,7 +180,7 @@ impl TracingInspectorConfig {
     }
 
     /// Enable recording of individual stack snapshots
-    pub const fn stack_snapshots(mut self) -> Self {
+    pub const fn stack_snapshots(self) -> Self {
         self.set_stack_snapshots(StackSnapshotType::Full)
     }
 
@@ -191,7 +191,7 @@ impl TracingInspectorConfig {
     }
 
     /// Disable recording of state diffs
-    pub const fn disable_state_diffs(mut self) -> Self {
+    pub const fn disable_state_diffs(self) -> Self {
         self.set_state_diffs(false)
     }
 
@@ -224,7 +224,7 @@ impl TracingInspectorConfig {
     }
 
     /// Enable recording of individual logs
-    pub const fn record_logs(mut self) -> Self {
+    pub const fn record_logs(self) -> Self {
         self.set_record_logs(true)
     }
 
