@@ -192,8 +192,7 @@ impl DelegatingInspector {
                     .into_call_config()?;
 
                 let inspector = TracingInspector::new(
-                    TracingInspectorConfig::default_geth()
-                        .set_record_logs(call_config.with_log.unwrap_or_default()),
+                    TracingInspectorConfig::from_geth_call_config(&call_config),
                 );
 
                 Ok(DelegatingInspector::Call(call_config, inspector))
@@ -204,10 +203,7 @@ impl DelegatingInspector {
                     .into_pre_state_config()?;
 
                 let inspector = TracingInspector::new(
-                    TracingInspectorConfig::default_geth()
-                        // if in default mode, we need to return all touched storages, for
-                        // which we need to record steps and statediff
-                        .set_steps_and_state_diffs(prestate_config.is_default_mode()),
+                    TracingInspectorConfig::from_geth_prestate_config(&prestate_config),
                 );
 
                 Ok(DelegatingInspector::Prestate(prestate_config, inspector))
