@@ -959,12 +959,10 @@ where
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::tracing::js::builtins::BIG_INT_JS;
     use boa_engine::{property::Attribute, Source};
     use revm::db::{CacheDB, EmptyDB};
-
-    use crate::tracing::js::builtins::BIG_INT_JS;
-
-    use super::*;
 
     #[test]
     fn test_contract() {
