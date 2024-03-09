@@ -93,7 +93,7 @@ impl TracingInspector {
         }
     }
 
-    /// Resets the inspector to it's initial state of [Self::new].
+    /// Resets the inspector to its initial state of [Self::new].
     /// This makes the inspector ready to be used again.
     ///
     /// Note that this method has no effect on the allocated capacity of the vector.
