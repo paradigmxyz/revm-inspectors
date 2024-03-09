@@ -67,6 +67,14 @@ impl CallTraceArena {
     pub fn into_nodes(self) -> Vec<CallTraceNode> {
         self.arena
     }
+
+    /// Clears the arena
+    ///
+    /// Note that this method has no effect on the allocated capacity of the arena.
+    #[inline]
+    pub fn clear(&mut self) {
+        self.arena.clear();
+    }
 }
 
 /// How to push a trace into the arena
