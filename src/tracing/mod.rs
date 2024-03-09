@@ -93,6 +93,37 @@ impl TracingInspector {
         }
     }
 
+    /// Resets the inspector to its initial state of [Self::new].
+    /// This makes the inspector ready to be used again.
+    ///
+    /// Note that this method has no effect on the allocated capacity of the vector.
+    #[inline]
+    pub fn fuse(&mut self) {
+        let Self {
+            traces,
+            trace_stack,
+            step_stack,
+            last_call_return_data,
+            gas_inspector,
+            spec_id,
+            // kept
+            config: _,
+        } = self;
+        traces.clear();
+        trace_stack.clear();
+        step_stack.clear();
+        last_call_return_data.take();
+        spec_id.take();
+        *gas_inspector = Default::default();
+    }
+
+    /// Resets the inspector to it's initial state of [Self::new].
+    #[inline]
+    pub fn fused(mut self) -> Self {
+        self.fuse();
+        self
+    }
+
     /// Returns the config of the inspector.
     pub const fn config(&self) -> &TracingInspectorConfig {
         &self.config
