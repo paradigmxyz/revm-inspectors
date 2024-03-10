@@ -11,7 +11,7 @@ use crate::tracing::{
 };
 use alloy_primitives::{Address, Bytes, Log, B256, U256};
 pub use boa_engine::vm::RuntimeLimits;
-use boa_engine::{Context, JsError, JsObject, JsResult, JsValue, Source};
+use boa_engine::{js_string, Context, JsError, JsObject, JsResult, JsValue, Source};
 use revm::{
     interpreter::{
         return_revert, CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, Gas,
@@ -40,7 +40,7 @@ pub const RECURSION_LIMIT: usize = 10_000;
 /// See also <https://geth.ethereum.org/docs/developers/evm-tracing/custom-tracer#custom-javascript-tracing>
 #[derive(Debug)]
 pub struct JsInspector {
-    ctx: Context<'static>,
+    ctx: Context,
     /// The javascript config provided to the inspector.
     _js_config_value: JsValue,
     /// The input config object.
@@ -122,7 +122,7 @@ impl JsInspector {
         // ensure all the fields are callables, if present
 
         let result_fn = obj
-            .get("result", &mut ctx)?
+            .get(js_string!("result"), &mut ctx)?
             .as_object()
             .cloned()
             .ok_or(JsInspectorError::ResultFunctionMissing)?;
@@ -131,7 +131,7 @@ impl JsInspector {
         }
 
         let fault_fn = obj
-            .get("fault", &mut ctx)?
+            .get(js_string!("fault"), &mut ctx)?
             .as_object()
             .cloned()
             .ok_or(JsInspectorError::FaultFunctionMissing)?;
@@ -139,14 +139,20 @@ impl JsInspector {
             return Err(JsInspectorError::FaultFunctionMissing);
         }
 
-        let enter_fn = obj.get("enter", &mut ctx)?.as_object().cloned().filter(|o| o.is_callable());
-        let exit_fn = obj.get("exit", &mut ctx)?.as_object().cloned().filter(|o| o.is_callable());
-        let step_fn = obj.get("step", &mut ctx)?.as_object().cloned().filter(|o| o.is_callable());
+        let enter_fn = obj
+            .get(js_string!("enter"), &mut ctx)?
+            .as_object()
+            .cloned()
+            .filter(|o| o.is_callable());
+        let exit_fn =
+            obj.get(js_string!("exit"), &mut ctx)?.as_object().cloned().filter(|o| o.is_callable());
+        let step_fn =
+            obj.get(js_string!("step"), &mut ctx)?.as_object().cloned().filter(|o| o.is_callable());
 
         let _js_config_value =
             JsValue::from_json(&config, &mut ctx).map_err(JsInspectorError::InvalidJsonConfig)?;
 
-        if let Some(setup_fn) = obj.get("setup", &mut ctx)?.as_object() {
+        if let Some(setup_fn) = obj.get(js_string!("setup"), &mut ctx)?.as_object() {
             if !setup_fn.is_callable() {
                 return Err(JsInspectorError::SetupFunctionNotCallable);
             }
