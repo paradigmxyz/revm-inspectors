@@ -2,12 +2,14 @@
 
 use alloy_primitives::{hex, Address, B256, U256};
 use boa_engine::{
+    builtins::array_buffer::ArrayBuffer,
+    js_string,
     object::builtins::{JsArray, JsArrayBuffer},
     property::Attribute,
     Context, JsArgs, JsError, JsNativeError, JsResult, JsString, JsValue, NativeFunction, Source,
 };
 use boa_gc::{empty_trace, Finalize, Trace};
-use std::collections::HashSet;
+use std::{borrow::Borrow, collections::HashSet};
 
 /// bigIntegerJS is the minified version of <https://github.com/peterolson/BigInteger.js>.
 pub(crate) const BIG_INT_JS: &str = include_str!("bigint.js");
@@ -16,27 +18,48 @@ pub(crate) const BIG_INT_JS: &str = include_str!("bigint.js");
 ///
 /// Note: this does not register the `isPrecompiled` builtin, as this requires the precompile
 /// addresses, see [PrecompileList::register_callable].
-pub(crate) fn register_builtins(ctx: &mut Context<'_>) -> JsResult<()> {
+pub(crate) fn register_builtins(ctx: &mut Context) -> JsResult<()> {
     let big_int = ctx.eval(Source::from_bytes(BIG_INT_JS.as_bytes()))?;
-    ctx.register_global_property("bigint", big_int, Attribute::all())?;
-    ctx.register_global_builtin_callable("toHex", 1, NativeFunction::from_fn_ptr(to_hex))?;
-    ctx.register_global_callable("toWord", 1, NativeFunction::from_fn_ptr(to_word))?;
-    ctx.register_global_callable("toAddress", 1, NativeFunction::from_fn_ptr(to_address))?;
-    ctx.register_global_callable("toContract", 2, NativeFunction::from_fn_ptr(to_contract))?;
-    ctx.register_global_callable("toContract2", 3, NativeFunction::from_fn_ptr(to_contract2))?;
+    ctx.register_global_property(js_string!("bigint"), big_int, Attribute::all())?;
+    ctx.register_global_builtin_callable(
+        js_string!("toHex"),
+        1,
+        NativeFunction::from_fn_ptr(to_hex),
+    )?;
+    ctx.register_global_callable(js_string!("toWord"), 1, NativeFunction::from_fn_ptr(to_word))?;
+    ctx.register_global_callable(
+        js_string!("toAddress"),
+        1,
+        NativeFunction::from_fn_ptr(to_address),
+    )?;
+    ctx.register_global_callable(
+        js_string!("toContract"),
+        2,
+        NativeFunction::from_fn_ptr(to_contract),
+    )?;
+    ctx.register_global_callable(
+        js_string!("toContract2"),
+        3,
+        NativeFunction::from_fn_ptr(to_contract2),
+    )?;
 
     Ok(())
 }
 
 /// Converts an array, hex string or Uint8Array to a []byte
-pub(crate) fn from_buf(val: JsValue, context: &mut Context<'_>) -> JsResult<Vec<u8>> {
+pub(crate) fn from_buf(val: JsValue, context: &mut Context) -> JsResult<Vec<u8>> {
     if let Some(obj) = val.as_object().cloned() {
-        if obj.is_array_buffer() {
+        if obj.is::<ArrayBuffer>() {
             let buf = JsArrayBuffer::from_object(obj)?;
-            return buf.take();
-        } else if obj.is_string() {
-            let js_string = obj.borrow().as_string().unwrap();
-            return hex_decode_js_string(js_string);
+            let buf = buf.data().map(|data| data.to_vec()).ok_or_else(|| {
+                JsNativeError::typ().with_message("ArrayBuffer was already detached")
+            })?;
+            return Ok(buf);
+        } else if obj.is::<JsString>() {
+            let js_string = obj
+                .downcast_ref::<JsString>()
+                .ok_or_else(|| JsNativeError::typ().with_message("invalid string type"))?;
+            return hex_decode_js_string(js_string.borrow());
         } else if obj.is_array() {
             let array = JsArray::from_object(obj)?;
             let len = array.length(context)?;
@@ -49,7 +72,7 @@ pub(crate) fn from_buf(val: JsValue, context: &mut Context<'_>) -> JsResult<Vec<
         }
     }
 
-    if let Some(js_string) = val.as_string().cloned() {
+    if let Some(js_string) = val.as_string() {
         return hex_decode_js_string(js_string);
     }
 
@@ -59,17 +82,17 @@ pub(crate) fn from_buf(val: JsValue, context: &mut Context<'_>) -> JsResult<Vec<
 }
 
 /// Create a new array buffer from the address' bytes.
-pub(crate) fn address_to_buf(addr: Address, context: &mut Context<'_>) -> JsResult<JsArrayBuffer> {
+pub(crate) fn address_to_buf(addr: Address, context: &mut Context) -> JsResult<JsArrayBuffer> {
     to_buf(addr.0.to_vec(), context)
 }
 
 /// Create a new array buffer from byte block.
-pub(crate) fn to_buf(bytes: Vec<u8>, context: &mut Context<'_>) -> JsResult<JsArrayBuffer> {
+pub(crate) fn to_buf(bytes: Vec<u8>, context: &mut Context) -> JsResult<JsArrayBuffer> {
     JsArrayBuffer::from_byte_block(bytes, context)
 }
 
 /// Create a new array buffer object from byte block.
-pub(crate) fn to_buf_value(bytes: Vec<u8>, context: &mut Context<'_>) -> JsResult<JsValue> {
+pub(crate) fn to_buf_value(bytes: Vec<u8>, context: &mut Context) -> JsResult<JsValue> {
     Ok(to_buf(bytes, context)?.into())
 }
 
@@ -106,14 +129,14 @@ pub(crate) fn bytes_to_hash(buf: Vec<u8>) -> B256 {
 }
 
 /// Converts a U256 to a bigint using the global bigint property
-pub(crate) fn to_bigint(value: U256, ctx: &mut Context<'_>) -> JsResult<JsValue> {
-    let bigint = ctx.global_object().get("bigint", ctx)?;
+pub(crate) fn to_bigint(value: U256, ctx: &mut Context) -> JsResult<JsValue> {
+    let bigint = ctx.global_object().get(js_string!("bigint"), ctx)?;
     if !bigint.is_callable() {
         return Ok(JsValue::undefined());
     }
     bigint.as_callable().unwrap().call(
         &JsValue::undefined(),
-        &[JsValue::from(value.to_string())],
+        &[JsValue::from(js_string!(value.to_string()))],
         ctx,
     )
 }
@@ -121,16 +144,12 @@ pub(crate) fn to_bigint(value: U256, ctx: &mut Context<'_>) -> JsResult<JsValue>
 /// value, and the initcode for the contract. Compute the address of a contract created by the
 /// sender with the given salt and code hash, then converts the resulting address back into a byte
 /// buffer for output.
-pub(crate) fn to_contract2(
-    _: &JsValue,
-    args: &[JsValue],
-    ctx: &mut Context<'_>,
-) -> JsResult<JsValue> {
+pub(crate) fn to_contract2(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     // Extract the sender's address, salt and initcode from the arguments
     let from = args.get_or_undefined(0).clone();
     let salt = match args.get_or_undefined(1).to_string(ctx) {
         Ok(js_string) => {
-            let buf = hex_decode_js_string(js_string)?;
+            let buf = hex_decode_js_string(&js_string)?;
             bytes_to_hash(buf)
         }
         Err(_) => {
@@ -157,11 +176,7 @@ pub(crate) fn to_contract2(
 }
 
 ///  Converts the sender's address to a byte buffer
-pub(crate) fn to_contract(
-    _: &JsValue,
-    args: &[JsValue],
-    ctx: &mut Context<'_>,
-) -> JsResult<JsValue> {
+pub(crate) fn to_contract(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     // Extract the sender's address and nonce from the arguments
     let from = args.get_or_undefined(0).clone();
     let nonce = args.get_or_undefined(1).to_number(ctx)? as u64;
@@ -178,11 +193,7 @@ pub(crate) fn to_contract(
 }
 
 /// Converts a buffer type to an address
-pub(crate) fn to_address(
-    _: &JsValue,
-    args: &[JsValue],
-    ctx: &mut Context<'_>,
-) -> JsResult<JsValue> {
+pub(crate) fn to_address(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let val = args.get_or_undefined(0).clone();
     let buf = from_buf(val, ctx)?;
     let address = bytes_to_address(buf);
@@ -190,7 +201,7 @@ pub(crate) fn to_address(
 }
 
 /// Converts a buffer type to a word
-pub(crate) fn to_word(_: &JsValue, args: &[JsValue], ctx: &mut Context<'_>) -> JsResult<JsValue> {
+pub(crate) fn to_word(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let val = args.get_or_undefined(0).clone();
     let buf = from_buf(val, ctx)?;
     let hash = bytes_to_hash(buf);
@@ -198,14 +209,15 @@ pub(crate) fn to_word(_: &JsValue, args: &[JsValue], ctx: &mut Context<'_>) -> J
 }
 
 /// Converts a buffer type to a hex string
-pub(crate) fn to_hex(_: &JsValue, args: &[JsValue], ctx: &mut Context<'_>) -> JsResult<JsValue> {
+pub(crate) fn to_hex(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let val = args.get_or_undefined(0).clone();
     let buf = from_buf(val, ctx)?;
-    Ok(JsValue::from(hex::encode(buf)))
+    let s = js_string!(hex::encode(buf));
+    Ok(JsValue::from(s))
 }
 
 /// Decodes a hex decoded js-string
-fn hex_decode_js_string(js_string: JsString) -> JsResult<Vec<u8>> {
+fn hex_decode_js_string(js_string: &JsString) -> JsResult<Vec<u8>> {
     match js_string.to_std_string() {
         Ok(s) => match hex::decode(s.as_str()) {
             Ok(data) => Ok(data),
@@ -226,7 +238,7 @@ pub(crate) struct PrecompileList(pub(crate) HashSet<Address>);
 
 impl PrecompileList {
     /// Registers the global callable `isPrecompiled`
-    pub(crate) fn register_callable(self, ctx: &mut Context<'_>) -> JsResult<()> {
+    pub(crate) fn register_callable(self, ctx: &mut Context) -> JsResult<()> {
         let is_precompiled = NativeFunction::from_copy_closure_with_captures(
             move |_this, args, precompiles, ctx| {
                 let val = args.get_or_undefined(0).clone();
@@ -237,7 +249,7 @@ impl PrecompileList {
             self,
         );
 
-        ctx.register_global_callable("isPrecompiled", 1, is_precompiled)?;
+        ctx.register_global_callable(js_string!("isPrecompiled"), 1, is_precompiled)?;
 
         Ok(())
     }
