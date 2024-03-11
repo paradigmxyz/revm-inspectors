@@ -12,6 +12,7 @@ use crate::tracing::{
 };
 use alloy_primitives::{Address, Bytes, B256, U256};
 use boa_engine::{
+    js_string,
     native_function::NativeFunction,
     object::{builtins::JsArrayBuffer, FunctionObjectBuilder},
     Context, JsArgs, JsError, JsNativeError, JsObject, JsResult, JsValue,
@@ -31,7 +32,7 @@ use std::{cell::RefCell, rc::Rc};
 macro_rules! js_value_getter {
     ($value:ident, $ctx:ident) => {
         FunctionObjectBuilder::new(
-            $ctx,
+            $ctx.realm(),
             NativeFunction::from_copy_closure(move |_this, _args, _ctx| Ok(JsValue::from($value))),
         )
         .length(0)
@@ -43,7 +44,7 @@ macro_rules! js_value_getter {
 macro_rules! js_value_capture_getter {
     ($value:ident, $ctx:ident) => {
         FunctionObjectBuilder::new(
-            $ctx,
+            $ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, _args, input, _ctx| Ok(JsValue::from(input.clone())),
                 $value,
@@ -169,7 +170,7 @@ impl StepLog {
     /// Converts the contract object into a js object
     ///
     /// Caution: this expects a global property `bigint` to be present.
-    pub(crate) fn into_js_object(self, context: &mut Context<'_>) -> JsResult<JsObject> {
+    pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
         let Self {
             stack,
             op,
@@ -185,32 +186,35 @@ impl StepLog {
         let obj = JsObject::default();
 
         // fields
-        let op = op.into_js_object(context)?;
-        let memory = memory.into_js_object(context)?;
-        let stack = stack.into_js_object(context)?;
-        let contract = contract.into_js_object(context)?;
+        let op = op.into_js_object(ctx)?;
+        let memory = memory.into_js_object(ctx)?;
+        let stack = stack.into_js_object(ctx)?;
+        let contract = contract.into_js_object(ctx)?;
 
-        obj.set("op", op, false, context)?;
-        obj.set("memory", memory, false, context)?;
-        obj.set("stack", stack, false, context)?;
-        obj.set("contract", contract, false, context)?;
+        obj.set(js_string!("op"), op, false, ctx)?;
+        obj.set(js_string!("memory"), memory, false, ctx)?;
+        obj.set(js_string!("stack"), stack, false, ctx)?;
+        obj.set(js_string!("contract"), contract, false, ctx)?;
 
         // methods
-        let error =
-            if let Some(error) = error { JsValue::from(error) } else { JsValue::undefined() };
-        let get_error = js_value_capture_getter!(error, context);
-        let get_pc = js_value_getter!(pc, context);
-        let get_gas = js_value_getter!(gas, context);
-        let get_cost = js_value_getter!(cost, context);
-        let get_refund = js_value_getter!(refund, context);
-        let get_depth = js_value_getter!(depth, context);
+        let error = if let Some(error) = error {
+            JsValue::from(js_string!(error))
+        } else {
+            JsValue::undefined()
+        };
+        let get_error = js_value_capture_getter!(error, ctx);
+        let get_pc = js_value_getter!(pc, ctx);
+        let get_gas = js_value_getter!(gas, ctx);
+        let get_cost = js_value_getter!(cost, ctx);
+        let get_refund = js_value_getter!(refund, ctx);
+        let get_depth = js_value_getter!(depth, ctx);
 
-        obj.set("getPC", get_pc, false, context)?;
-        obj.set("getError", get_error, false, context)?;
-        obj.set("getGas", get_gas, false, context)?;
-        obj.set("getCost", get_cost, false, context)?;
-        obj.set("getDepth", get_depth, false, context)?;
-        obj.set("getRefund", get_refund, false, context)?;
+        obj.set(js_string!("getPC"), get_pc, false, ctx)?;
+        obj.set(js_string!("getError"), get_error, false, ctx)?;
+        obj.set(js_string!("getGas"), get_gas, false, ctx)?;
+        obj.set(js_string!("getCost"), get_cost, false, ctx)?;
+        obj.set(js_string!("getDepth"), get_depth, false, ctx)?;
+        obj.set(js_string!("getRefund"), get_refund, false, ctx)?;
 
         Ok(obj)
     }
@@ -231,12 +235,12 @@ impl MemoryRef {
         self.0.with_inner(|mem| mem.len()).unwrap_or_default()
     }
 
-    pub(crate) fn into_js_object(self, context: &mut Context<'_>) -> JsResult<JsObject> {
+    pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
         let obj = JsObject::default();
         let len = self.len();
 
         let length = FunctionObjectBuilder::new(
-            context,
+            ctx.realm(),
             NativeFunction::from_copy_closure(move |_this, _args, _ctx| {
                 Ok(JsValue::from(len as u64))
             }),
@@ -246,7 +250,7 @@ impl MemoryRef {
 
         // slice returns the requested range of memory as a byte slice.
         let slice = FunctionObjectBuilder::new(
-            context,
+            ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, args, memory, ctx| {
                     let start = args.get_or_undefined(0).to_number(ctx)?;
@@ -275,7 +279,7 @@ impl MemoryRef {
         .build();
 
         let get_uint = FunctionObjectBuilder::new(
-            context,
+            ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, args, memory, ctx|  {
                     let offset_f64 = args.get_or_undefined(0).to_number(ctx)?;
@@ -295,9 +299,9 @@ impl MemoryRef {
             .length(1)
             .build();
 
-        obj.set("slice", slice, false, context)?;
-        obj.set("getUint", get_uint, false, context)?;
-        obj.set("length", length, false, context)?;
+        obj.set(js_string!("slice"), slice, false, ctx)?;
+        obj.set(js_string!("getUint"), get_uint, false, ctx)?;
+        obj.set(js_string!("length"), length, false, ctx)?;
         Ok(obj)
     }
 }
@@ -356,27 +360,27 @@ unsafe impl<DB: 'static> Trace for GcDb<DB> {
 pub(crate) struct OpObj(pub(crate) u8);
 
 impl OpObj {
-    pub(crate) fn into_js_object(self, context: &mut Context<'_>) -> JsResult<JsObject> {
+    pub(crate) fn into_js_object(self, context: &mut Context) -> JsResult<JsObject> {
         let obj = JsObject::default();
         let value = self.0;
         let is_push = (PUSH0..=PUSH32).contains(&value);
 
         let to_number = FunctionObjectBuilder::new(
-            context,
+            context.realm(),
             NativeFunction::from_copy_closure(move |_this, _args, _ctx| Ok(JsValue::from(value))),
         )
         .length(0)
         .build();
 
         let is_push = FunctionObjectBuilder::new(
-            context,
+            context.realm(),
             NativeFunction::from_copy_closure(move |_this, _args, _ctx| Ok(JsValue::from(is_push))),
         )
         .length(0)
         .build();
 
         let to_string = FunctionObjectBuilder::new(
-            context,
+            context.realm(),
             NativeFunction::from_copy_closure(move |_this, _args, _ctx| {
                 let op = OpCode::new(value)
                     .or_else(|| {
@@ -389,15 +393,15 @@ impl OpObj {
                     })
                     .expect("is valid opcode;");
                 let s = op.to_string();
-                Ok(JsValue::from(s))
+                Ok(JsValue::from(js_string!(s)))
             }),
         )
         .length(0)
         .build();
 
-        obj.set("toNumber", to_number, false, context)?;
-        obj.set("toString", to_string, false, context)?;
-        obj.set("isPush", is_push, false, context)?;
+        obj.set(js_string!("toNumber"), to_number, false, context)?;
+        obj.set(js_string!("toString"), to_string, false, context)?;
+        obj.set(js_string!("isPush"), is_push, false, context)?;
         Ok(obj)
     }
 }
@@ -419,7 +423,7 @@ impl StackRef {
         (Self(inner), guard)
     }
 
-    fn peek(&self, idx: usize, ctx: &mut Context<'_>) -> JsResult<JsValue> {
+    fn peek(&self, idx: usize, ctx: &mut Context) -> JsResult<JsValue> {
         self.0
             .with_inner(|stack| {
                 let value = stack.peek(idx).map_err(|_| {
@@ -439,11 +443,11 @@ impl StackRef {
             })?
     }
 
-    pub(crate) fn into_js_object(self, context: &mut Context<'_>) -> JsResult<JsObject> {
+    pub(crate) fn into_js_object(self, context: &mut Context) -> JsResult<JsObject> {
         let obj = JsObject::default();
         let len = self.0.with_inner(|stack| stack.len()).unwrap_or_default();
         let length = FunctionObjectBuilder::new(
-            context,
+            context.realm(),
             NativeFunction::from_copy_closure(move |_this, _args, _ctx| Ok(JsValue::from(len))),
         )
         .length(0)
@@ -451,7 +455,7 @@ impl StackRef {
 
         // peek returns the nth-from-the-top element of the stack.
         let peek = FunctionObjectBuilder::new(
-            context,
+            context.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, args, stack, ctx| {
                     let idx_f64 = args.get_or_undefined(0).to_number(ctx)?;
@@ -471,8 +475,8 @@ impl StackRef {
         .length(1)
         .build();
 
-        obj.set("length", length, false, context)?;
-        obj.set("peek", peek, false, context)?;
+        obj.set(js_string!("length"), length, false, context)?;
+        obj.set(js_string!("peek"), peek, false, context)?;
         Ok(obj)
     }
 }
@@ -496,12 +500,12 @@ impl Contract {
     /// Converts the contract object into a js object
     ///
     /// Caution: this expects a global property `bigint` to be present.
-    pub(crate) fn into_js_object(self, context: &mut Context<'_>) -> JsResult<JsObject> {
+    pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
         let Self { caller, contract, value, input } = self;
         let obj = JsObject::default();
 
         let get_caller = FunctionObjectBuilder::new(
-            context,
+            ctx.realm(),
             NativeFunction::from_copy_closure(move |_this, _args, ctx| {
                 to_buf_value(caller.as_slice().to_vec(), ctx)
             }),
@@ -510,7 +514,7 @@ impl Contract {
         .build();
 
         let get_address = FunctionObjectBuilder::new(
-            context,
+            ctx.realm(),
             NativeFunction::from_copy_closure(move |_this, _args, ctx| {
                 to_buf_value(contract.as_slice().to_vec(), ctx)
             }),
@@ -519,15 +523,15 @@ impl Contract {
         .build();
 
         let get_value = FunctionObjectBuilder::new(
-            context,
+            ctx.realm(),
             NativeFunction::from_copy_closure(move |_this, _args, ctx| to_bigint(value, ctx)),
         )
         .length(0)
         .build();
 
-        let input = to_buf_value(input.to_vec(), context)?;
+        let input = to_buf_value(input.to_vec(), ctx)?;
         let get_input = FunctionObjectBuilder::new(
-            context,
+            ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, _args, input, _ctx| Ok(input.clone()),
                 input,
@@ -536,10 +540,10 @@ impl Contract {
         .length(0)
         .build();
 
-        obj.set("getCaller", get_caller, false, context)?;
-        obj.set("getAddress", get_address, false, context)?;
-        obj.set("getValue", get_value, false, context)?;
-        obj.set("getInput", get_input, false, context)?;
+        obj.set(js_string!("getCaller"), get_caller, false, ctx)?;
+        obj.set(js_string!("getAddress"), get_address, false, ctx)?;
+        obj.set(js_string!("getValue"), get_value, false, ctx)?;
+        obj.set(js_string!("getInput"), get_input, false, ctx)?;
 
         Ok(obj)
     }
@@ -553,13 +557,13 @@ pub(crate) struct FrameResult {
 }
 
 impl FrameResult {
-    pub(crate) fn into_js_object(self, ctx: &mut Context<'_>) -> JsResult<JsObject> {
+    pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
         let Self { gas_used, output, error } = self;
         let obj = JsObject::default();
 
         let output = to_buf_value(output.to_vec(), ctx)?;
         let get_output = FunctionObjectBuilder::new(
-            ctx,
+            ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, _args, output, _ctx| Ok(output.clone()),
                 output,
@@ -568,13 +572,13 @@ impl FrameResult {
         .length(0)
         .build();
 
-        let error = error.map(JsValue::from).unwrap_or_default();
+        let error = error.map(|err| JsValue::from(js_string!(err))).unwrap_or_default();
         let get_error = js_value_capture_getter!(error, ctx);
         let get_gas_used = js_value_getter!(gas_used, ctx);
 
-        obj.set("getGasUsed", get_gas_used, false, ctx)?;
-        obj.set("getOutput", get_output, false, ctx)?;
-        obj.set("getError", get_error, false, ctx)?;
+        obj.set(js_string!("getGasUsed"), get_gas_used, false, ctx)?;
+        obj.set(js_string!("getOutput"), get_output, false, ctx)?;
+        obj.set(js_string!("getError"), get_error, false, ctx)?;
 
         Ok(obj)
     }
@@ -588,12 +592,12 @@ pub(crate) struct CallFrame {
 }
 
 impl CallFrame {
-    pub(crate) fn into_js_object(self, ctx: &mut Context<'_>) -> JsResult<JsObject> {
+    pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
         let Self { contract: Contract { caller, contract, value, input }, kind, gas } = self;
         let obj = JsObject::default();
 
         let get_from = FunctionObjectBuilder::new(
-            ctx,
+            ctx.realm(),
             NativeFunction::from_copy_closure(move |_this, _args, ctx| {
                 to_buf_value(caller.as_slice().to_vec(), ctx)
             }),
@@ -602,7 +606,7 @@ impl CallFrame {
         .build();
 
         let get_to = FunctionObjectBuilder::new(
-            ctx,
+            ctx.realm(),
             NativeFunction::from_copy_closure(move |_this, _args, ctx| {
                 to_buf_value(contract.as_slice().to_vec(), ctx)
             }),
@@ -611,7 +615,7 @@ impl CallFrame {
         .build();
 
         let get_value = FunctionObjectBuilder::new(
-            ctx,
+            ctx.realm(),
             NativeFunction::from_copy_closure(move |_this, _args, ctx| to_bigint(value, ctx)),
         )
         .length(0)
@@ -619,7 +623,7 @@ impl CallFrame {
 
         let input = to_buf_value(input.to_vec(), ctx)?;
         let get_input = FunctionObjectBuilder::new(
-            ctx,
+            ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, _args, input, _ctx| Ok(input.clone()),
                 input,
@@ -629,15 +633,15 @@ impl CallFrame {
         .build();
 
         let get_gas = js_value_getter!(gas, ctx);
-        let ty = kind.to_string();
+        let ty = js_string!(kind.to_string());
         let get_type = js_value_capture_getter!(ty, ctx);
 
-        obj.set("getFrom", get_from, false, ctx)?;
-        obj.set("getTo", get_to, false, ctx)?;
-        obj.set("getValue", get_value, false, ctx)?;
-        obj.set("getInput", get_input, false, ctx)?;
-        obj.set("getGas", get_gas, false, ctx)?;
-        obj.set("getType", get_type, false, ctx)?;
+        obj.set(js_string!("getFrom"), get_from, false, ctx)?;
+        obj.set(js_string!("getTo"), get_to, false, ctx)?;
+        obj.set(js_string!("getValue"), get_value, false, ctx)?;
+        obj.set(js_string!("getInput"), get_input, false, ctx)?;
+        obj.set(js_string!("getGas"), get_gas, false, ctx)?;
+        obj.set(js_string!("getType"), get_type, false, ctx)?;
 
         Ok(obj)
     }
@@ -671,7 +675,7 @@ pub(crate) struct JsEvmContext {
 }
 
 impl JsEvmContext {
-    pub(crate) fn into_js_object(self, ctx: &mut Context<'_>) -> JsResult<JsObject> {
+    pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
         let Self {
             r#type,
             from,
@@ -691,31 +695,36 @@ impl JsEvmContext {
 
         // add properties
 
-        obj.set("type", r#type, false, ctx)?;
-        obj.set("from", address_to_buf(from, ctx)?, false, ctx)?;
+        obj.set(js_string!("type"), js_string!(r#type), false, ctx)?;
+        obj.set(js_string!("from"), address_to_buf(from, ctx)?, false, ctx)?;
         if let Some(to) = to {
-            obj.set("to", address_to_buf(to, ctx)?, false, ctx)?;
+            obj.set(js_string!("to"), address_to_buf(to, ctx)?, false, ctx)?;
         } else {
-            obj.set("to", JsValue::null(), false, ctx)?;
+            obj.set(js_string!("to"), JsValue::null(), false, ctx)?;
         }
 
-        obj.set("input", to_buf(input.to_vec(), ctx)?, false, ctx)?;
-        obj.set("gas", gas, false, ctx)?;
-        obj.set("gasUsed", gas_used, false, ctx)?;
-        obj.set("gasPrice", gas_price, false, ctx)?;
-        obj.set("intrinsicGas", intrinsic_gas, false, ctx)?;
-        obj.set("value", to_bigint(value, ctx)?, false, ctx)?;
-        obj.set("block", block, false, ctx)?;
-        obj.set("output", to_buf(output.to_vec(), ctx)?, false, ctx)?;
-        obj.set("time", time, false, ctx)?;
+        obj.set(js_string!("input"), to_buf(input.to_vec(), ctx)?, false, ctx)?;
+        obj.set(js_string!("gas"), gas, false, ctx)?;
+        obj.set(js_string!("gasUsed"), gas_used, false, ctx)?;
+        obj.set(js_string!("gasPrice"), gas_price, false, ctx)?;
+        obj.set(js_string!("intrinsicGas"), intrinsic_gas, false, ctx)?;
+        obj.set(js_string!("value"), to_bigint(value, ctx)?, false, ctx)?;
+        obj.set(js_string!("block"), block, false, ctx)?;
+        obj.set(js_string!("output"), to_buf(output.to_vec(), ctx)?, false, ctx)?;
+        obj.set(js_string!("time"), js_string!(time), false, ctx)?;
         if let Some(block_hash) = transaction_ctx.block_hash {
-            obj.set("blockHash", to_buf(block_hash.as_slice().to_vec(), ctx)?, false, ctx)?;
+            obj.set(
+                js_string!("blockHash"),
+                to_buf(block_hash.as_slice().to_vec(), ctx)?,
+                false,
+                ctx,
+            )?;
         }
         if let Some(tx_index) = transaction_ctx.tx_index {
-            obj.set("txIndex", tx_index as u64, false, ctx)?;
+            obj.set(js_string!("txIndex"), tx_index as u64, false, ctx)?;
         }
         if let Some(tx_hash) = transaction_ctx.tx_hash {
-            obj.set("txHash", to_buf(tx_hash.as_slice().to_vec(), ctx)?, false, ctx)?;
+            obj.set(js_string!("txHash"), to_buf(tx_hash.as_slice().to_vec(), ctx)?, false, ctx)?;
         }
 
         Ok(obj)
@@ -759,7 +768,7 @@ impl EvmDbRef {
         (this, guard)
     }
 
-    fn read_basic(&self, address: JsValue, ctx: &mut Context<'_>) -> JsResult<Option<AccountInfo>> {
+    fn read_basic(&self, address: JsValue, ctx: &mut Context) -> JsResult<Option<AccountInfo>> {
         let buf = from_buf(address, ctx)?;
         let address = bytes_to_address(buf);
         if let acc @ Some(_) = self.inner.state.get_account(&address) {
@@ -776,7 +785,7 @@ impl EvmDbRef {
         }
     }
 
-    fn read_code(&self, address: JsValue, ctx: &mut Context<'_>) -> JsResult<JsArrayBuffer> {
+    fn read_code(&self, address: JsValue, ctx: &mut Context) -> JsResult<JsArrayBuffer> {
         let acc = self.read_basic(address, ctx)?;
         let code_hash = acc.map(|acc| acc.code_hash).unwrap_or(KECCAK_EMPTY);
         if code_hash == KECCAK_EMPTY {
@@ -804,7 +813,7 @@ impl EvmDbRef {
         &self,
         address: JsValue,
         slot: JsValue,
-        ctx: &mut Context<'_>,
+        ctx: &mut Context,
     ) -> JsResult<JsArrayBuffer> {
         let buf = from_buf(address, ctx)?;
         let address = bytes_to_address(buf);
@@ -826,10 +835,10 @@ impl EvmDbRef {
         to_buf(value.as_slice().to_vec(), ctx)
     }
 
-    pub(crate) fn into_js_object(self, context: &mut Context<'_>) -> JsResult<JsObject> {
+    pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
         let obj = JsObject::default();
         let exists = FunctionObjectBuilder::new(
-            context,
+            ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, args, db, ctx| {
                     let val = args.get_or_undefined(0).clone();
@@ -844,7 +853,7 @@ impl EvmDbRef {
         .build();
 
         let get_balance = FunctionObjectBuilder::new(
-            context,
+            ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, args, db, ctx| {
                     let val = args.get_or_undefined(0).clone();
@@ -859,7 +868,7 @@ impl EvmDbRef {
         .build();
 
         let get_nonce = FunctionObjectBuilder::new(
-            context,
+            ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, args, db, ctx| {
                     let val = args.get_or_undefined(0).clone();
@@ -874,7 +883,7 @@ impl EvmDbRef {
         .build();
 
         let get_code = FunctionObjectBuilder::new(
-            context,
+            ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, args, db, ctx| {
                     let val = args.get_or_undefined(0).clone();
@@ -887,7 +896,7 @@ impl EvmDbRef {
         .build();
 
         let get_state = FunctionObjectBuilder::new(
-            context,
+            ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, args, db, ctx| {
                     let addr = args.get_or_undefined(0).clone();
@@ -900,11 +909,11 @@ impl EvmDbRef {
         .length(2)
         .build();
 
-        obj.set("getBalance", get_balance, false, context)?;
-        obj.set("getNonce", get_nonce, false, context)?;
-        obj.set("getCode", get_code, false, context)?;
-        obj.set("getState", get_state, false, context)?;
-        obj.set("exists", exists, false, context)?;
+        obj.set(js_string!("getBalance"), get_balance, false, ctx)?;
+        obj.set(js_string!("getNonce"), get_nonce, false, ctx)?;
+        obj.set(js_string!("getCode"), get_code, false, ctx)?;
+        obj.set(js_string!("getState"), get_state, false, ctx)?;
+        obj.set(js_string!("exists"), exists, false, ctx)?;
         Ok(obj)
     }
 }
@@ -974,46 +983,61 @@ mod tests {
             input: vec![0x01, 0x02, 0x03].into(),
         };
         let big_int = ctx.eval(Source::from_bytes(BIG_INT_JS)).unwrap();
-        ctx.register_global_property("bigint", big_int, Attribute::all()).unwrap();
+        ctx.register_global_property(js_string!("bigint"), big_int, Attribute::all()).unwrap();
 
         let obj = contract.clone().into_js_object(&mut ctx).unwrap();
         let s = "({
-                call: function(contract) { return contract.getCaller(); },
+                caller: function(contract) { return contract.getCaller(); },
                 value: function(contract) { return contract.getValue(); },
+                address: function(contract) { return contract.getAddress(); },
                 input: function(contract) { return contract.getInput(); }
         })";
 
+        let contract_arg = JsValue::from(obj);
         let eval_obj = ctx.eval(Source::from_bytes(s)).unwrap();
-
-        let call = eval_obj.as_object().unwrap().get("call", &mut ctx).unwrap();
+        let call = eval_obj.as_object().unwrap().get(js_string!("caller"), &mut ctx).unwrap();
         let res = call
             .as_callable()
             .unwrap()
-            .call(&JsValue::undefined(), &[obj.clone().into()], &mut ctx)
+            .call(&JsValue::undefined(), &[contract_arg.clone()], &mut ctx)
             .unwrap();
         assert!(res.is_object());
-        assert!(res.as_object().unwrap().is_array_buffer());
+        let obj = res.as_object().unwrap();
+        let array_buf = JsArrayBuffer::from_object(obj.clone());
+        assert!(array_buf.is_ok());
 
-        let call = eval_obj.as_object().unwrap().get("value", &mut ctx).unwrap();
+        let get_address =
+            eval_obj.as_object().unwrap().get(js_string!("address"), &mut ctx).unwrap();
+        let res = get_address
+            .as_callable()
+            .unwrap()
+            .call(&JsValue::undefined(), &[contract_arg.clone()], &mut ctx)
+            .unwrap();
+        assert!(res.is_object());
+        let obj = res.as_object().unwrap();
+        let array_buf = JsArrayBuffer::from_object(obj.clone()).unwrap();
+        assert_eq!(array_buf.data().unwrap().to_vec(), contract.contract.as_slice());
+
+        let call = eval_obj.as_object().unwrap().get(js_string!("value"), &mut ctx).unwrap();
         let res = call
             .as_callable()
             .unwrap()
-            .call(&JsValue::undefined(), &[obj.clone().into()], &mut ctx)
+            .call(&JsValue::undefined(), &[contract_arg.clone()], &mut ctx)
             .unwrap();
         assert_eq!(
             res.to_string(&mut ctx).unwrap().to_std_string().unwrap(),
             contract.value.to_string()
         );
 
-        let call = eval_obj.as_object().unwrap().get("input", &mut ctx).unwrap();
+        let call = eval_obj.as_object().unwrap().get(js_string!("input"), &mut ctx).unwrap();
         let res = call
             .as_callable()
             .unwrap()
-            .call(&JsValue::undefined(), &[obj.into()], &mut ctx)
+            .call(&JsValue::undefined(), &[contract_arg], &mut ctx)
             .unwrap();
 
         let buffer = JsArrayBuffer::from_object(res.as_object().unwrap().clone()).unwrap();
-        let input = buffer.take().unwrap();
+        let input = buffer.data().unwrap().to_vec();
         assert_eq!(input, contract.input);
     }
 
@@ -1040,7 +1064,7 @@ mod tests {
         {
             let (db, guard) = EvmDbRef::new(&state, &db);
             let addr = Address::default();
-            let addr = JsValue::from(addr.to_string());
+            let addr = JsValue::from(js_string!(addr.to_string()));
             let db = db.into_js_object(&mut context).unwrap();
             let res = f.call(&result, &[db.clone().into(), addr.clone()], &mut context).unwrap();
             assert!(!res.as_boolean().unwrap());
@@ -1055,7 +1079,7 @@ mod tests {
 
         {
             let (db, guard) = EvmDbRef::new(&state, &db);
-            let addr = JsValue::from(addr.to_string());
+            let addr = JsValue::from(js_string!(addr.to_string()));
             let db = db.into_js_object(&mut context).unwrap();
             let res = f.call(&result, &[db.clone().into(), addr.clone()], &mut context).unwrap();
 
@@ -1087,8 +1111,10 @@ mod tests {
 
         let obj = res.as_object().unwrap();
 
-        let result_fn = obj.get("result", &mut context).unwrap().as_object().cloned().unwrap();
-        let setup_fn = obj.get("setup", &mut context).unwrap().as_object().cloned().unwrap();
+        let result_fn =
+            obj.get(js_string!("result"), &mut context).unwrap().as_object().cloned().unwrap();
+        let setup_fn =
+            obj.get(js_string!("setup"), &mut context).unwrap().as_object().cloned().unwrap();
 
         let db = CacheDB::new(EmptyDB::new());
         let state = State::default();
@@ -1096,10 +1122,10 @@ mod tests {
             let (db_ref, guard) = EvmDbRef::new(&state, &db);
             let js_db = db_ref.into_js_object(&mut context).unwrap();
             let _res = setup_fn.call(&(obj.clone().into()), &[js_db.into()], &mut context).unwrap();
-            assert!(obj.get("db", &mut context).unwrap().is_object());
+            assert!(obj.get(js_string!("db"), &mut context).unwrap().is_object());
 
             let addr = Address::default();
-            let addr = JsValue::from(addr.to_string());
+            let addr = JsValue::from(js_string!(addr.to_string()));
             let res = result_fn.call(&(obj.clone().into()), &[addr.clone()], &mut context).unwrap();
             assert!(!res.as_boolean().unwrap());
 

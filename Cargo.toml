@@ -39,8 +39,8 @@ serde = { version = "1", optional = true, features = ["derive"] }
 serde_json = { version = "1" }
 
 # js-tracer
-boa_engine = { version = "0.17", optional = true }
-boa_gc = { version = "0.17", optional = true }
+boa_engine = { version = "0.18", optional = true }
+boa_gc = { version = "0.18", optional = true }
 
 [dev-dependencies]
 expect-test = "1.4"
