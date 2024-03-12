@@ -5,7 +5,7 @@ use crate::tracing::{
         bindings::{
             CallFrame, Contract, EvmDbRef, FrameResult, JsEvmContext, MemoryRef, StackRef, StepLog,
         },
-        builtins::{register_builtins, PrecompileList},
+        builtins::{register_builtins, to_serde_value, PrecompileList},
     },
     types::CallKind,
 };
@@ -214,7 +214,8 @@ impl JsInspector {
         DB: DatabaseRef,
         <DB as DatabaseRef>::Error: std::fmt::Display,
     {
-        Ok(self.result(res, env, db)?.to_json(&mut self.ctx)?)
+        let result = self.result(res, env, db)?;
+        Ok(to_serde_value(result, &mut self.ctx)?)
     }
 
     /// Calls the result function and returns the result.
