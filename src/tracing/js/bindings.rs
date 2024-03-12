@@ -969,7 +969,9 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tracing::js::builtins::BIG_INT_JS;
+    use crate::tracing::js::builtins::{
+        json_stringify, register_builtins, to_serde_value, BIG_INT_JS,
+    };
     use boa_engine::{property::Attribute, Source};
     use revm::db::{CacheDB, EmptyDB};
 
@@ -1134,5 +1136,60 @@ mod tests {
             let res = result_fn.call(&(obj.clone().into()), &[addr], &mut context);
             assert!(res.is_err());
         }
+    }
+
+    #[test]
+    fn test_big_int() {
+        let mut context = Context::default();
+        register_builtins(&mut context).unwrap();
+
+        let eval = context
+            .eval(Source::from_bytes(
+                r#"({data: [], fault: function(log) {}, step: function(log) { this.data.push({ value: log.stack.peek(2) }) }, result: function() { return this.data; }})"#
+                .to_string()
+                .as_bytes(),
+            ))
+            .unwrap();
+
+        let obj = eval.as_object().unwrap();
+
+        let result_fn =
+            obj.get(js_string!("result"), &mut context).unwrap().as_object().cloned().unwrap();
+        let step_fn =
+            obj.get(js_string!("step"), &mut context).unwrap().as_object().cloned().unwrap();
+
+        let mut stack = Stack::new();
+        stack.push(U256::from(35000)).unwrap();
+        stack.push(U256::from(35000)).unwrap();
+        stack.push(U256::from(35000)).unwrap();
+        let (stack_ref, _stack_guard) = StackRef::new(&stack);
+        let mem = SharedMemory::new();
+        let (mem_ref, _mem_guard) = MemoryRef::new(&mem);
+
+        let step = StepLog {
+            stack: stack_ref,
+            op: OpObj(0),
+            memory: mem_ref,
+            pc: 0,
+            gas_remaining: 0,
+            cost: 0,
+            depth: 0,
+            refund: 0,
+            error: None,
+            contract: Default::default(),
+        };
+
+        let js_step = step.into_js_object(&mut context).unwrap();
+
+        let _ = step_fn.call(&eval, &[js_step.into()], &mut context).unwrap();
+
+        let res = result_fn.call(&eval, &[], &mut context).unwrap();
+        let val = json_stringify(res.clone(), &mut context).unwrap().to_std_string().unwrap();
+        assert_eq!(val, r#"[{"value":"35000"}]"#);
+
+        let val = to_serde_value(res, &mut context).unwrap();
+        assert!(val.is_array());
+        let s = val.to_string();
+        assert_eq!(s, r#"[{"value":"35000"}]"#);
     }
 }

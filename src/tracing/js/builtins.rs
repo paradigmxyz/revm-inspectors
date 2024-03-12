@@ -14,6 +14,48 @@ use std::{borrow::Borrow, collections::HashSet};
 /// bigIntegerJS is the minified version of <https://github.com/peterolson/BigInteger.js>.
 pub(crate) const BIG_INT_JS: &str = include_str!("bigint.js");
 
+/// Converts the given `JsValue` to a `serde_json::Value`.
+///
+/// This first attempts to use the built-in `JSON.stringify` function to convert the value to a JSON
+///
+/// If that fails it uses boa's to_json function to convert the value to a JSON object
+///
+/// We use `JSON.stringify` so that `toJSON` properties are used when converting the value to JSON,
+/// this ensures the `bigint` is serialized properly.
+pub(crate) fn to_serde_value(val: JsValue, ctx: &mut Context) -> JsResult<serde_json::Value> {
+    if let Ok(json) = json_stringify(val.clone(), ctx) {
+        let json = json.to_std_string().map_err(|err| {
+            JsError::from_native(
+                JsNativeError::error()
+                    .with_message(format!("failed to convert JSON to string: {}", err)),
+            )
+        })?;
+        serde_json::from_str(&json).map_err(|err| {
+            JsError::from_native(
+                JsNativeError::error().with_message(format!("failed to parse JSON: {}", err)),
+            )
+        })
+    } else {
+        val.to_json(ctx)
+    }
+}
+
+/// Attempts to use the global `JSON` object to stringify the given value.
+pub(crate) fn json_stringify(val: JsValue, ctx: &mut Context) -> JsResult<JsString> {
+    let json = ctx.global_object().get(js_string!("JSON"), ctx)?;
+    let json_obj = json.as_object().ok_or_else(|| {
+        JsError::from_native(JsNativeError::typ().with_message("JSON is not an object"))
+    })?;
+
+    let stringify = json_obj.get(js_string!("stringify"), ctx)?;
+
+    let stringify = stringify.as_callable().ok_or_else(|| {
+        JsError::from_native(JsNativeError::typ().with_message("JSON.stringify is not callable"))
+    })?;
+    let res = stringify.call(&json, &[val], ctx)?;
+    res.to_string(ctx)
+}
+
 /// Registers all the builtin functions and global bigint property
 ///
 /// Note: this does not register the `isPrecompiled` builtin, as this requires the precompile
