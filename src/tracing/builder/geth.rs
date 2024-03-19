@@ -204,7 +204,7 @@ impl GethTraceBuilder {
         prestate_config: PreStateConfig,
         db: DB,
     ) -> Result<PreStateFrame, DB::Error> {
-        let account_diffs = state.into_iter().map(|(addr, acc)| (*addr, acc));
+        let account_diffs = state.iter().map(|(addr, acc)| (*addr, acc));
 
         if prestate_config.is_default_mode() {
             let mut prestate = PreStateMode::default();
