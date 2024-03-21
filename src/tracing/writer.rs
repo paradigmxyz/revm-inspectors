@@ -210,19 +210,25 @@ impl<W: Write> TraceWriter<W> {
     }
 
     fn write_trace_footer(&mut self, trace: &CallTrace) -> io::Result<()> {
-        write!(self.writer, "{style}{RETURN}{style:#}", style = self.trace_style(trace))?;
+        write!(
+            self.writer,
+            "{style}{RETURN}[{status:?}] {style:#}",
+            style = self.trace_style(trace),
+            status = trace.status,
+        )?;
+
         // TODO:
         // if let Some(decoded) = trace.decoded_return_data {
         //     return self.writer.write_all(decoded.as_bytes());
         // }
+
         if trace.kind.is_any_create() {
-            write!(self.writer, "{} bytes of code", trace.output.len())
-        } else if trace.output.is_empty() {
-            self.writer.write_all(b"()")
-        } else {
-            write!(self.writer, "{}", trace.output)
+            write!(self.writer, "{} bytes of code", trace.output.len())?;
+        } else if !trace.output.is_empty() {
+            write!(self.writer, "{}", trace.output)?;
         }
-        // TODO: Write `trace.status`?
+
+        Ok(())
     }
 
     fn write_indentation(&mut self) -> io::Result<()> {
