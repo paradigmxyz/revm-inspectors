@@ -67,4 +67,4 @@ license-files = [{ path = "LICENSE", hash = 0x001c7e6c }]
 unknown-registry = "warn"
 unknown-git = "deny"
 # TODO: remove, see ./Cargo.toml
-allow-git = ["https://github.com/alloy-rs/alloy", "https://github.com/bluealloy/revm"]
+allow-git = ["https://github.com/alloy-rs/alloy", "https://github.com/bluealloy/revm", "https://github.com/alloy-rs/core"]
