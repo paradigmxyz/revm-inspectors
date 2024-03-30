@@ -449,15 +449,15 @@ where
     }
 
     fn step(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
+        self.gas_inspector.step(interp, context);
         if self.config.record_steps {
-            self.gas_inspector.step(interp, context);
             self.start_step(interp, context);
         }
     }
 
     fn step_end(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
+        self.gas_inspector.step_end(interp, context);
         if self.config.record_steps {
-            self.gas_inspector.step_end(interp, context);
             self.fill_step_on_step_end(interp, context);
         }
     }
