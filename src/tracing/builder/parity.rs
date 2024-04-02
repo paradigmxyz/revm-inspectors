@@ -5,8 +5,8 @@ use crate::tracing::{
     TracingInspectorConfig,
 };
 use alloy_primitives::{Address, U64};
-use alloy_rpc_trace_types::parity::*;
 use alloy_rpc_types::TransactionInfo;
+use alloy_rpc_types_trace::parity::*;
 use revm::{
     db::DatabaseRef,
     interpreter::{

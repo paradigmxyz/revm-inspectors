@@ -23,9 +23,9 @@ clippy.lint_groups_priority = "allow"
 # eth
 alloy-sol-types = "0.7.0"
 alloy-primitives = "0.7.0"
-alloy-rpc-types = { git = "https://github.com/alloy-rs/alloy", rev = "75299e7" }
-alloy-rpc-trace-types = { git = "https://github.com/alloy-rs/alloy", rev = "75299e7" }
-revm = { version = "7.2", default-features = false, features = ["std"] }
+alloy-rpc-types = { git = "https://github.com/alloy-rs/alloy", rev = "bfd0fda" }
+alloy-rpc-types-trace = { git = "https://github.com/alloy-rs/alloy", rev = "bfd0fda" }
+revm = { version = "8.0", default-features = false, features = ["std"] }
 
 anstyle = "1.0"
 colorchoice = "1.0"
