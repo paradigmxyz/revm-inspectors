@@ -397,7 +397,7 @@ where
             memory,
             pc: interp.program_counter() as u64,
             gas_remaining: interp.gas.remaining(),
-            cost: interp.gas.spend(),
+            cost: interp.gas.spent(),
             depth: context.journaled_state.depth(),
             refund: interp.gas.refunded() as u64,
             error: None,
@@ -425,7 +425,7 @@ where
                 memory,
                 pc: interp.program_counter() as u64,
                 gas_remaining: interp.gas.remaining(),
-                cost: interp.gas.spend(),
+                cost: interp.gas.spent(),
                 depth: context.journaled_state.depth(),
                 refund: interp.gas.refunded() as u64,
                 error: Some(format!("{:?}", interp.instruction_result)),
@@ -487,7 +487,7 @@ where
     ) -> CallOutcome {
         if self.can_call_exit() {
             let frame_result = FrameResult {
-                gas_used: outcome.result.gas.spend(),
+                gas_used: outcome.result.gas.spent(),
                 output: outcome.result.output.clone(),
                 error: None,
             };
@@ -540,7 +540,7 @@ where
     ) -> CreateOutcome {
         if self.can_call_exit() {
             let frame_result = FrameResult {
-                gas_used: outcome.result.gas.spend(),
+                gas_used: outcome.result.gas.spent(),
                 output: outcome.result.output.clone(),
                 error: None,
             };

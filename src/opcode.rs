@@ -1,4 +1,4 @@
-use alloy_rpc_trace_types::opcode::OpcodeGas;
+use alloy_rpc_types_trace::opcode::OpcodeGas;
 use revm::{
     interpreter::{opcode::OpCode, Interpreter},
     Database, EvmContext, Inspector,
@@ -98,7 +98,7 @@ mod tests {
     #[test]
     fn test_opcode_counter_inspector() {
         let mut opcode_counter = OpcodeGasInspector::new();
-        let contract = Box::<Contract>::default();
+        let contract = Contract::default();
         let mut interpreter = Interpreter::new(contract, 10000, false);
         let db = CacheDB::new(EmptyDB::default());
 
@@ -118,7 +118,7 @@ mod tests {
     #[test]
     fn test_with_variety_of_opcodes() {
         let mut opcode_counter = OpcodeGasInspector::new();
-        let contract = Box::<Contract>::default();
+        let contract = Contract::default();
         let mut interpreter = Interpreter::new(contract, 2024, false);
         let db = CacheDB::new(EmptyDB::default());
 
