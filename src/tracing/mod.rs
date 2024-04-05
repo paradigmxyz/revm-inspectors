@@ -348,6 +348,8 @@ impl TracingInspector {
             })
             .expect("is valid opcode;");
 
+        let prev_recorded_memory = trace.trace.steps.last().map(|step| step.memory.clone());
+
         let memory = self
             .config
             .record_memory_snapshots
@@ -356,7 +358,7 @@ impl TracingInspector {
                 if is_memory_modified {
                     Some(RecordedMemory::new(interp.shared_memory.context_memory().to_vec()))
                 } else {
-                    None
+                    prev_recorded_memory 
                 }
             })
             .unwrap_or_default();
