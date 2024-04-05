@@ -356,6 +356,7 @@ impl TracingInspector {
                 if is_memory_modified {
                     Some(RecordedMemory::new(interp.shared_memory.context_memory().to_vec()))
                 } else {
+                    // Reuse the memory from the previous step if the previous opcode did not modify it.
                     trace.trace.steps.last().map(|step| step.memory.clone())
                 }
             })
