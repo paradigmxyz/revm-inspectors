@@ -1,10 +1,14 @@
 use self::parity::stack_push_count;
-use crate::tracing::{
-    arena::PushTraceKind,
-    types::{
-        CallKind, CallTraceNode, LogCallOrder, RecordedMemory, StorageChange, StorageChangeReason,
+use crate::{
+    opcode::modifies_memory,
+    tracing::{
+        arena::PushTraceKind,
+        types::{
+            CallKind, CallTraceNode, LogCallOrder, RecordedMemory, StorageChange,
+            StorageChangeReason,
+        },
+        utils::gas_used,
     },
-    utils::gas_used,
 };
 use alloy_primitives::{Address, Bytes, Log, U256};
 use revm::{
@@ -334,17 +338,6 @@ impl TracingInspector {
 
         self.step_stack.push(StackStep { trace_idx, step_idx: trace.trace.steps.len() });
 
-        let memory = self
-            .config
-            .record_memory_snapshots
-            .then(|| RecordedMemory::new(interp.shared_memory.context_memory().to_vec()))
-            .unwrap_or_default();
-        let stack = if self.config.record_stack_snapshots.is_full() {
-            Some(interp.stack.data().clone())
-        } else {
-            None
-        };
-
         let op = OpCode::new(interp.current_opcode())
             .or_else(|| {
                 // if the opcode is invalid, we'll use the invalid opcode to represent it because
@@ -354,6 +347,25 @@ impl TracingInspector {
                 OpCode::new(invalid_opcode)
             })
             .expect("is valid opcode;");
+
+        let memory = self
+            .config
+            .record_memory_snapshots
+            .then(|| modifies_memory(op))
+            .and_then(|is_memory_modified| {
+                if is_memory_modified {
+                    Some(RecordedMemory::new(interp.shared_memory.context_memory().to_vec()))
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_default();
+
+        let stack = if self.config.record_stack_snapshots.is_full() {
+            Some(interp.stack.data().clone())
+        } else {
+            None
+        };
 
         trace.trace.steps.push(CallTraceStep {
             depth: context.journaled_state.depth(),
