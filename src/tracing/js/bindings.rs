@@ -96,7 +96,12 @@ impl<Val: 'static> GuardedNullableGc<Val> {
         let guard = GcGuard { inner: Rc::clone(&inner) };
 
         // SAFETY: guard enforces that the value is removed from the refcell before it is dropped
-        let this = Self { inner: unsafe { std::mem::transmute(inner) } };
+        let this = Self {
+            inner: unsafe {
+                #[allow(clippy::missing_transmute_annotations)]
+                std::mem::transmute(inner)
+            },
+        };
 
         (this, guard)
     }
