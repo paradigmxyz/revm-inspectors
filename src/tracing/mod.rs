@@ -345,15 +345,10 @@ impl TracingInspector {
             None
         };
 
-        let op = OpCode::new(interp.current_opcode())
-            .or_else(|| {
-                // if the opcode is invalid, we'll use the invalid opcode to represent it because
-                // this is invoked before the opcode is executed, the evm will eventually return a
-                // `Halt` with invalid/unknown opcode as result
-                let invalid_opcode = 0xfe;
-                OpCode::new(invalid_opcode)
-            })
-            .expect("is valid opcode;");
+        let op = OpCode::new(interp.current_opcode()).unwrap_or_else(|| {
+            // unknown opcode, this could be an additional opcode that is not part of the enum
+            unsafe { OpCode::new_unchecked(interp.current_opcode()) }
+        });
 
         trace.trace.steps.push(CallTraceStep {
             depth: context.journaled_state.depth(),
