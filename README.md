@@ -4,9 +4,15 @@ Common [`revm`] inspector implementations.
 
 Originally part of [`reth`] as the [`reth-revm-inspectors`] crate.
 
+## Users
+
+* [`reth`]
+* [`foundry`]
+
 [`revm`]: https://github.com/bluealloy/revm/
 [`reth`]: https://github.com/paradigmxyz/reth/
-[`reth-revm-inspectors`]: https://github.com/paradigmxyz/reth/tree/3fdb24ebd328e9d22d1e6849a3a869e3c4e83485/crates/revm/revm-inspectors/
+[`reth`]: https://github.com/paradigmxyz/reth/
+[`foundry`]: https://github.com/foundry-rs/foundry/
 
 #### License
 
