@@ -345,10 +345,9 @@ impl TracingInspector {
             None
         };
 
-        let op = OpCode::new(interp.current_opcode()).unwrap_or_else(|| {
-            // unknown opcode, this could be an additional opcode that is not part of the enum
-            unsafe { OpCode::new_unchecked(interp.current_opcode()) }
-        });
+        // we always want an OpCode, even it is unknown because it could be an additional opcode
+        // that not a known constant
+        let op = unsafe { OpCode::new_unchecked(interp.current_opcode()) };
 
         trace.trace.steps.push(CallTraceStep {
             depth: context.journaled_state.depth(),
