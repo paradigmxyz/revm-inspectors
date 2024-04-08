@@ -338,18 +338,12 @@ impl TracingInspector {
 
         self.step_stack.push(StackStep { trace_idx, step_idx: trace.trace.steps.len() });
 
-        let op = OpCode::new(interp.current_opcode())
-            .or_else(|| {
-                // if the opcode is invalid, we'll use the invalid opcode to represent it because
-                // this is invoked before the opcode is executed, the evm will eventually return a
-                // `Halt` with invalid/unknown opcode as result
-                let invalid_opcode = 0xfe;
-                OpCode::new(invalid_opcode)
-            })
-            .expect("is valid opcode;");
+        // we always want an OpCode, even it is unknown because it could be an additional opcode
+        // that not a known constant
+        let op = unsafe { OpCode::new_unchecked(interp.current_opcode()) };
 
-        // reuse the memory from previous step if the previous step's opcode did not modifiy memory
-        // see reason: https://github.com/ethereum/go-ethereum/blob/767b00b0b514771a663f3362dd0310fc28d40c25/core/vm/interpreter.go#L262-L274 
+        // reuse the memory from previous step if the previous step's opcode did not modifiy it
+        // reason: https://github.com/ethereum/go-ethereum/blob/767b00b0b514771a663f3362dd0310fc28d40c25/core/vm/interpreter.go#L262-L274
         let prev_step_modify_memory = trace.trace.steps.last().map(|step| modifies_memory(step.op));
         // if current step is the first step in the trace, then you cannot reuse prev memory
         let is_first_step = prev_step_modify_memory.is_none();

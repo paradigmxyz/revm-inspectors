@@ -96,7 +96,12 @@ impl<Val: 'static> GuardedNullableGc<Val> {
         let guard = GcGuard { inner: Rc::clone(&inner) };
 
         // SAFETY: guard enforces that the value is removed from the refcell before it is dropped
-        let this = Self { inner: unsafe { std::mem::transmute(inner) } };
+        let this = Self {
+            inner: unsafe {
+                #[allow(clippy::missing_transmute_annotations)]
+                std::mem::transmute(inner)
+            },
+        };
 
         (this, guard)
     }
@@ -382,16 +387,9 @@ impl OpObj {
         let to_string = FunctionObjectBuilder::new(
             context.realm(),
             NativeFunction::from_copy_closure(move |_this, _args, _ctx| {
-                let op = OpCode::new(value)
-                    .or_else(|| {
-                        // if the opcode is invalid, we'll use the invalid opcode to represent it
-                        // because this is invoked before the opcode is
-                        // executed, the evm will eventually return a `Halt`
-                        // with invalid/unknown opcode as result
-                        let invalid_opcode = 0xfe;
-                        OpCode::new(invalid_opcode)
-                    })
-                    .expect("is valid opcode;");
+                // we always want an OpCode, even it is unknown because it could be an additional
+                // opcode that not a known constant
+                let op = unsafe { OpCode::new_unchecked(value) };
                 let s = op.to_string();
                 Ok(JsValue::from(js_string!(s)))
             }),
