@@ -344,7 +344,8 @@ impl TracingInspector {
 
         // reuse the memory from previous step if the previous step's opcode did not modifiy it
         // reason: https://github.com/ethereum/go-ethereum/blob/767b00b0b514771a663f3362dd0310fc28d40c25/core/vm/interpreter.go#L262-L274
-        let memory_modified_prev_step = trace.trace.steps.last().map(|step| modifies_memory(step.op));
+        let memory_modified_prev_step =
+            trace.trace.steps.last().map(|step| modifies_memory(step.op));
         // if current step is the first step in the trace, then you cannot reuse prev memory
         let is_first_step = memory_modified_prev_step.is_none();
         let is_memory_modified_prev_step = memory_modified_prev_step.unwrap_or(true);
