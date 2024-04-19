@@ -9,10 +9,7 @@ use alloy_rpc_types::TransactionInfo;
 use alloy_rpc_types_trace::parity::*;
 use revm::{
     db::DatabaseRef,
-    interpreter::{
-        opcode::{self, spec_opcode_gas},
-        OpCode,
-    },
+    interpreter::{opcode, OpCode},
     primitives::{Account, ExecutionResult, ResultAndState, SpecId, KECCAK_EMPTY},
 };
 use std::collections::{HashSet, VecDeque};
@@ -25,6 +22,7 @@ pub struct ParityTraceBuilder {
     /// Recorded trace nodes
     nodes: Vec<CallTraceNode>,
     /// The spec id of the EVM.
+    #[allow(dead_code)] // dani: gas maps
     spec_id: Option<SpecId>,
 
     /// How the traces were recorded
@@ -396,12 +394,14 @@ impl ParityTraceBuilder {
             store: maybe_storage,
         });
 
-        let cost = self
-            .spec_id
-            .and_then(|spec_id| {
-                spec_opcode_gas(spec_id).get(step.op.get() as usize).map(|op| op.get_gas())
-            })
-            .unwrap_or_default();
+        // dani: gas maps
+        // let cost = self
+        //     .spec_id
+        //     .and_then(|spec_id| {
+        //         spec_opcode_gas(spec_id).get(step.op.get() as usize).map(|op| op.get_gas())
+        //     })
+        //     .unwrap_or_default();
+        let cost = 0;
 
         VmInstruction {
             pc: step.pc,

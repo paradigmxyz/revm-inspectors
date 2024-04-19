@@ -790,21 +790,19 @@ impl EvmDbRef {
             return JsArrayBuffer::new(0, ctx);
         }
 
-        let res = self
+        let Some(Ok(code)) = self
             .inner
             .db
             .0
-            .with_inner(|db| db.code_by_hash_ref(code_hash).map(|code| code.bytecode));
-        let code = match res {
-            Some(Ok(code)) => code,
-            _ => {
-                return Err(JsError::from_native(JsNativeError::error().with_message(format!(
-                    "Failed to read code hash {code_hash:?} from database",
-                ))))
-            }
+            .with_inner(|db| db.code_by_hash_ref(code_hash).map(|code| code.bytecode_bytes()))
+        else {
+            return Err(JsError::from_native(
+                JsNativeError::error()
+                    .with_message(format!("Failed to read code hash {code_hash:?} from database",)),
+            ));
         };
 
-        to_buf(code.to_vec(), ctx)
+        to_buf(code.into(), ctx)
     }
 
     fn read_state(

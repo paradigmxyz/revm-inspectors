@@ -4,8 +4,8 @@ use revm::{
     db::{CacheDB, EmptyDB},
     inspector_handle_register,
     primitives::{
-        BlockEnv, CreateScheme, EVMError, Env, EnvWithHandlerCfg, ExecutionResult, HandlerCfg,
-        Output, ResultAndState, SpecId, TransactTo, TxEnv,
+        BlockEnv, EVMError, Env, EnvWithHandlerCfg, ExecutionResult, HandlerCfg, Output,
+        ResultAndState, SpecId, TransactTo, TxEnv,
     },
     Database, DatabaseCommit, GetInspector,
 };
@@ -46,7 +46,7 @@ impl TestEvm {
         inspector: I,
     ) -> Result<Address, EVMError<Infallible>> {
         self.env.tx.data = data;
-        self.env.tx.transact_to = TransactTo::Create(CreateScheme::Create);
+        self.env.tx.transact_to = TransactTo::Create;
 
         let (ResultAndState { result, state }, env) = self.inspect(inspector)?;
         self.db.commit(state);

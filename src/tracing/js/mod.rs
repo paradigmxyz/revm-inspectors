@@ -257,7 +257,7 @@ impl JsInspector {
                     to = Some(target);
                     "CALL"
                 }
-                TransactTo::Create(_) => "CREATE",
+                TransactTo::Create => "CREATE",
             }
             .to_string(),
             from: env.tx.caller,
@@ -446,19 +446,20 @@ where
         self.register_precompiles(&context.precompiles);
 
         // determine correct `from` and `to` based on the call scheme
-        let (from, to) = match inputs.context.scheme {
+        let (from, to) = match inputs.scheme {
             CallScheme::DelegateCall | CallScheme::CallCode => {
-                (inputs.context.address, inputs.context.code_address)
+                (inputs.bytecode_address, inputs.target_address)
             }
-            _ => (inputs.context.caller, inputs.context.address),
+            _ => (inputs.caller, inputs.bytecode_address),
         };
 
-        let value = inputs.transfer.value;
+        // dani: transfer_value().unwrap_or_default()
+        let value = inputs.call_value();
         self.push_call(
             to,
             inputs.input.clone(),
             value,
-            inputs.context.scheme.into(),
+            inputs.scheme.into(),
             from,
             inputs.gas_limit,
         );
