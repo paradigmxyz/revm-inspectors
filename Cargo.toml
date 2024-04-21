@@ -47,7 +47,7 @@ serde = ["dep:serde", "revm/serde"]
 js-tracer = ["dep:boa_engine", "dep:boa_gc"]
 
 [patch.crates-io]
-revm = { git = "https://github.com/danipopes/revm", branch = "refactor-opinfo" }
-revm-interpreter = { git = "https://github.com/danipopes/revm", branch = "refactor-opinfo" }
-revm-precompile = { git = "https://github.com/danipopes/revm", branch = "refactor-opinfo" }
-revm-primitives = { git = "https://github.com/danipopes/revm", branch = "refactor-opinfo" }
+revm = { git = "https://github.com/bluealloy/revm" }
+revm-interpreter = { git = "https://github.com/bluealloy/revm" }
+revm-precompile = { git = "https://github.com/bluealloy/revm" }
+revm-primitives = { git = "https://github.com/bluealloy/revm" }
