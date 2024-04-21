@@ -1,8 +1,6 @@
 use alloy_primitives::{Address, U256};
 use revm::{
-    interpreter::{
-        CallInputs, CallOutcome, CreateInputs, CreateOutcome, CreateScheme, TransferValue,
-    },
+    interpreter::{CallInputs, CallOutcome, CreateInputs, CreateOutcome, CreateScheme},
     Database, EvmContext, Inspector,
 };
 
@@ -59,14 +57,12 @@ where
             return None;
         }
 
-        let value = inputs.call_value();
-        // dani: `inputs.transfers_value()`
-        if matches!(inputs.value, TransferValue::Value(_)) && !value.is_zero() {
+        if inputs.transfers_value() {
             self.transfers.push(TransferOperation {
                 kind: TransferKind::Call,
                 from: inputs.caller,
                 to: inputs.target_address,
-                value,
+                value: inputs.call_value(),
             });
         }
 

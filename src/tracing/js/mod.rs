@@ -453,8 +453,7 @@ where
             _ => (inputs.caller, inputs.bytecode_address),
         };
 
-        // dani: transfer_value().unwrap_or_default()
-        let value = inputs.call_value();
+        let value = inputs.transfer_value().unwrap_or_default();
         self.push_call(
             to,
             inputs.input.clone(),

@@ -21,22 +21,16 @@ use std::collections::{HashSet, VecDeque};
 pub struct ParityTraceBuilder {
     /// Recorded trace nodes
     nodes: Vec<CallTraceNode>,
-    /// The spec id of the EVM.
-    #[allow(dead_code)] // dani: gas maps
-    spec_id: Option<SpecId>,
-
-    /// How the traces were recorded
-    _config: TracingInspectorConfig,
 }
 
 impl ParityTraceBuilder {
     /// Returns a new instance of the builder
     pub fn new(
         nodes: Vec<CallTraceNode>,
-        spec_id: Option<SpecId>,
+        _spec_id: Option<SpecId>,
         _config: TracingInspectorConfig,
     ) -> Self {
-        Self { nodes, spec_id, _config }
+        Self { nodes }
     }
 
     /// Returns a list of all addresses that appeared as callers.
@@ -394,18 +388,9 @@ impl ParityTraceBuilder {
             store: maybe_storage,
         });
 
-        // dani: gas maps
-        // let cost = self
-        //     .spec_id
-        //     .and_then(|spec_id| {
-        //         spec_opcode_gas(spec_id).get(step.op.get() as usize).map(|op| op.get_gas())
-        //     })
-        //     .unwrap_or_default();
-        let cost = 0;
-
         VmInstruction {
             pc: step.pc,
-            cost: cost as u64,
+            cost: step.gas_cost,
             ex: maybe_execution,
             sub: maybe_sub_call,
             op: Some(step.op.to_string()),
