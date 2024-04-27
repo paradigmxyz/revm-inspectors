@@ -805,7 +805,7 @@ impl EvmDbRef {
             ));
         };
 
-        to_buf(bytecode.bytecode_bytes().to_vec(), ctx)
+        to_buf(bytecode.bytecode().to_vec(), ctx)
     }
 
     fn read_state(
