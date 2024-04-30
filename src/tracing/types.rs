@@ -208,12 +208,14 @@ impl CallTraceNode {
     /// Returns the `Output` for a parity trace
     pub fn parity_trace_output(&self) -> TraceOutput {
         match self.kind() {
-            CallKind::Call | CallKind::StaticCall | CallKind::CallCode | CallKind::DelegateCall => {
-                TraceOutput::Call(CallOutput {
-                    gas_used: U64::from(self.trace.gas_used),
-                    output: self.trace.output.clone(),
-                })
-            }
+            CallKind::Call
+            | CallKind::StaticCall
+            | CallKind::CallCode
+            | CallKind::DelegateCall
+            | CallKind::AuthCall => TraceOutput::Call(CallOutput {
+                gas_used: U64::from(self.trace.gas_used),
+                output: self.trace.output.clone(),
+            }),
             CallKind::Create | CallKind::Create2 => TraceOutput::Create(CreateOutput {
                 gas_used: U64::from(self.trace.gas_used),
                 code: self.trace.output.clone(),
@@ -268,16 +270,18 @@ impl CallTraceNode {
     /// since those are handled in addition to the call action.
     pub fn parity_action(&self) -> Action {
         match self.kind() {
-            CallKind::Call | CallKind::StaticCall | CallKind::CallCode | CallKind::DelegateCall => {
-                Action::Call(CallAction {
-                    from: self.trace.caller,
-                    to: self.trace.address,
-                    value: self.trace.value,
-                    gas: U64::from(self.trace.gas_limit),
-                    input: self.trace.data.clone(),
-                    call_type: self.kind().into(),
-                })
-            }
+            CallKind::Call
+            | CallKind::StaticCall
+            | CallKind::CallCode
+            | CallKind::DelegateCall
+            | CallKind::AuthCall => Action::Call(CallAction {
+                from: self.trace.caller,
+                to: self.trace.address,
+                value: self.trace.value,
+                gas: U64::from(self.trace.gas_limit),
+                input: self.trace.data.clone(),
+                call_type: self.kind().into(),
+            }),
             CallKind::Create | CallKind::Create2 => Action::Create(CreateAction {
                 from: self.trace.caller,
                 value: self.trace.value,
@@ -351,6 +355,8 @@ pub enum CallKind {
     Create,
     /// Represents a contract creation operation using the CREATE2 opcode.
     Create2,
+    /// Represents an authorized call.
+    AuthCall,
 }
 
 impl CallKind {
@@ -370,6 +376,12 @@ impl CallKind {
     #[inline]
     pub const fn is_static_call(&self) -> bool {
         matches!(self, Self::StaticCall)
+    }
+
+    /// Returns true if the call is [CallKind::AuthCall].
+    #[inline]
+    pub const fn is_auth_call(&self) -> bool {
+        matches!(self, Self::AuthCall)
     }
 }
 
@@ -393,6 +405,9 @@ impl std::fmt::Display for CallKind {
             }
             Self::Create2 => {
                 write!(f, "CREATE2")
+            }
+            Self::AuthCall => {
+                write!(f, "AUTHCALL")
             }
         }
     }
@@ -421,9 +436,11 @@ impl From<CreateScheme> for CallKind {
 impl From<CallKind> for ActionType {
     fn from(kind: CallKind) -> Self {
         match kind {
-            CallKind::Call | CallKind::StaticCall | CallKind::DelegateCall | CallKind::CallCode => {
-                Self::Call
-            }
+            CallKind::Call
+            | CallKind::StaticCall
+            | CallKind::DelegateCall
+            | CallKind::CallCode
+            | CallKind::AuthCall => Self::Call,
             CallKind::Create => Self::Create,
             CallKind::Create2 => Self::Create,
         }
@@ -437,8 +454,8 @@ impl From<CallKind> for CallType {
             CallKind::StaticCall => Self::StaticCall,
             CallKind::CallCode => Self::CallCode,
             CallKind::DelegateCall => Self::DelegateCall,
-            CallKind::Create => Self::None,
-            CallKind::Create2 => Self::None,
+            CallKind::Create | CallKind::Create2 => Self::None,
+            CallKind::AuthCall => Self::AuthCall,
         }
     }
 }
