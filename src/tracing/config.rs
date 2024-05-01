@@ -39,7 +39,14 @@ impl TracingInspectorConfig {
 
     /// Returns a config with everything is disabled.
     pub const fn none() -> Self {
-        Self::default()
+        Self {
+            record_steps: false,
+            record_memory_snapshots: false,
+            record_stack_snapshots: StackSnapshotType::None,
+            record_state_diff: false,
+            exclude_precompile_calls: false,
+            record_logs: false,
+        }
     }
 
     /// Returns a config for parity style traces.
