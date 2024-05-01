@@ -8,7 +8,7 @@ use std::collections::HashSet;
 ///
 /// Use [TracingInspectorConfig::default_parity] or [TracingInspectorConfig::default_geth] to get
 /// the default configs for specific styles of traces.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct TracingInspectorConfig {
     /// Whether to record every individual opcode level step.
     pub record_steps: bool,
@@ -39,14 +39,7 @@ impl TracingInspectorConfig {
 
     /// Returns a config with everything is disabled.
     pub const fn none() -> Self {
-        Self {
-            record_steps: false,
-            record_memory_snapshots: false,
-            record_stack_snapshots: StackSnapshotType::None,
-            record_state_diff: false,
-            exclude_precompile_calls: false,
-            record_logs: false,
-        }
+        Self::default()
     }
 
     /// Returns a config for parity style traces.
@@ -236,9 +229,10 @@ impl TracingInspectorConfig {
 }
 
 /// How much of the stack to record. Nothing, just the items pushed, or the full stack
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum StackSnapshotType {
     /// Don't record stack snapshots
+    #[default]
     None,
     /// Record only the items pushed to the stack
     Pushes,
