@@ -54,8 +54,6 @@ pub struct CallTrace {
     pub gas_limit: u64,
     /// The status of the trace's call
     pub status: InstructionResult,
-    /// call context of the runtime
-    // pub call_context: Option<Box<CallContext>>,
     /// Opcode-level execution steps
     pub steps: Vec<CallTraceStep>,
 }
