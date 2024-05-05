@@ -195,6 +195,7 @@ impl<W: Write> TraceWriter<W> {
         writeln!(self.writer, "          data: {log_style}{data}{log_style:#}", data = log.data)
     }
 
+    #[allow(unexpected_cfgs)]
     #[cfg(TODO)]
     fn write_decoded_log(&mut self, name: &str, params: &[(String, String)]) -> io::Result<()> {
         let log_style = self.log_style();
