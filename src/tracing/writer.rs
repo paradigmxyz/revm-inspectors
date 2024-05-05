@@ -195,20 +195,20 @@ impl<W: Write> TraceWriter<W> {
         writeln!(self.writer, "          data: {log_style}{data}{log_style:#}", data = log.data)
     }
 
-    #[cfg(TODO)]
-    fn write_decoded_log(&mut self, name: &str, params: &[(String, String)]) -> io::Result<()> {
-        let log_style = self.log_style();
-        self.write_left_prefix()?;
-
-        write!(self.writer, "emit {name}({log_style}")?;
-        for (i, (name, value)) in params.iter().enumerate() {
-            if i > 0 {
-                self.writer.write_all(b", ")?;
-            }
-            write!(self.writer, "{name}: {value}")?;
-        }
-        write!(self.writer, "{log_style:#})")
-    }
+    // #[cfg(TODO)]
+    // fn write_decoded_log(&mut self, name: &str, params: &[(String, String)]) -> io::Result<()> {
+    //     let log_style = self.log_style();
+    //     self.write_left_prefix()?;
+    //
+    //     write!(self.writer, "emit {name}({log_style}")?;
+    //     for (i, (name, value)) in params.iter().enumerate() {
+    //         if i > 0 {
+    //             self.writer.write_all(b", ")?;
+    //         }
+    //         write!(self.writer, "{name}: {value}")?;
+    //     }
+    //     write!(self.writer, "{log_style:#})")
+    // }
 
     fn write_trace_footer(&mut self, trace: &CallTrace) -> io::Result<()> {
         write!(
