@@ -57,7 +57,7 @@ pub use mux::{Error as MuxError, MuxInspector};
 /// The [TracingInspector] keeps track of everything by:
 ///   1. start tracking steps/calls on [Inspector::step] and [Inspector::call]
 ///   2. complete steps/calls on [Inspector::step_end] and [Inspector::call_end]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct TracingInspector {
     /// Configures what and how the inspector records traces.
     config: TracingInspectorConfig,
@@ -82,15 +82,7 @@ pub struct TracingInspector {
 impl TracingInspector {
     /// Returns a new instance for the given config
     pub fn new(config: TracingInspectorConfig) -> Self {
-        Self {
-            config,
-            traces: Default::default(),
-            trace_stack: vec![],
-            step_stack: vec![],
-            last_call_return_data: None,
-            gas_inspector: Default::default(),
-            spec_id: None,
-        }
+        Self { config, ..Default::default() }
     }
 
     /// Resets the inspector to its initial state of [Self::new].
