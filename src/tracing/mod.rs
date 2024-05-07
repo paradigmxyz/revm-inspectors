@@ -214,6 +214,13 @@ impl TracingInspector {
         self.trace_stack.last().copied().expect("can't start step without starting a trace first")
     }
 
+    /// Returns a mutable reference to the last trace [CallTrace] from the stack.
+    #[track_caller]
+    fn last_trace(&mut self) -> &mut CallTraceNode {
+        let idx = self.last_trace_idx();
+        &mut self.traces.arena[idx]
+    }
+
     /// _Removes_ the last trace [CallTrace] index from the stack.
     ///
     /// # Panics
@@ -455,11 +462,8 @@ where
 
     fn log(&mut self, context: &mut EvmContext<DB>, log: &Log) {
         self.gas_inspector.log(context, log);
-
-        let trace_idx = self.last_trace_idx();
-        let trace = &mut self.traces.arena[trace_idx];
-
         if self.config.record_logs {
+            let trace = self.last_trace();
             trace.ordering.push(LogCallOrder::Log(trace.logs.len()));
             trace.logs.push(log.data.clone());
         }
@@ -558,16 +562,15 @@ where
         outcome: CreateOutcome,
     ) -> CreateOutcome {
         let outcome = self.gas_inspector.create_end(context, inputs, outcome);
-
         self.fill_trace_on_call_end(context, outcome.result.clone(), outcome.address);
-
         outcome
     }
 
-    fn selfdestruct(&mut self, _contract: Address, target: Address, _value: U256) {
-        let trace_idx = self.last_trace_idx();
-        let trace = &mut self.traces.arena[trace_idx].trace;
-        trace.selfdestruct_refund_target = Some(target)
+    fn selfdestruct(&mut self, contract: Address, target: Address, value: U256) {
+        let node = self.last_trace();
+        node.trace.address = contract;
+        node.trace.selfdestruct_refund_target = Some(target);
+        node.trace.value = value;
     }
 }
 
