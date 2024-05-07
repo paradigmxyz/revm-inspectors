@@ -10,7 +10,32 @@ pub struct CallTraceArena {
     pub(crate) arena: Vec<CallTraceNode>,
 }
 
+impl Default for CallTraceArena {
+    fn default() -> Self {
+        // The first node is the root node
+        Self { arena: vec![Default::default()] }
+    }
+}
+
 impl CallTraceArena {
+    /// Returns the nodes in the arena
+    pub fn nodes(&self) -> &[CallTraceNode] {
+        &self.arena
+    }
+
+    /// Consumes the arena and returns the nodes
+    pub fn into_nodes(self) -> Vec<CallTraceNode> {
+        self.arena
+    }
+
+    /// Clears the arena
+    ///
+    /// Note that this method has no effect on the allocated capacity of the arena.
+    #[inline]
+    pub fn clear(&mut self) {
+        self.arena.clear();
+    }
+
     /// Pushes a new trace into the arena, returning the trace ID
     ///
     /// This appends a new trace to the arena, and also inserts a new entry in the node's parent
@@ -57,24 +82,6 @@ impl CallTraceArena {
             }
         }
     }
-
-    /// Returns the nodes in the arena
-    pub fn nodes(&self) -> &[CallTraceNode] {
-        &self.arena
-    }
-
-    /// Consumes the arena and returns the nodes
-    pub fn into_nodes(self) -> Vec<CallTraceNode> {
-        self.arena
-    }
-
-    /// Clears the arena
-    ///
-    /// Note that this method has no effect on the allocated capacity of the arena.
-    #[inline]
-    pub fn clear(&mut self) {
-        self.arena.clear();
-    }
 }
 
 /// How to push a trace into the arena
@@ -90,12 +97,5 @@ impl PushTraceKind {
     #[inline]
     const fn is_attach_to_parent(&self) -> bool {
         matches!(self, Self::PushAndAttachToParent)
-    }
-}
-
-impl Default for CallTraceArena {
-    fn default() -> Self {
-        // The first node is the root node
-        Self { arena: vec![Default::default()] }
     }
 }

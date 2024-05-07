@@ -126,6 +126,11 @@ impl TracingInspector {
         &self.traces
     }
 
+    /// Consumes the inspector and returns the recorded call traces.
+    pub fn into_traces(self) -> CallTraceArena {
+        self.traces
+    }
+
     /// Gets a mutable reference to the recorded call traces.
     pub fn get_traces_mut(&mut self) -> &mut CallTraceArena {
         &mut self.traces
