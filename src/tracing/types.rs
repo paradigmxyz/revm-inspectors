@@ -32,12 +32,12 @@ pub struct CallTrace {
     ///
     /// Note: This is an Option because not all tracers make use of this
     pub maybe_precompile: Option<bool>,
-    /// Holds the target for the __selfdestruct__ refund target
+    /// Holds the target for the selfdestruct refund target.
     ///
-    /// This is only set if a selfdestruct was executed.
+    /// This is only `Some` if a selfdestruct was executed and the call is executed before the
+    /// Cancun hardfork.
     ///
-    /// Note: This not necessarily guarantees that the status is [InstructionResult::SelfDestruct]
-    /// There's an edge case where a new created contract is immediately selfdestructed.
+    /// See [`is_selfdestruct`](Self::is_selfdestruct) for more information.
     pub selfdestruct_refund_target: Option<Address>,
     /// The kind of call this is
     pub kind: CallKind,
@@ -71,6 +71,22 @@ impl CallTrace {
     #[inline]
     pub fn is_revert(&self) -> bool {
         self.status == InstructionResult::Revert
+    }
+
+    /// Returns `true` if this trace was a selfdestruct.
+    ///
+    /// See also `TracingInspector::selfdestruct`.
+    ///
+    /// We can't rely entirely on [`Self::status`] being [`InstructionResult::SelfDestruct`]
+    /// because there's an edge case where a new created contract (CREATE) is immediately
+    /// selfdestructed.
+    ///
+    /// We also can't rely entirely on `selfdestruct_refund_target` being `Some` as the
+    /// `selfdestruct` inspector function will not be called after the Cancun hardfork.
+    #[inline]
+    pub const fn is_selfdestruct(&self) -> bool {
+        matches!(self.status, InstructionResult::SelfDestruct)
+            || self.selfdestruct_refund_target.is_some()
     }
 
     /// Returns the error message if it is an erroneous result.
@@ -179,17 +195,12 @@ impl CallTraceNode {
         self.trace.status
     }
 
-    /// Returns true if the call was a selfdestruct
+    /// Returns `true` if this trace was a selfdestruct.
     ///
-    /// A selfdestruct is marked by the refund target being set.
-    ///
-    /// See also `TracingInspector::selfdestruct`
-    ///
-    /// Note: We can't rely in the [Self::status] being [InstructionResult::SelfDestruct] because
-    /// there's an edge case where a new created contract (CREATE) is immediately selfdestructed.
+    /// See [`CallTrace::is_selfdestruct`] for more details.
     #[inline]
     pub const fn is_selfdestruct(&self) -> bool {
-        self.trace.selfdestruct_refund_target.is_some()
+        self.trace.is_selfdestruct()
     }
 
     /// Converts this node into a parity `TransactionTrace`
