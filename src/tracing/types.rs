@@ -17,44 +17,45 @@ use std::collections::VecDeque;
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CallTrace {
-    /// The depth of the call
+    /// The depth of the call.
     pub depth: usize,
-    /// Whether the call was successful
+    /// Whether the call was successful.
     pub success: bool,
-    /// caller of this call
+    /// The caller address.
     pub caller: Address,
-    /// The destination address of the call or the address from the created contract.
+    /// The target address of this call.
     ///
-    /// In other words, this is the callee if the [CallKind::Call] or the address of the created
-    /// contract if [CallKind::Create].
+    /// This is:
+    /// - [`is_selfdestruct`](Self::is_selfdestruct): the address of the selfdestructed contract
+    /// - [`CallKind::Call`] and alike: the callee, the address of the contract being called
+    /// - [`CallKind::Create`] and alike: the address of the created contract
     pub address: Address,
-    /// Whether this is a call to a precompile
+    /// Whether this is a call to a precompile.
     ///
-    /// Note: This is an Option because not all tracers make use of this
+    /// Note: This is optional because not all tracers make use of this.
     pub maybe_precompile: Option<bool>,
-    /// Holds the target for the __selfdestruct__ refund target
+    /// Holds the target for the selfdestruct refund target.
     ///
-    /// This is only set if a selfdestruct was executed.
+    /// This is only `Some` if a selfdestruct was executed and the call is executed before the
+    /// Cancun hardfork.
     ///
-    /// Note: This not necessarily guarantees that the status is [InstructionResult::SelfDestruct]
-    /// There's an edge case where a new created contract is immediately selfdestructed.
+    /// See [`is_selfdestruct`](Self::is_selfdestruct) for more information.
     pub selfdestruct_refund_target: Option<Address>,
-    /// The kind of call this is
+    /// The kind of call.
     pub kind: CallKind,
-    /// The value transferred in the call
+    /// The value transferred in the call.
     pub value: U256,
-    /// The calldata for the call, or the init code for contract creations
+    /// The calldata/input, or the init code for contract creations.
     pub data: Bytes,
-    /// The return data of the call if this was not a contract creation, otherwise it is the
-    /// runtime bytecode of the created contract
+    /// The return data, or the runtime bytecode of the created contract.
     pub output: Bytes,
-    /// The gas cost of the call
+    /// The total gas cost of the call.
     pub gas_used: u64,
-    /// The gas limit of the call
+    /// The gas limit of the call.
     pub gas_limit: u64,
-    /// The status of the trace's call
+    /// The final status of the call.
     pub status: InstructionResult,
-    /// Opcode-level execution steps
+    /// Opcode-level execution steps.
     pub steps: Vec<CallTraceStep>,
 }
 
@@ -69,6 +70,22 @@ impl CallTrace {
     #[inline]
     pub fn is_revert(&self) -> bool {
         self.status == InstructionResult::Revert
+    }
+
+    /// Returns `true` if this trace was a selfdestruct.
+    ///
+    /// See also `TracingInspector::selfdestruct`.
+    ///
+    /// We can't rely entirely on [`Self::status`] being [`InstructionResult::SelfDestruct`]
+    /// because there's an edge case where a new created contract (CREATE) is immediately
+    /// selfdestructed.
+    ///
+    /// We also can't rely entirely on `selfdestruct_refund_target` being `Some` as the
+    /// `selfdestruct` inspector function will not be called after the Cancun hardfork.
+    #[inline]
+    pub const fn is_selfdestruct(&self) -> bool {
+        matches!(self.status, InstructionResult::SelfDestruct)
+            || self.selfdestruct_refund_target.is_some()
     }
 
     /// Returns the error message if it is an erroneous result.
@@ -177,17 +194,12 @@ impl CallTraceNode {
         self.trace.status
     }
 
-    /// Returns true if the call was a selfdestruct
+    /// Returns `true` if this trace was a selfdestruct.
     ///
-    /// A selfdestruct is marked by the refund target being set.
-    ///
-    /// See also `TracingInspector::selfdestruct`
-    ///
-    /// Note: We can't rely in the [Self::status] being [InstructionResult::SelfDestruct] because
-    /// there's an edge case where a new created contract (CREATE) is immediately selfdestructed.
+    /// See [`CallTrace::is_selfdestruct`] for more details.
     #[inline]
     pub const fn is_selfdestruct(&self) -> bool {
-        self.trace.selfdestruct_refund_target.is_some()
+        self.trace.is_selfdestruct()
     }
 
     /// Converts this node into a parity `TransactionTrace`
@@ -349,15 +361,28 @@ pub enum CallKind {
     CallCode,
     /// Represents a delegate call.
     DelegateCall,
+    /// Represents an authorized call.
+    AuthCall,
     /// Represents a contract creation operation.
     Create,
     /// Represents a contract creation operation using the CREATE2 opcode.
     Create2,
-    /// Represents an authorized call.
-    AuthCall,
 }
 
 impl CallKind {
+    /// Returns the string representation of the call kind.
+    pub const fn to_str(self) -> &'static str {
+        match self {
+            Self::Call => "CALL",
+            Self::StaticCall => "STATICCALL",
+            Self::CallCode => "CALLCODE",
+            Self::DelegateCall => "DELEGATECALL",
+            Self::AuthCall => "AUTHCALL",
+            Self::Create => "CREATE",
+            Self::Create2 => "CREATE2",
+        }
+    }
+
     /// Returns true if the call is a create
     #[inline]
     pub const fn is_any_create(&self) -> bool {
@@ -385,29 +410,7 @@ impl CallKind {
 
 impl std::fmt::Display for CallKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Call => {
-                write!(f, "CALL")
-            }
-            Self::StaticCall => {
-                write!(f, "STATICCALL")
-            }
-            Self::CallCode => {
-                write!(f, "CALLCODE")
-            }
-            Self::DelegateCall => {
-                write!(f, "DELEGATECALL")
-            }
-            Self::Create => {
-                write!(f, "CREATE")
-            }
-            Self::Create2 => {
-                write!(f, "CREATE2")
-            }
-            Self::AuthCall => {
-                write!(f, "AUTHCALL")
-            }
-        }
+        f.write_str(self.to_str())
     }
 }
 
