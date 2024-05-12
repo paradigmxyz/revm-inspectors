@@ -223,6 +223,9 @@ impl GethTraceBuilder {
                 prestate.0.insert(addr, acc_state);
             }
 
+            // TODO check for accessed slots that are not part of the account diffs, for example
+            // handled reverted calls
+
             Ok(PreStateFrame::Default(prestate))
         } else {
             let mut state_diff = DiffMode::default();
