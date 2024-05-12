@@ -282,3 +282,38 @@ fn test_geth_mux_tracer() {
         _ => panic!("Expected MuxTracer"),
     }
 }
+
+#[test]
+fn test_geth_inspector_reset() {
+    let mut insp = TracingInspector::new(TracingInspectorConfig::default_geth());
+
+    let mut db = CacheDB::new(EmptyDB::default());
+    let cfg = CfgEnvWithHandlerCfg::new(CfgEnv::default(), HandlerCfg::new(SpecId::LONDON));
+    let env = EnvWithHandlerCfg::new_with_cfg_env(
+        cfg.clone(),
+        BlockEnv::default(),
+        TxEnv {
+            caller: Address::ZERO,
+            gas_limit: 1000000,
+            gas_price: Default::default(),
+            transact_to: TransactTo::Call(Address::ZERO),
+            ..Default::default()
+        },
+    );
+
+    assert_eq!(insp.get_traces().nodes().first().unwrap().trace.gas_limit, 0);
+
+    // first run inspector
+    let (res, _) = inspect(&mut db, env.clone(), &mut insp).unwrap();
+    assert!(res.result.is_success());
+    assert_eq!(insp.get_traces().nodes().first().unwrap().trace.gas_limit, 1000000);
+
+    // reset the inspector
+    insp.fuse();
+    assert_eq!(insp.get_traces().nodes().first().unwrap().trace.gas_limit, 0);
+
+    // second run inspector after reset
+    let (res, _) = inspect(&mut db, env, &mut insp).unwrap();
+    assert!(res.result.is_success());
+    assert_eq!(insp.get_traces().nodes().first().unwrap().trace.gas_limit, 1000000);
+}
