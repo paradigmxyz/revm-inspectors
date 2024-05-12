@@ -34,6 +34,7 @@ impl CallTraceArena {
     #[inline]
     pub fn clear(&mut self) {
         self.arena.clear();
+        self.arena.push(Default::default());
     }
 
     /// Pushes a new trace into the arena, returning the trace ID
