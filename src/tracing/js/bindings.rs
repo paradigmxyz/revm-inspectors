@@ -79,15 +79,19 @@ struct GuardedNullableGc<Val: 'static> {
 impl<Val: 'static> GuardedNullableGc<Val> {
     /// Creates a garbage collectible value to the given reference.
     ///
-    /// SAFETY; the caller must ensure that the guard is dropped before the value is dropped.
-    fn r#ref(val: &Val) -> (Self, GcGuard<'_, Val>) {
+    /// # Safety
+    ///
+    /// The caller must ensure that the guard is dropped before the value is dropped.
+    fn new_ref(val: &Val) -> (Self, GcGuard<'_, Val>) {
         Self::new(Guarded::Ref(val))
     }
 
     /// Creates a garbage collectible value to the given reference.
     ///
-    /// SAFETY; the caller must ensure that the guard is dropped before the value is dropped.
-    fn r#owned<'a>(val: Val) -> (Self, GcGuard<'a, Val>) {
+    /// # Safety
+    ///
+    /// The caller must ensure that the guard is dropped before the value is dropped.
+    fn new_owned<'a>(val: Val) -> (Self, GcGuard<'a, Val>) {
         Self::new(Guarded::Owned(val))
     }
 
@@ -95,13 +99,9 @@ impl<Val: 'static> GuardedNullableGc<Val> {
         let inner = Rc::new(RefCell::new(Some(val)));
         let guard = GcGuard { inner: Rc::clone(&inner) };
 
-        // SAFETY: guard enforces that the value is removed from the refcell before it is dropped
-        let this = Self {
-            inner: unsafe {
-                #[allow(clippy::missing_transmute_annotations)]
-                std::mem::transmute(inner)
-            },
-        };
+        // SAFETY: guard enforces that the value is removed from the refcell before it is dropped.
+        #[allow(clippy::missing_transmute_annotations)]
+        let this = Self { inner: unsafe { std::mem::transmute(inner) } };
 
         (this, guard)
     }
@@ -111,10 +111,7 @@ impl<Val: 'static> GuardedNullableGc<Val> {
     where
         F: FnOnce(&Val) -> R,
     {
-        self.inner.borrow().as_ref().map(|val| match val {
-            Guarded::Ref(val) => f(val),
-            Guarded::Owned(val) => f(val),
-        })
+        self.inner.borrow().as_ref().map(|guard| f(guard.as_ref()))
     }
 }
 
@@ -129,6 +126,16 @@ unsafe impl<Val: 'static> Trace for GuardedNullableGc<Val> {
 enum Guarded<'a, T> {
     Ref(&'a T),
     Owned(T),
+}
+
+impl<T> Guarded<'_, T> {
+    #[inline]
+    fn as_ref(&self) -> &T {
+        match self {
+            Guarded::Ref(val) => val,
+            Guarded::Owned(val) => val,
+        }
+    }
 }
 
 /// Guard the inner value, once this value is dropped the inner value is also removed.
@@ -232,7 +239,7 @@ pub(crate) struct MemoryRef(GuardedNullableGc<SharedMemory>);
 impl MemoryRef {
     /// Creates a new stack reference
     pub(crate) fn new(mem: &SharedMemory) -> (Self, GcGuard<'_, SharedMemory>) {
-        let (inner, guard) = GuardedNullableGc::r#ref(mem);
+        let (inner, guard) = GuardedNullableGc::new_ref(mem);
         (Self(inner), guard)
     }
 
@@ -324,7 +331,7 @@ pub(crate) struct StateRef(GuardedNullableGc<State>);
 impl StateRef {
     /// Creates a new stack reference
     pub(crate) fn new(state: &State) -> (Self, GcGuard<'_, State>) {
-        let (inner, guard) = GuardedNullableGc::r#ref(state);
+        let (inner, guard) = GuardedNullableGc::new_ref(state);
         (Self(inner), guard)
     }
 
@@ -349,7 +356,7 @@ where
 {
     /// Creates a new stack reference
     fn new<'a>(db: DB) -> (Self, GcGuard<'a, DB>) {
-        let (inner, guard) = GuardedNullableGc::owned(db);
+        let (inner, guard) = GuardedNullableGc::new_owned(db);
         (Self(inner), guard)
     }
 }
@@ -417,7 +424,7 @@ pub(crate) struct StackRef(GuardedNullableGc<Stack>);
 impl StackRef {
     /// Creates a new stack reference
     pub(crate) fn new(stack: &Stack) -> (Self, GcGuard<'_, Stack>) {
-        let (inner, guard) = GuardedNullableGc::r#ref(stack);
+        let (inner, guard) = GuardedNullableGc::new_ref(stack);
         (Self(inner), guard)
     }
 
@@ -790,21 +797,15 @@ impl EvmDbRef {
             return JsArrayBuffer::new(0, ctx);
         }
 
-        let res = self
-            .inner
-            .db
-            .0
-            .with_inner(|db| db.code_by_hash_ref(code_hash).map(|code| code.bytecode));
-        let code = match res {
-            Some(Ok(code)) => code,
-            _ => {
-                return Err(JsError::from_native(JsNativeError::error().with_message(format!(
-                    "Failed to read code hash {code_hash:?} from database",
-                ))))
-            }
+        let Some(Ok(bytecode)) = self.inner.db.0.with_inner(|db| db.code_by_hash_ref(code_hash))
+        else {
+            return Err(JsError::from_native(
+                JsNativeError::error()
+                    .with_message(format!("Failed to read code hash {code_hash:?} from database")),
+            ));
         };
 
-        to_buf(code.to_vec(), ctx)
+        to_buf(bytecode.bytecode().to_vec(), ctx)
     }
 
     fn read_state(

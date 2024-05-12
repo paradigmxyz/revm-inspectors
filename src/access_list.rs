@@ -66,7 +66,7 @@ where
         match interp.current_opcode() {
             opcode::SLOAD | opcode::SSTORE => {
                 if let Ok(slot) = interp.stack().peek(0) {
-                    let cur_contract = interp.contract.address;
+                    let cur_contract = interp.contract.target_address;
                     self.access_list
                         .entry(cur_contract)
                         .or_default()

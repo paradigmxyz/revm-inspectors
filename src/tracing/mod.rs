@@ -183,7 +183,7 @@ impl TracingInspector {
         &self,
         context: &EvmContext<DB>,
         to: &Address,
-        value: U256,
+        value: &U256,
     ) -> bool {
         if context.precompiles.contains_key(to) {
             // only if this is _not_ the root call
@@ -357,7 +357,7 @@ impl TracingInspector {
             depth: context.journaled_state.depth(),
             pc: interp.program_counter(),
             op,
-            contract: interp.contract.address,
+            contract: interp.contract.target_address,
             stack,
             push_stack: None,
             memory_size: memory.len(),
@@ -477,36 +477,36 @@ where
         self.gas_inspector.call(context, inputs);
 
         // determine correct `from` and `to` based on the call scheme
-        let (from, to) = match inputs.context.scheme {
+        let (from, to) = match inputs.scheme {
             CallScheme::DelegateCall | CallScheme::CallCode => {
-                (inputs.context.address, inputs.context.code_address)
+                (inputs.target_address, inputs.bytecode_address)
             }
-            _ => (inputs.context.caller, inputs.context.address),
+            _ => (inputs.caller, inputs.target_address),
         };
 
-        let value = if matches!(inputs.context.scheme, CallScheme::DelegateCall) {
+        let value = if matches!(inputs.scheme, CallScheme::DelegateCall) {
             // for delegate calls we need to use the value of the top trace
             if let Some(parent) = self.active_trace() {
                 parent.trace.value
             } else {
-                inputs.transfer.value
+                inputs.call_value()
             }
         } else {
-            inputs.transfer.value
+            inputs.call_value()
         };
 
         // if calls to precompiles should be excluded, check whether this is a call to a precompile
         let maybe_precompile = self
             .config
             .exclude_precompile_calls
-            .then(|| self.is_precompile_call(context, &to, value));
+            .then(|| self.is_precompile_call(context, &to, &value));
 
         self.start_trace_on_call(
             context,
             to,
             inputs.input.clone(),
             value,
-            inputs.context.scheme.into(),
+            inputs.scheme.into(),
             from,
             inputs.gas_limit,
             maybe_precompile,

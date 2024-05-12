@@ -25,15 +25,15 @@ alloy-sol-types = "0.7.2"
 alloy-primitives = "0.7.2"
 alloy-rpc-types = { git = "https://github.com/alloy-rs/alloy", rev = "f1d7085" }
 alloy-rpc-types-trace = { git = "https://github.com/alloy-rs/alloy", rev = "f1d7085" }
-revm = { version = "8.0", default-features = false, features = ["std"] }
+revm = { version = "9.0", default-features = false, features = ["std"] }
 
 anstyle = "1.0"
 colorchoice = "1.0"
-thiserror = { version = "1" }
+thiserror = "1.0"
 
 # serde
 serde = { version = "1", optional = true, features = ["derive"] }
-serde_json = { version = "1" }
+serde_json = "1.0"
 
 # js-tracer
 boa_engine = { version = "0.18", optional = true }

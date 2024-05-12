@@ -10,7 +10,7 @@ use alloy_rpc_types_trace::{
         SelfdestructAction, TraceOutput, TransactionTrace,
     },
 };
-use revm::interpreter::{opcode, CallContext, CallScheme, CreateScheme, InstructionResult, OpCode};
+use revm::interpreter::{opcode, CallScheme, CreateScheme, InstructionResult, OpCode};
 use std::collections::VecDeque;
 
 /// A trace of a call.
@@ -55,8 +55,6 @@ pub struct CallTrace {
     pub gas_limit: u64,
     /// The final status of the call.
     pub status: InstructionResult,
-    /// call context of the runtime
-    pub call_context: Option<Box<CallContext>>,
     /// Opcode-level execution steps.
     pub steps: Vec<CallTraceStep>,
 }

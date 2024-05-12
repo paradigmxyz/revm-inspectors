@@ -6,7 +6,6 @@ use alloy_rpc_types::TransactionInfo;
 use alloy_rpc_types_trace::parity::{Action, SelfdestructAction};
 use revm::{
     db::{CacheDB, EmptyDB},
-    interpreter::CreateScheme,
     primitives::{
         AccountInfo, BlockEnv, CfgEnv, CfgEnvWithHandlerCfg, EnvWithHandlerCfg, ExecutionResult,
         HandlerCfg, Output, SpecId, TransactTo, TxEnv,
@@ -51,7 +50,7 @@ fn test_parity_selfdestruct(spec_id: SpecId) {
         TxEnv {
             caller: deployer,
             gas_limit: 1000000,
-            transact_to: TransactTo::Create(CreateScheme::Create),
+            transact_to: TransactTo::Create,
             data: code.into(),
             value,
             ..Default::default()
@@ -148,7 +147,7 @@ fn test_parity_constructor_selfdestruct() {
         TxEnv {
             caller: deployer,
             gas_limit: 1000000,
-            transact_to: TransactTo::Create(CreateScheme::Create),
+            transact_to: TransactTo::Create,
             data: code.into(),
             ..Default::default()
         },
