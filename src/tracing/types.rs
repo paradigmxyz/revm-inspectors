@@ -628,23 +628,34 @@ pub struct StorageChange {
 /// This is a wrapper around the [SharedMemory](revm::interpreter::SharedMemory) context memory.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub struct RecordedMemory(pub(crate) Vec<u8>);
+pub struct RecordedMemory(pub(crate) Bytes);
 
 impl RecordedMemory {
     #[inline]
-    pub(crate) fn new(mem: Vec<u8>) -> Self {
-        Self(mem)
+    pub(crate) fn new(mem: &[u8]) -> Self {
+        Self(Bytes::copy_from_slice(mem))
     }
 
     /// Returns the memory as a byte slice
     #[inline]
-    pub fn as_bytes(&self) -> &[u8] {
+    pub fn as_bytes(&self) -> &Bytes {
         &self.0
     }
 
+    /// Returns the memory as a byte vector
     #[inline]
-    pub(crate) fn resize(&mut self, size: usize) {
-        self.0.resize(size, 0);
+    pub fn into_bytes(self) -> Bytes {
+        self.0
+    }
+
+    #[inline]
+    pub(crate) fn resize(&mut self, len: usize) {
+        if len <= self.len() {
+            return self.0.truncate(len);
+        }
+        let mut data = self.0.to_vec();
+        data.resize(len, 0);
+        self.0 = Bytes::from(data);
     }
 
     /// Returns the size of the memory
