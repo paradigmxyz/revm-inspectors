@@ -341,7 +341,7 @@ impl TracingInspector {
         let memory = self
             .config
             .record_memory_snapshots
-            .then(|| RecordedMemory::new(interp.shared_memory.context_memory().to_vec()))
+            .then(|| RecordedMemory::new(interp.shared_memory.context_memory()))
             .unwrap_or_default();
         let stack = if self.config.record_stack_snapshots.is_full() {
             Some(interp.stack.data().clone())
