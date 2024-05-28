@@ -217,7 +217,7 @@ impl GethTraceBuilder {
 
                 // insert the original value of all modified storage slots
                 for (key, slot) in changed_acc.storage.iter() {
-                    acc_state.storage.insert((*key).into(), slot.previous_or_original_value.into());
+                    acc_state.storage.insert((*key).into(), slot.original_value.into());
                 }
 
                 prestate.0.insert(addr, acc_state);
@@ -244,7 +244,7 @@ impl GethTraceBuilder {
                 // handle storage changes
                 for (key, slot) in changed_acc.storage.iter().filter(|(_, slot)| slot.is_changed())
                 {
-                    pre_state.storage.insert((*key).into(), slot.previous_or_original_value.into());
+                    pre_state.storage.insert((*key).into(), slot.original_value.into());
                     post_state.storage.insert((*key).into(), slot.present_value.into());
                 }
 

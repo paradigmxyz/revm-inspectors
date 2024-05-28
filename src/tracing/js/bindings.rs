@@ -23,7 +23,7 @@ use revm::{
         opcode::{PUSH0, PUSH32},
         OpCode, SharedMemory, Stack,
     },
-    primitives::{AccountInfo, Bytecode, State, KECCAK_EMPTY},
+    primitives::{AccountInfo, Bytecode, EvmState, KECCAK_EMPTY},
     DatabaseRef,
 };
 use std::{cell::RefCell, rc::Rc};
@@ -326,11 +326,11 @@ unsafe impl Trace for MemoryRef {
 
 /// Represents the state object
 #[derive(Clone, Debug)]
-pub(crate) struct StateRef(GuardedNullableGc<State>);
+pub(crate) struct StateRef(GuardedNullableGc<EvmState>);
 
 impl StateRef {
     /// Creates a new stack reference
-    pub(crate) fn new(state: &State) -> (Self, GcGuard<'_, State>) {
+    pub(crate) fn new(state: &EvmState) -> (Self, GcGuard<'_, EvmState>) {
         let (inner, guard) = GuardedNullableGc::new_ref(state);
         (Self(inner), guard)
     }
@@ -744,7 +744,7 @@ pub(crate) struct EvmDbRef {
 
 impl EvmDbRef {
     /// Creates a new evm and db JS object.
-    pub(crate) fn new<'a, 'b, DB>(state: &'a State, db: &'b DB) -> (Self, EvmDbGuard<'a, 'b>)
+    pub(crate) fn new<'a, 'b, DB>(state: &'a EvmState, db: &'b DB) -> (Self, EvmDbGuard<'a, 'b>)
     where
         DB: DatabaseRef,
         DB::Error: std::fmt::Display,
@@ -934,7 +934,7 @@ struct EvmDbRefInner {
 /// This ensures that the guards are dropped within the lifetime of the borrowed values.
 #[must_use]
 pub(crate) struct EvmDbGuard<'a, 'b> {
-    _state_guard: GcGuard<'a, State>,
+    _state_guard: GcGuard<'a, EvmState>,
     _db_guard: GcGuard<'b, Box<dyn DatabaseRef<Error = String> + 'static>>,
 }
 
@@ -1061,7 +1061,7 @@ mod tests {
         let f = result.as_callable().unwrap();
 
         let mut db = CacheDB::new(EmptyDB::new());
-        let state = State::default();
+        let state = EvmState::default();
         {
             let (db, guard) = EvmDbRef::new(&state, &db);
             let addr = Address::default();
@@ -1118,7 +1118,7 @@ mod tests {
             obj.get(js_string!("setup"), &mut context).unwrap().as_object().cloned().unwrap();
 
         let db = CacheDB::new(EmptyDB::new());
-        let state = State::default();
+        let state = EvmState::default();
         {
             let (db_ref, guard) = EvmDbRef::new(&state, &db);
             let js_db = db_ref.into_js_object(&mut context).unwrap();

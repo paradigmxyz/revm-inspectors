@@ -508,10 +508,7 @@ where
             for (key, slot) in changed_acc.storage.iter().filter(|(_, slot)| slot.is_changed()) {
                 entry.storage.insert(
                     (*key).into(),
-                    Delta::changed(
-                        slot.previous_or_original_value.into(),
-                        slot.present_value.into(),
-                    ),
+                    Delta::changed(slot.original_value.into(), slot.present_value.into()),
                 );
             }
 
