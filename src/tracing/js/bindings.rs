@@ -708,33 +708,23 @@ impl JsEvmContext {
             obj.set(js_string!("to"), JsValue::null(), false, ctx)?;
         }
 
-        obj.set(js_string!("input"), to_byte_array(input.to_vec(), ctx)?, false, ctx)?;
+        obj.set(js_string!("input"), to_byte_array(input, ctx)?, false, ctx)?;
         obj.set(js_string!("gas"), gas, false, ctx)?;
         obj.set(js_string!("gasUsed"), gas_used, false, ctx)?;
         obj.set(js_string!("gasPrice"), gas_price, false, ctx)?;
         obj.set(js_string!("intrinsicGas"), intrinsic_gas, false, ctx)?;
         obj.set(js_string!("value"), to_bigint(value, ctx)?, false, ctx)?;
         obj.set(js_string!("block"), block, false, ctx)?;
-        obj.set(js_string!("output"), to_byte_array(output.to_vec(), ctx)?, false, ctx)?;
+        obj.set(js_string!("output"), to_byte_array(output, ctx)?, false, ctx)?;
         obj.set(js_string!("time"), js_string!(time), false, ctx)?;
         if let Some(block_hash) = transaction_ctx.block_hash {
-            obj.set(
-                js_string!("blockHash"),
-                to_byte_array(block_hash.as_slice().to_vec(), ctx)?,
-                false,
-                ctx,
-            )?;
+            obj.set(js_string!("blockHash"), to_byte_array(block_hash.0, ctx)?, false, ctx)?;
         }
         if let Some(tx_index) = transaction_ctx.tx_index {
             obj.set(js_string!("txIndex"), tx_index as u64, false, ctx)?;
         }
         if let Some(tx_hash) = transaction_ctx.tx_hash {
-            obj.set(
-                js_string!("txHash"),
-                to_byte_array(tx_hash.as_slice().to_vec(), ctx)?,
-                false,
-                ctx,
-            )?;
+            obj.set(js_string!("txHash"), to_byte_array(tx_hash.0, ctx)?, false, ctx)?;
         }
 
         Ok(obj)
