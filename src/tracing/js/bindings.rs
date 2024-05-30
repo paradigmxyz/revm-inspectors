@@ -1021,7 +1021,7 @@ mod tests {
             .unwrap();
         assert!(res.is_object());
 
-        let buf = from_buf_value(res.into(), &mut ctx).unwrap();
+        let buf = from_buf_value(res, &mut ctx).unwrap();
         assert_eq!(buf, contract.contract.as_slice());
 
         let call = eval_obj.as_object().unwrap().get(js_string!("value"), &mut ctx).unwrap();
@@ -1042,8 +1042,7 @@ mod tests {
             .call(&JsValue::undefined(), &[contract_arg], &mut ctx)
             .unwrap();
 
-        let array = JsUint8Array::from_object(res.as_object().unwrap().clone()).unwrap();
-        let buf = from_buf_value(array.into(), &mut ctx).unwrap();
+        let buf = from_buf_value(res, &mut ctx).unwrap();
         assert_eq!(buf, contract.input);
     }
 
