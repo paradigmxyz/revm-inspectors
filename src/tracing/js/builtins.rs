@@ -132,7 +132,7 @@ pub(crate) fn from_buf_value(val: JsValue, context: &mut Context) -> JsResult<Ve
     ))
 }
 
-/// Create a new array buffer from the address' bytes.
+/// Create a new [JsUint8Array] array buffer from the address' bytes.
 pub(crate) fn address_to_byte_array(
     addr: Address,
     context: &mut Context,
@@ -140,7 +140,7 @@ pub(crate) fn address_to_byte_array(
     JsUint8Array::from_iter(addr.0, context)
 }
 
-/// Create a new array buffer from the address' bytes.
+/// Create a new [JsUint8Array] array buffer from the address' bytes.
 pub(crate) fn address_to_byte_array_value(
     addr: Address,
     context: &mut Context,
@@ -148,7 +148,7 @@ pub(crate) fn address_to_byte_array_value(
     Ok(JsUint8Array::from_iter(addr.0, context)?.into())
 }
 
-/// Create a new array from byte block.
+/// Create a new [JsUint8Array] from byte block.
 pub(crate) fn to_byte_array<I>(bytes: I, context: &mut Context) -> JsResult<JsUint8Array>
 where
     I: IntoIterator<Item = u8>,
@@ -156,7 +156,7 @@ where
     JsUint8Array::from_iter(bytes, context)
 }
 
-/// Create a new array buffer object from byte block.
+/// Create a new [JsUint8Array] object from byte block.
 pub(crate) fn to_byte_array_value<I>(bytes: I, context: &mut Context) -> JsResult<JsValue>
 where
     I: IntoIterator<Item = u8>,
