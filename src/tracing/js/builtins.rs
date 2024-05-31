@@ -2,9 +2,9 @@
 
 use alloy_primitives::{hex, Address, B256, U256};
 use boa_engine::{
-    builtins::array_buffer::ArrayBuffer,
+    builtins::{array_buffer::ArrayBuffer, typed_array::TypedArray},
     js_string,
-    object::builtins::{JsArray, JsArrayBuffer},
+    object::builtins::{JsArray, JsArrayBuffer, JsTypedArray, JsUint8Array},
     property::Attribute,
     Context, JsArgs, JsError, JsNativeError, JsResult, JsString, JsValue, NativeFunction, Source,
 };
@@ -89,9 +89,18 @@ pub(crate) fn register_builtins(ctx: &mut Context) -> JsResult<()> {
 }
 
 /// Converts an array, hex string or Uint8Array to a []byte
-pub(crate) fn from_buf(val: JsValue, context: &mut Context) -> JsResult<Vec<u8>> {
+pub(crate) fn from_buf_value(val: JsValue, context: &mut Context) -> JsResult<Vec<u8>> {
     if let Some(obj) = val.as_object().cloned() {
-        if obj.is::<ArrayBuffer>() {
+        if obj.is::<TypedArray>() {
+            let array: JsTypedArray = JsTypedArray::from_object(obj)?;
+            let len = array.length(context)?;
+            let mut buf = Vec::with_capacity(len);
+            for i in 0..len {
+                let val = array.get(i, context)?;
+                buf.push(val.to_number(context)? as u8);
+            }
+            return Ok(buf);
+        } else if obj.is::<ArrayBuffer>() {
             let buf = JsArrayBuffer::from_object(obj)?;
             let buf = buf.data().map(|data| data.to_vec()).ok_or_else(|| {
                 JsNativeError::typ().with_message("ArrayBuffer was already detached")
@@ -123,19 +132,36 @@ pub(crate) fn from_buf(val: JsValue, context: &mut Context) -> JsResult<Vec<u8>>
     ))
 }
 
-/// Create a new array buffer from the address' bytes.
-pub(crate) fn address_to_buf(addr: Address, context: &mut Context) -> JsResult<JsArrayBuffer> {
-    to_buf(addr.0.to_vec(), context)
+/// Create a new [JsUint8Array] array buffer from the address' bytes.
+pub(crate) fn address_to_byte_array(
+    addr: Address,
+    context: &mut Context,
+) -> JsResult<JsUint8Array> {
+    JsUint8Array::from_iter(addr.0, context)
 }
 
-/// Create a new array buffer from byte block.
-pub(crate) fn to_buf(bytes: Vec<u8>, context: &mut Context) -> JsResult<JsArrayBuffer> {
-    JsArrayBuffer::from_byte_block(bytes, context)
+/// Create a new [JsUint8Array] array buffer from the address' bytes.
+pub(crate) fn address_to_byte_array_value(
+    addr: Address,
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    Ok(JsUint8Array::from_iter(addr.0, context)?.into())
 }
 
-/// Create a new array buffer object from byte block.
-pub(crate) fn to_buf_value(bytes: Vec<u8>, context: &mut Context) -> JsResult<JsValue> {
-    Ok(to_buf(bytes, context)?.into())
+/// Create a new [JsUint8Array] from byte block.
+pub(crate) fn to_byte_array<I>(bytes: I, context: &mut Context) -> JsResult<JsUint8Array>
+where
+    I: IntoIterator<Item = u8>,
+{
+    JsUint8Array::from_iter(bytes, context)
+}
+
+/// Create a new [JsUint8Array] object from byte block.
+pub(crate) fn to_byte_array_value<I>(bytes: I, context: &mut Context) -> JsResult<JsValue>
+where
+    I: IntoIterator<Item = u8>,
+{
+    Ok(to_byte_array(bytes, context)?.into())
 }
 
 /// Converts a buffer type to an address.
@@ -204,17 +230,17 @@ pub(crate) fn to_contract2(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> 
     let initcode = args.get_or_undefined(2).clone();
 
     // Convert the sender's address to a byte buffer and then to an Address
-    let buf = from_buf(from, ctx)?;
+    let buf = from_buf_value(from, ctx)?;
     let addr = bytes_to_address(buf);
 
     // Convert the initcode to a byte buffer
-    let code_buf = from_buf(initcode, ctx)?;
+    let code_buf = from_buf_value(initcode, ctx)?;
 
     // Compute the contract address
     let contract_addr = addr.create2_from_code(salt, code_buf);
 
     // Convert the contract address to a byte buffer and return it as an ArrayBuffer
-    to_buf_value(contract_addr.0.to_vec(), ctx)
+    address_to_byte_array_value(contract_addr, ctx)
 }
 
 ///  Converts the sender's address to a byte buffer
@@ -224,36 +250,36 @@ pub(crate) fn to_contract(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> J
     let nonce = args.get_or_undefined(1).to_number(ctx)? as u64;
 
     // Convert the sender's address to a byte buffer and then to an Address
-    let buf = from_buf(from, ctx)?;
+    let buf = from_buf_value(from, ctx)?;
     let addr = bytes_to_address(buf);
 
     // Compute the contract address
     let contract_addr = addr.create(nonce);
 
     // Convert the contract address to a byte buffer and return it as an ArrayBuffer
-    to_buf_value(contract_addr.0.to_vec(), ctx)
+    address_to_byte_array_value(contract_addr, ctx)
 }
 
 /// Converts a buffer type to an address
 pub(crate) fn to_address(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let val = args.get_or_undefined(0).clone();
-    let buf = from_buf(val, ctx)?;
+    let buf = from_buf_value(val, ctx)?;
     let address = bytes_to_address(buf);
-    to_buf_value(address.0.to_vec(), ctx)
+    address_to_byte_array_value(address, ctx)
 }
 
 /// Converts a buffer type to a word
 pub(crate) fn to_word(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let val = args.get_or_undefined(0).clone();
-    let buf = from_buf(val, ctx)?;
+    let buf = from_buf_value(val, ctx)?;
     let hash = bytes_to_hash(buf);
-    to_buf_value(hash.0.to_vec(), ctx)
+    to_byte_array_value(hash.0, ctx)
 }
 
 /// Converts a buffer type to a hex string
 pub(crate) fn to_hex(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let val = args.get_or_undefined(0).clone();
-    let buf = from_buf(val, ctx)?;
+    let buf = from_buf_value(val, ctx)?;
     let s = js_string!(hex::encode(buf));
     Ok(JsValue::from(s))
 }
@@ -284,7 +310,7 @@ impl PrecompileList {
         let is_precompiled = NativeFunction::from_copy_closure_with_captures(
             move |_this, args, precompiles, ctx| {
                 let val = args.get_or_undefined(0).clone();
-                let buf = from_buf(val, ctx)?;
+                let buf = from_buf_value(val, ctx)?;
                 let addr = bytes_to_address(buf);
                 Ok(precompiles.0.contains(&addr).into())
             },
