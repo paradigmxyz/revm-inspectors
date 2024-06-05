@@ -3,16 +3,19 @@
 use crate::utils::{inspect, print_traces};
 use alloy_primitives::{address, hex, Address, U256};
 use alloy_rpc_types::TransactionInfo;
-use alloy_rpc_types_trace::parity::{Action, SelfdestructAction};
+use alloy_rpc_types_trace::parity::{Action, SelfdestructAction, TraceType};
 use revm::{
     db::{CacheDB, EmptyDB},
     primitives::{
-        AccountInfo, BlockEnv, CfgEnv, CfgEnvWithHandlerCfg, EnvWithHandlerCfg, ExecutionResult,
-        HandlerCfg, Output, SpecId, TransactTo, TxEnv,
+        AccountInfo, BlobExcessGasAndPrice, BlockEnv, CfgEnv, CfgEnvWithHandlerCfg,
+        EnvWithHandlerCfg, ExecutionResult, HandlerCfg, Output, SpecId, TransactTo, TxEnv,
     },
     DatabaseCommit,
 };
-use revm_inspectors::tracing::{TracingInspector, TracingInspectorConfig};
+use revm_inspectors::tracing::{
+    parity::populate_state_diff, TracingInspector, TracingInspectorConfig,
+};
+use std::collections::HashSet;
 
 #[test]
 fn test_parity_selfdestruct_london() {
@@ -194,4 +197,53 @@ fn test_parity_constructor_selfdestruct() {
     assert_eq!(traces[1].trace.subtraces, 1);
     assert!(traces[2].trace.action.is_selfdestruct());
     assert_eq!(traces[2].trace.trace_address, vec![0, 0]);
+}
+
+// Minimal example of <https://github.com/paradigmxyz/reth/issues/8610>
+// <https://sepolia.etherscan.io/tx/0x19dc9c21232699a274849fac7443be6de819755a07b7175a21d337e223070709>
+#[test]
+fn test_parity_statediff_blob_commit() {
+    let caller = address!("283b5b7d75e3e6b84b8e2161e8a468d733bbbe8d");
+
+    let mut db = CacheDB::new(EmptyDB::default());
+
+    let cfg = CfgEnvWithHandlerCfg::new(CfgEnv::default(), HandlerCfg::new(SpecId::CANCUN));
+
+    db.insert_account_info(
+        caller,
+        AccountInfo { balance: U256::from(u64::MAX), ..Default::default() },
+    );
+
+    let to = address!("15dd773dad3f630773a0e771e9b221f4c8b9b939");
+
+    let env = EnvWithHandlerCfg::new_with_cfg_env(
+        cfg.clone(),
+        BlockEnv {
+            basefee: U256::from(100),
+            blob_excess_gas_and_price: Some(BlobExcessGasAndPrice::new(100)),
+            ..Default::default()
+        },
+        TxEnv {
+            caller,
+            gas_limit: 1000000,
+            transact_to: TransactTo::Call(to),
+            gas_price: U256::from(150),
+            blob_hashes: vec!["0x01af2fd94f17364bc8ef371c4c90c3a33855ff972d10b9c03d0445b3fca063ea"
+                .parse()
+                .unwrap()],
+            max_fee_per_blob_gas: Some(U256::from(1000000000)),
+            ..Default::default()
+        },
+    );
+
+    let trace_types = HashSet::from([TraceType::StateDiff]);
+    let mut insp = TracingInspector::new(TracingInspectorConfig::from_parity_config(&trace_types));
+    let (res, _) = inspect(&mut db, env, &mut insp).unwrap();
+    let mut full_trace = insp.into_parity_builder().into_trace_results(&res.result, &trace_types);
+
+    let state_diff = full_trace.state_diff.as_mut().unwrap();
+    populate_state_diff(state_diff, db, res.state.iter()).unwrap();
+
+    assert!(!state_diff.contains_key(&to));
+    assert!(state_diff.contains_key(&caller));
 }
