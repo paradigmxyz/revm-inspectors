@@ -487,7 +487,9 @@ where
         let entry = state_diff.entry(addr).or_default();
 
         // we check if this account was created during the transaction
-        if changed_acc.is_created() || changed_acc.is_loaded_as_not_existing() {
+        if changed_acc.is_created() {
+            // This only applies to newly created accounts
+            // A non existing touched account (e.g. `to` that does not exist) is excluded here
             entry.balance = Delta::Added(changed_acc.info.balance);
             entry.nonce = Delta::Added(U64::from(changed_acc.info.nonce));
 
@@ -501,7 +503,7 @@ where
                 entry.storage.insert((*key).into(), Delta::Added(slot.present_value.into()));
             }
         } else {
-            // account already exists, we need to fetch the account from the db
+            // account may exist or not, we need to fetch the account from the db
             let db_acc = db.basic_ref(addr)?.unwrap_or_default();
 
             // update _changed_ storage values
