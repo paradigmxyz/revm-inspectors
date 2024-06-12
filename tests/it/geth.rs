@@ -2,7 +2,7 @@
 
 use crate::utils::inspect;
 use alloy_primitives::{hex, Address, Bytes};
-use alloy_rpc_types_trace::geth::{
+use alloy_rpc_types::trace::geth::{
     mux::MuxConfig, CallConfig, GethDebugBuiltInTracerType, GethDebugTracerConfig, GethTrace,
     PreStateConfig,
 };
