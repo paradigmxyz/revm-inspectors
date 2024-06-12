@@ -1,6 +1,6 @@
 use crate::tracing::{FourByteInspector, TracingInspector, TracingInspectorConfig};
 use alloy_primitives::{Address, Log, U256};
-use alloy_rpc_types_trace::geth::{
+use alloy_rpc_types::trace::geth::{
     mux::{MuxConfig, MuxFrame},
     CallConfig, FourByteFrame, GethDebugBuiltInTracerType, GethDebugTracerConfig, GethTrace,
     NoopFrame, PreStateConfig,

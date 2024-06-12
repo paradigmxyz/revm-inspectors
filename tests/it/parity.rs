@@ -2,8 +2,10 @@
 
 use crate::utils::{inspect, print_traces};
 use alloy_primitives::{address, hex, Address, U256};
-use alloy_rpc_types::TransactionInfo;
-use alloy_rpc_types_trace::parity::{Action, SelfdestructAction, TraceType};
+use alloy_rpc_types::{
+    trace::parity::{Action, SelfdestructAction, TraceType},
+    TransactionInfo,
+};
 use revm::{
     db::{CacheDB, EmptyDB},
     primitives::{
