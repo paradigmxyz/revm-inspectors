@@ -8,7 +8,6 @@ use crate::tracing::{
 };
 use alloy_primitives::{Address, Bytes, Log, U256};
 use revm::{
-    inspectors::GasInspector,
     interpreter::{
         opcode, CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome,
         InstructionResult, Interpreter, InterpreterResult, OpCode,
@@ -69,8 +68,6 @@ pub struct TracingInspector {
     step_stack: Vec<StackStep>,
     /// Tracks the return value of the last call
     last_call_return_data: Option<Bytes>,
-    /// The gas inspector used to track remaining gas.
-    gas_inspector: GasInspector,
     /// The spec id of the EVM.
     ///
     /// This is filled during execution.
@@ -96,7 +93,6 @@ impl TracingInspector {
             trace_stack,
             step_stack,
             last_call_return_data,
-            gas_inspector,
             spec_id,
             // kept
             config: _,
@@ -106,7 +102,6 @@ impl TracingInspector {
         step_stack.clear();
         last_call_return_data.take();
         spec_id.take();
-        *gas_inspector = Default::default();
     }
 
     /// Resets the inspector to it's initial state of [Self::new].
@@ -296,10 +291,10 @@ impl TracingInspector {
     fn fill_trace_on_call_end<DB: Database>(
         &mut self,
         context: &mut EvmContext<DB>,
-        result: InterpreterResult,
+        result: &InterpreterResult,
         created_address: Option<Address>,
     ) {
-        let InterpreterResult { result, output, gas } = result;
+        let InterpreterResult { result, ref output, ref gas } = *result;
 
         let trace_idx = self.pop_trace_idx();
         let trace = &mut self.traces.arena[trace_idx].trace;
@@ -316,7 +311,7 @@ impl TracingInspector {
         trace.success = trace.status.is_ok();
         trace.output = output.clone();
 
-        self.last_call_return_data = Some(output);
+        self.last_call_return_data = Some(output.clone());
 
         if let Some(address) = created_address {
             // A new contract was created via CREATE
@@ -332,6 +327,7 @@ impl TracingInspector {
     ///
     /// This expects an existing [CallTrace], in other words, this panics if not within the context
     /// of a call.
+    #[cold]
     fn start_step<DB: Database>(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
         let trace_idx = self.last_trace_idx();
         let trace = &mut self.traces.arena[trace_idx];
@@ -362,7 +358,7 @@ impl TracingInspector {
             push_stack: None,
             memory_size: memory.len(),
             memory,
-            gas_remaining: self.gas_inspector.gas_remaining(),
+            gas_remaining: interp.gas.remaining(),
             gas_refund_counter: interp.gas.refunded() as u64,
 
             // fields will be populated end of call
@@ -375,10 +371,11 @@ impl TracingInspector {
     /// Fills the current trace with the output of a step.
     ///
     /// Invoked on [Inspector::step_end].
+    #[cold]
     fn fill_step_on_step_end<DB: Database>(
         &mut self,
-        interp: &Interpreter,
-        context: &EvmContext<DB>,
+        interp: &mut Interpreter,
+        context: &mut EvmContext<DB>,
     ) {
         let StackStep { trace_idx, step_idx } =
             self.step_stack.pop().expect("can't fill step without starting a step first");
@@ -430,7 +427,7 @@ impl TracingInspector {
         // The gas cost is the difference between the recorded gas remaining at the start of the
         // step the remaining gas here, at the end of the step.
         // TODO: Figure out why this can overflow. https://github.com/paradigmxyz/evm-inspectors/pull/38
-        step.gas_cost = step.gas_remaining.saturating_sub(self.gas_inspector.gas_remaining());
+        step.gas_cost = step.gas_remaining.saturating_sub(interp.gas.remaining());
 
         // set the status
         step.status = interp.instruction_result;
@@ -442,26 +439,20 @@ where
     DB: Database,
 {
     #[inline]
-    fn initialize_interp(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
-        self.gas_inspector.initialize_interp(interp, context)
-    }
-
     fn step(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
-        self.gas_inspector.step(interp, context);
         if self.config.record_steps {
             self.start_step(interp, context);
         }
     }
 
+    #[inline]
     fn step_end(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
-        self.gas_inspector.step_end(interp, context);
         if self.config.record_steps {
             self.fill_step_on_step_end(interp, context);
         }
     }
 
-    fn log(&mut self, context: &mut EvmContext<DB>, log: &Log) {
-        self.gas_inspector.log(context, log);
+    fn log(&mut self, _context: &mut EvmContext<DB>, log: &Log) {
         if self.config.record_logs {
             let trace = self.last_trace();
             trace.ordering.push(LogCallOrder::Log(trace.logs.len()));
@@ -474,8 +465,6 @@ where
         context: &mut EvmContext<DB>,
         inputs: &mut CallInputs,
     ) -> Option<CallOutcome> {
-        self.gas_inspector.call(context, inputs);
-
         // determine correct `from` and `to` based on the call scheme
         let (from, to) = match inputs.scheme {
             CallScheme::DelegateCall | CallScheme::CallCode => {
@@ -518,13 +507,10 @@ where
     fn call_end(
         &mut self,
         context: &mut EvmContext<DB>,
-        inputs: &CallInputs,
+        _inputs: &CallInputs,
         outcome: CallOutcome,
     ) -> CallOutcome {
-        let outcome = self.gas_inspector.call_end(context, inputs, outcome);
-
-        self.fill_trace_on_call_end(context, outcome.result.clone(), None);
-
+        self.fill_trace_on_call_end(context, &outcome.result, None);
         outcome
     }
 
@@ -533,8 +519,6 @@ where
         context: &mut EvmContext<DB>,
         inputs: &mut CreateInputs,
     ) -> Option<CreateOutcome> {
-        self.gas_inspector.create(context, inputs);
-
         let _ = context.load_account(inputs.caller);
         let nonce = context.journaled_state.account(inputs.caller).info.nonce;
         self.start_trace_on_call(
@@ -551,18 +535,13 @@ where
         None
     }
 
-    /// Called when a contract has been created.
-    ///
-    /// InstructionResulting anything other than the values passed to this function (`(ret,
-    /// remaining_gas, address, out)`) will alter the result of the create.
     fn create_end(
         &mut self,
         context: &mut EvmContext<DB>,
-        inputs: &CreateInputs,
+        _inputs: &CreateInputs,
         outcome: CreateOutcome,
     ) -> CreateOutcome {
-        let outcome = self.gas_inspector.create_end(context, inputs, outcome);
-        self.fill_trace_on_call_end(context, outcome.result.clone(), outcome.address);
+        self.fill_trace_on_call_end(context, &outcome.result, outcome.address);
         outcome
     }
 
