@@ -408,7 +408,7 @@ impl TracingInspector {
             step.storage_change = match (op, journal_entry) {
                 (
                     opcode::SLOAD | opcode::SSTORE,
-                    Some(JournalEntry::StorageChange { address, key, had_value }),
+                    Some(JournalEntry::StorageChanged { address, key, had_value }),
                 ) => {
                     // SAFETY: (Address,key) exists if part if StorageChange
                     let value = context.journaled_state.state[address].storage[key].present_value();
@@ -417,7 +417,8 @@ impl TracingInspector {
                         opcode::SSTORE => StorageChangeReason::SSTORE,
                         _ => unreachable!(),
                     };
-                    let change = StorageChange { key: *key, value, had_value: *had_value, reason };
+                    let change =
+                        StorageChange { key: *key, value, had_value: Some(*had_value), reason };
                     Some(change)
                 }
                 _ => None,
