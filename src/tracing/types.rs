@@ -606,7 +606,7 @@ pub enum StorageChangeReason {
 /// Represents a storage change during execution.
 ///
 /// This maps to evm internals:
-/// [JournalEntry::StorageChange](revm::JournalEntry::StorageChange)
+/// [JournalEntry::StorageChange](revm::JournalEntry::StorageChanged)
 ///
 /// It is used to track both storage change and warm load of a storage slot. For warm load in regard
 /// to EIP-2929 AccessList had_value will be None.
