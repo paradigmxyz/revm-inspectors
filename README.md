@@ -1,4 +1,4 @@
-# evm-inspectors
+# revm-inspectors
 
 Common [`revm`] inspector implementations.
 
