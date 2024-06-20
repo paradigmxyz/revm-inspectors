@@ -9,6 +9,15 @@ homepage = "https://github.com/paradigmxyz/evm-inspectors"
 repository = "https://github.com/paradigmxyz/evm-inspectors"
 categories = ["cryptography"]
 keywords = ["ethereum", "evm", "inspectors", "tracing", "debugging"]
+exclude = [
+    ".github",
+    "scripts",
+    "testdata",
+    "tests",
+    "cliff.toml",
+    "deny.toml",
+    "release.toml",
+]
 
 [lints]
 rust.missing_debug_implementations = "warn"
