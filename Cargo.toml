@@ -24,9 +24,7 @@ clippy.lint_groups_priority = "allow"
 alloy-sol-types = "0.7"
 alloy-primitives = "0.7"
 alloy-rpc-types = { version = "0.1", features = ["eth", "trace"] }
-revm = { version = "9.0", git = "https://github.com/bluealloy/revm.git", rev = "41e2f7f", default-features = false, features = [
-    "std",
-] }
+revm = { version = "10.0", default-features = false, features = ["std"] }
 
 anstyle = "1.0"
 colorchoice = "1.0"
