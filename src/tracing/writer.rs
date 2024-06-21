@@ -1,5 +1,5 @@
 use super::{
-    types::{CallKind, CallTrace, CallTraceNode, LogCallOrder},
+    types::{CallKind, CallTrace, CallTraceNode, TraceMemberOrder},
     CallTraceArena,
 };
 use alloy_primitives::{address, hex, Address, LogData};
@@ -98,9 +98,9 @@ impl<W: Write> TraceWriter<W> {
         self.indentation_level += 1;
         for child in &node.ordering {
             match *child {
-                LogCallOrder::Log(index) => self.write_raw_log(&node.logs[index]),
-                LogCallOrder::Call(index) => self.write_node(nodes, node.children[index]),
-                LogCallOrder::Step(_) => Ok(()),
+                TraceMemberOrder::Log(index) => self.write_raw_log(&node.logs[index]),
+                TraceMemberOrder::Call(index) => self.write_node(nodes, node.children[index]),
+                TraceMemberOrder::Step(_) => Ok(()),
             }?;
         }
 

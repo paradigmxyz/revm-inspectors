@@ -2,7 +2,7 @@ use self::parity::stack_push_count;
 use crate::tracing::{
     arena::PushTraceKind,
     types::{
-        CallKind, CallTraceNode, LogCallOrder, RecordedMemory, StorageChange, StorageChangeReason,
+        CallKind, CallTraceNode, TraceMemberOrder, RecordedMemory, StorageChange, StorageChangeReason,
     },
     utils::gas_used,
 };
@@ -368,7 +368,7 @@ impl TracingInspector {
             status: InstructionResult::Continue,
         });
 
-        trace.ordering.push(LogCallOrder::Step(step_idx));
+        trace.ordering.push(TraceMemberOrder::Step(step_idx));
     }
 
     /// Fills the current trace with the output of a step.
@@ -459,7 +459,7 @@ where
     fn log(&mut self, _context: &mut EvmContext<DB>, log: &Log) {
         if self.config.record_logs {
             let trace = self.last_trace();
-            trace.ordering.push(LogCallOrder::Log(trace.logs.len()));
+            trace.ordering.push(TraceMemberOrder::Log(trace.logs.len()));
             trace.logs.push(log.data.clone());
         }
     }

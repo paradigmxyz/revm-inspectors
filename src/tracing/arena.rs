@@ -1,4 +1,4 @@
-use super::types::{CallTrace, CallTraceNode, LogCallOrder};
+use super::types::{CallTrace, CallTraceNode, TraceMemberOrder};
 
 /// An arena of recorded traces.
 ///
@@ -70,7 +70,7 @@ impl CallTraceArena {
                     if kind.is_attach_to_parent() {
                         let parent = &mut self.arena[entry];
                         let trace_location = parent.children.len();
-                        parent.ordering.push(LogCallOrder::Call(trace_location));
+                        parent.ordering.push(TraceMemberOrder::Call(trace_location));
                         parent.children.push(id);
                     }
 
