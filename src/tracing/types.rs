@@ -73,8 +73,6 @@ pub struct CallTrace {
     pub decoded_return_data: Option<String>,
     /// Optional decoded call data.
     pub decoded_call_data: Option<DecodedCallData>,
-    /// Optional decoded contract name.
-    pub decoded_contract_name: Option<String>,
 }
 
 impl CallTrace {
