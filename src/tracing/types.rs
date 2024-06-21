@@ -23,7 +23,7 @@ pub struct DecodedCallData {
     pub args: Vec<String>,
 }
 
-/// A trace of a call.
+/// A trace of a call with optional decoded data.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CallTrace {
@@ -132,6 +132,25 @@ impl CallTrace {
     }
 }
 
+/// A log with optional decoded data.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct CallLog {
+    /// The raw log data.
+    pub raw_log: LogData,
+    /// The event name.
+    pub name: Option<String>,
+    /// The decoded log parameters.
+    pub params: Option<Vec<(String, String)>>,
+}
+
+impl From<Log> for CallLog {
+    /// Converts a [`Log`] into a [`CallLog`].
+    fn from(log: Log) -> Self {
+        Self { raw_log: log.data, name: None, params: None }
+    }
+}
+
 /// A node in the arena
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -145,7 +164,7 @@ pub struct CallTraceNode {
     /// The call trace
     pub trace: CallTrace,
     /// Recorded logs, if enabled
-    pub logs: Vec<LogData>,
+    pub logs: Vec<CallLog>,
     /// Ordering of child calls and logs
     pub ordering: Vec<LogCallOrder>,
 }
@@ -355,8 +374,8 @@ impl CallTraceNode {
                 .iter()
                 .map(|log| CallLogFrame {
                     address: Some(self.execution_address()),
-                    topics: Some(log.topics().to_vec()),
-                    data: Some(log.data.clone()),
+                    topics: Some(log.raw_log.topics().to_vec()),
+                    data: Some(log.raw_log.data.clone()),
                 })
                 .collect();
         }

@@ -1,8 +1,8 @@
 use super::{
-    types::{CallKind, CallTrace, CallTraceNode, DecodedCallData, LogCallOrder},
+    types::{CallKind, CallLog, CallTrace, CallTraceNode, DecodedCallData, LogCallOrder},
     CallTraceArena,
 };
-use alloy_primitives::{address, hex, Address, LogData};
+use alloy_primitives::{address, hex, Address};
 use anstyle::{AnsiColor, Color, Style};
 use colorchoice::ColorChoice;
 use std::io::{self, Write};
@@ -99,7 +99,7 @@ impl<W: Write> TraceWriter<W> {
         self.indentation_level += 1;
         for child in &node.ordering {
             match *child {
-                LogCallOrder::Log(index) => self.write_raw_log(&node.logs[index]),
+                LogCallOrder::Log(index) => self.write_log(&node.logs[index]),
                 LogCallOrder::Call(index) => self.write_node(nodes, node.children[index]),
             }?;
         }
@@ -173,39 +173,44 @@ impl<W: Write> TraceWriter<W> {
         Ok(())
     }
 
-    fn write_raw_log(&mut self, log: &LogData) -> io::Result<()> {
+    fn write_log(&mut self, log: &CallLog) -> io::Result<()> {
         let log_style = self.log_style();
         self.write_branch()?;
 
-        for (i, topic) in log.topics().iter().enumerate() {
-            if i == 0 {
-                self.writer.write_all(b" emit topic 0")?;
-            } else {
-                self.write_pipes()?;
-                write!(self.writer, "       topic {i}")?;
+        if let Some(name) = &log.name {
+            write!(self.writer, "emit {name}({log_style}")?;
+            if let Some(params) = &log.params {
+                for (i, (param_name, value)) in params.iter().enumerate() {
+                    if i > 0 {
+                        self.writer.write_all(b", ")?;
+                    }
+                    write!(self.writer, "{param_name}: {value}")?;
+                }
             }
-            writeln!(self.writer, ": {log_style}{topic}{log_style:#}")?;
+            write!(self.writer, "{log_style:#})")?;
+        } else {
+            for (i, topic) in log.raw_log.topics().iter().enumerate() {
+                if i == 0 {
+                    self.writer.write_all(b" emit topic 0")?;
+                } else {
+                    self.write_pipes()?;
+                    write!(self.writer, "       topic {i}")?;
+                }
+                writeln!(self.writer, ": {log_style}{topic}{log_style:#}")?;
+            }
+
+            if !log.raw_log.topics().is_empty() {
+                self.write_pipes()?;
+            }
+            writeln!(
+                self.writer,
+                "          data: {log_style}{data}{log_style:#}",
+                data = log.raw_log.data
+            )?;
         }
 
-        if !log.topics().is_empty() {
-            self.write_pipes()?;
-        }
-        writeln!(self.writer, "          data: {log_style}{data}{log_style:#}", data = log.data)
+        Ok(())
     }
-
-    // fn write_decoded_log(&mut self, name: &str, params: &[(String, String)]) -> io::Result<()> {
-    //     let log_style = self.log_style();
-    //     self.write_branch()?;
-
-    //     write!(self.writer, "emit {name}({log_style}")?;
-    //     for (i, (name, value)) in params.iter().enumerate() {
-    //         if i > 0 {
-    //             self.writer.write_all(b", ")?;
-    //         }
-    //         write!(self.writer, "{name}: {value}")?;
-    //     }
-    //     write!(self.writer, "{log_style:#})")
-    // }
 
     /// Writes the footer of a call trace.
     fn write_trace_footer(&mut self, trace: &CallTrace) -> io::Result<()> {
@@ -216,10 +221,9 @@ impl<W: Write> TraceWriter<W> {
             status = trace.status,
         )?;
 
-        // TODO:
-        // if let Some(decoded) = trace.decoded_return_data {
-        //     return self.writer.write_all(decoded.as_bytes());
-        // }
+        if let Some(decoded) = &trace.decoded_return_data {
+            return self.writer.write_all(decoded.as_bytes());
+        }
 
         if trace.kind.is_any_create() {
             write!(self.writer, "{} bytes of code", trace.output.len())?;
