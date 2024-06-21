@@ -332,7 +332,8 @@ impl TracingInspector {
         let trace_idx = self.last_trace_idx();
         let trace = &mut self.traces.arena[trace_idx];
 
-        self.step_stack.push(StackStep { trace_idx, step_idx: trace.trace.steps.len() });
+        let step_idx = trace.trace.steps.len();
+        self.step_stack.push(StackStep { trace_idx, step_idx });
 
         let memory = self
             .config
@@ -366,6 +367,8 @@ impl TracingInspector {
             storage_change: None,
             status: InstructionResult::Continue,
         });
+
+        trace.ordering.push(LogCallOrder::Step(step_idx));
     }
 
     /// Fills the current trace with the output of a step.

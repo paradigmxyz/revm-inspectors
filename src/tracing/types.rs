@@ -478,6 +478,8 @@ pub enum LogCallOrder {
     Log(usize),
     /// Contains the index of the corresponding trace node
     Call(usize),
+    /// Contains the index of the corresponding step, if those are being traced
+    Step(usize),
 }
 
 /// Represents a tracked call step during execution

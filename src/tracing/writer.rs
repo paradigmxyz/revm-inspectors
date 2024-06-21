@@ -100,6 +100,7 @@ impl<W: Write> TraceWriter<W> {
             match *child {
                 LogCallOrder::Log(index) => self.write_raw_log(&node.logs[index]),
                 LogCallOrder::Call(index) => self.write_node(nodes, node.children[index]),
+                LogCallOrder::Step(_) => Ok(()),
             }?;
         }
 
