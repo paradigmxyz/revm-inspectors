@@ -1,5 +1,5 @@
 use super::{
-    types::{CallKind, CallTrace, CallTraceNode, LogCallOrder},
+    types::{CallKind, CallTrace, CallTraceNode, DecodedCallData, LogCallOrder},
     CallTraceArena,
 };
 use alloy_primitives::{address, hex, Address, LogData};
@@ -126,17 +126,14 @@ impl<W: Write> TraceWriter<W> {
             write!(
                 self.writer,
                 "{trace_kind_style}{CALL}new{trace_kind_style:#} {label}@{address}",
-                // TODO: trace.label.as_deref().unwrap_or("<unknown>")
-                label = "<unknown>",
+                label = trace.decoded_label.as_deref().unwrap_or("<unknown>")
             )?;
         } else {
-            let (func_name, inputs) = match None::<()> {
-                // TODO
-                // Some(DecodedCallData { signature, args }) => {
-                //     let name = signature.split('(').next().unwrap();
-                //     (name.to_string(), args.join(", "))
-                // }
-                Some(()) => unreachable!(),
+            let (func_name, inputs) = match &trace.decoded_call_data {
+                Some(DecodedCallData { signature, args }) => {
+                    let name = signature.split('(').next().unwrap();
+                    (name.to_string(), args.join(", "))
+                }
                 None => {
                     if trace.data.len() < 4 {
                         ("fallback".to_string(), hex::encode(&trace.data))
@@ -151,8 +148,7 @@ impl<W: Write> TraceWriter<W> {
                 self.writer,
                 "{style}{addr}{style:#}::{style}{func_name}{style:#}",
                 style = self.trace_style(trace),
-                // TODO: trace.label
-                addr = None::<String>.as_deref().unwrap_or(address.as_str())
+                addr = trace.decoded_label.as_deref().unwrap_or(address.as_str()),
             )?;
 
             if !trace.value.is_zero() {

@@ -22,15 +22,6 @@ pub struct DecodedCallData {
     pub args: Vec<String>,
 }
 
-/// Decoded call log.
-#[derive(Debug)]
-pub struct DecodedCallLog {
-    /// The event name.
-    pub name: String,
-    /// The event parameters.
-    pub params: Vec<(String, String)>,
-}
-
 /// A trace of a call.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -82,7 +73,7 @@ pub struct CallTrace {
     /// Optional decoded call data.
     pub decoded_call_data: Option<DecodedCallData>,
     /// Optional decoded contract name.
-    pub decoded_contract: Option<String>,
+    pub decoded_contract_name: Option<String>,
 }
 
 impl CallTrace {
