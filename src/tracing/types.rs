@@ -77,18 +77,18 @@ pub struct CallTrace {
 
 impl CallTrace {
     /// Sets the decoded label for the call trace.
-    pub fn set_decoded_label(&mut self, label: String) {
-        self.decoded_label = Some(label);
+    pub fn set_decoded_label(&mut self, label: Option<String>) {
+        self.decoded_label = label;
     }
 
     /// Sets the decoded return data for the call trace.
-    pub fn set_decoded_return_data(&mut self, decoded_return_data: String) {
-        self.decoded_return_data = Some(decoded_return_data);
+    pub fn set_decoded_return_data(&mut self, decoded_return_data: Option<String>) {
+        self.decoded_return_data = decoded_return_data;
     }
 
     /// Sets the decoded call data for the call trace.
-    pub fn set_decoded_call_data(&mut self, decoded_call_data: DecodedCallData) {
-        self.decoded_call_data = Some(decoded_call_data);
+    pub fn set_decoded_call_data(&mut self, decoded_call_data: Option<DecodedCallData>) {
+        self.decoded_call_data = decoded_call_data;
     }
 
     /// Returns true if the status code is an error or revert, See [InstructionResult::Revert]
