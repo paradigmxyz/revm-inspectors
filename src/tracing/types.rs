@@ -76,13 +76,28 @@ pub struct CallTrace {
 }
 
 impl CallTrace {
+    /// Sets the decoded label for the call trace.
+    pub fn set_decoded_label(&mut self, label: String) {
+        self.decoded_label = Some(label);
+    }
+
+    /// Sets the decoded return data for the call trace.
+    pub fn set_decoded_return_data(&mut self, decoded_return_data: String) {
+        self.decoded_return_data = Some(decoded_return_data);
+    }
+
+    /// Sets the decoded call data for the call trace.
+    pub fn set_decoded_call_data(&mut self, decoded_call_data: DecodedCallData) {
+        self.decoded_call_data = Some(decoded_call_data);
+    }
+
     /// Returns true if the status code is an error or revert, See [InstructionResult::Revert]
     #[inline]
     pub const fn is_error(&self) -> bool {
         !self.status.is_ok()
     }
 
-    /// Returns true if the status code is a revert
+    /// Returns true if the status code is a revert.
     #[inline]
     pub fn is_revert(&self) -> bool {
         self.status == InstructionResult::Revert
