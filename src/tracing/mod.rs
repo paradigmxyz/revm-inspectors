@@ -2,7 +2,8 @@ use self::parity::stack_push_count;
 use crate::tracing::{
     arena::PushTraceKind,
     types::{
-        CallKind, CallTraceNode, TraceMemberOrder, RecordedMemory, StorageChange, StorageChangeReason,
+        CallKind, CallTraceNode, RecordedMemory, StorageChange, StorageChangeReason,
+        TraceMemberOrder,
     },
     utils::gas_used,
 };
