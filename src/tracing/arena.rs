@@ -23,6 +23,11 @@ impl CallTraceArena {
         &self.arena
     }
 
+    /// Returns a mutable reference to the nodes in the arena.
+    pub fn nodes_mut(&mut self) -> &mut Vec<CallTraceNode> {
+        &mut self.arena
+    }
+
     /// Consumes the arena and returns the nodes.
     pub fn into_nodes(self) -> Vec<CallTraceNode> {
         self.arena
