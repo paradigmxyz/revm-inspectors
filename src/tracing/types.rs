@@ -13,6 +13,24 @@ use alloy_rpc_types::trace::{
 use revm::interpreter::{opcode, CallScheme, CreateScheme, InstructionResult, OpCode};
 use std::collections::VecDeque;
 
+/// Decoded call data.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct DecodedCallData {
+    /// The function signature.
+    pub signature: String,
+    /// The function arguments.
+    pub args: Vec<String>,
+}
+
+/// Decoded call log.
+#[derive(Debug)]
+pub struct DecodedCallLog {
+    /// The event name.
+    pub name: String,
+    /// The event parameters.
+    pub params: Vec<(String, String)>,
+}
+
 /// A trace of a call.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -57,6 +75,14 @@ pub struct CallTrace {
     pub status: InstructionResult,
     /// Opcode-level execution steps.
     pub steps: Vec<CallTraceStep>,
+    /// Optional decoded label for the call.
+    pub decoded_label: Option<String>,
+    /// Optional decoded return data.
+    pub decoded_return_data: Option<String>,
+    /// Optional decoded call data.
+    pub decoded_call_data: Option<DecodedCallData>,
+    /// Optional decoded contract name.
+    pub decoded_contract: Option<String>,
 }
 
 impl CallTrace {

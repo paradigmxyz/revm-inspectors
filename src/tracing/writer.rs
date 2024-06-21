@@ -86,6 +86,7 @@ impl<W: Write> TraceWriter<W> {
         self.writer.flush()
     }
 
+    /// Writes a single node and its children to the writer.
     fn write_node(&mut self, nodes: &[CallTraceNode], idx: usize) -> io::Result<()> {
         let node = &nodes[idx];
 
@@ -113,6 +114,7 @@ impl<W: Write> TraceWriter<W> {
         Ok(())
     }
 
+    /// Writes the header of a call trace.
     fn write_trace_header(&mut self, trace: &CallTrace) -> io::Result<()> {
         write!(self.writer, "[{}] ", trace.gas_used)?;
 
@@ -195,11 +197,10 @@ impl<W: Write> TraceWriter<W> {
         writeln!(self.writer, "          data: {log_style}{data}{log_style:#}", data = log.data)
     }
 
-    // #[cfg(TODO)]
     // fn write_decoded_log(&mut self, name: &str, params: &[(String, String)]) -> io::Result<()> {
     //     let log_style = self.log_style();
-    //     self.write_left_prefix()?;
-    //
+    //     self.write_branch()?;
+
     //     write!(self.writer, "emit {name}({log_style}")?;
     //     for (i, (name, value)) in params.iter().enumerate() {
     //         if i > 0 {
@@ -210,6 +211,7 @@ impl<W: Write> TraceWriter<W> {
     //     write!(self.writer, "{log_style:#})")
     // }
 
+    /// Writes the footer of a call trace.
     fn write_trace_footer(&mut self, trace: &CallTrace) -> io::Result<()> {
         write!(
             self.writer,
@@ -240,7 +242,7 @@ impl<W: Write> TraceWriter<W> {
         Ok(())
     }
 
-    // FKA left_prefix
+    #[doc(alias = "left_prefix")]
     fn write_branch(&mut self) -> io::Result<()> {
         self.write_indentation()?;
         if self.indentation_level != 0 {
@@ -249,7 +251,7 @@ impl<W: Write> TraceWriter<W> {
         Ok(())
     }
 
-    // FKA right_prefix
+    #[doc(alias = "right_prefix")]
     fn write_pipes(&mut self) -> io::Result<()> {
         self.write_indentation()?;
         self.writer.write_all(PIPE.as_bytes())
