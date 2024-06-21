@@ -129,7 +129,7 @@ pub struct CallTraceNode {
     /// Recorded logs, if enabled
     pub logs: Vec<LogData>,
     /// Ordering of child calls and logs
-    pub ordering: Vec<LogCallOrder>,
+    pub ordering: Vec<TraceMemberOrder>,
 }
 
 impl CallTraceNode {
@@ -470,14 +470,16 @@ pub(crate) struct CallTraceStepStackItem<'a> {
     pub(crate) call_child_id: Option<usize>,
 }
 
-/// Ordering enum for calls and logs
+/// Ordering enum for calls, logs and steps
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-pub enum LogCallOrder {
+pub enum TraceMemberOrder {
     /// Contains the index of the corresponding log
     Log(usize),
     /// Contains the index of the corresponding trace node
     Call(usize),
+    /// Contains the index of the corresponding step, if those are being traced
+    Step(usize),
 }
 
 /// Represents a tracked call step during execution
