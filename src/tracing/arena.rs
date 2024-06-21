@@ -18,12 +18,17 @@ impl Default for CallTraceArena {
 }
 
 impl CallTraceArena {
-    /// Returns the nodes in the arena
+    /// Returns the nodes in the arena.
     pub fn nodes(&self) -> &[CallTraceNode] {
         &self.arena
     }
 
-    /// Consumes the arena and returns the nodes
+    /// Returns a mutable reference to the nodes in the arena.
+    pub fn nodes_mut(&mut self) -> &mut Vec<CallTraceNode> {
+        &mut self.arena
+    }
+
+    /// Consumes the arena and returns the nodes.
     pub fn into_nodes(self) -> Vec<CallTraceNode> {
         self.arena
     }
