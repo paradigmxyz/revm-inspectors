@@ -151,16 +151,16 @@ impl CallTrace {
 pub struct CallLog {
     /// The raw log data.
     pub raw_log: LogData,
-    /// The event name.
-    pub name: Option<String>,
+    /// The decoded event name.
+    pub decoded_name: Option<String>,
     /// The decoded log parameters.
-    pub params: Option<Vec<(String, String)>>,
+    pub decoded_params: Option<Vec<(String, String)>>,
 }
 
 impl From<Log> for CallLog {
     /// Converts a [`Log`] into a [`CallLog`].
     fn from(log: Log) -> Self {
-        Self { raw_log: log.data, name: None, params: None }
+        Self { raw_log: log.data, decoded_name: None, decoded_params: None }
     }
 }
 
