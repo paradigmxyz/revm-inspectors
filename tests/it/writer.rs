@@ -332,7 +332,7 @@ fn patch_traces(patch: usize, t: &mut TracingInspector) {
         // Inserts `decoded_name` into the output, simulating actual decoding.
         for log in node.logs.iter_mut() {
             EVENT_SIGNATURES.iter().for_each(|(name, signature)| {
-                if log.raw_log.topics().len() > 0
+                if !log.raw_log.topics().is_empty()
                     && log.raw_log.topics()[0].to_string() == *signature
                 {
                     log.decoded_name = Some(name.to_string());
