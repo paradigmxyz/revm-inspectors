@@ -27,7 +27,7 @@ pub use builder::{
 };
 
 mod config;
-pub use config::{StackSnapshotType, TracingInspectorConfig};
+pub use config::{OpcodeFilter, StackSnapshotType, TracingInspectorConfig};
 
 mod fourbyte;
 pub use fourbyte::FourByteInspector;
