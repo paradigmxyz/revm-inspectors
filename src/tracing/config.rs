@@ -28,6 +28,7 @@ impl OpcodeFilter {
     }
 
     /// Enables tracing of given [OpCode].
+    #[must_use]
     pub const fn enable(self, op: OpCode) -> Self {
         let bit = op.get() as usize;
 
