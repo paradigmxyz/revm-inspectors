@@ -69,8 +69,6 @@ pub struct CallTrace {
     pub steps: Vec<CallTraceStep>,
     /// Optional decoded label for the call.
     pub decoded_label: Option<String>,
-    /// Optional decoded contract name.
-    pub decoded_contract_name: Option<String>,
     /// Optional decoded return data.
     pub decoded_return_data: Option<String>,
     /// Optional decoded call data.
