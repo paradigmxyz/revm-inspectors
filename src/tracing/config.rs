@@ -1,3 +1,4 @@
+use alloy_primitives::U256;
 use alloy_rpc_types::trace::{
     geth::{CallConfig, GethDefaultTracingOptions, PreStateConfig},
     parity::TraceType,
@@ -7,7 +8,7 @@ use std::collections::HashSet;
 
 /// 256 bits each marking whether an opcode should be included into steps trace or not.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct OpcodeFilter([bool; 256]);
+pub struct OpcodeFilter(U256);
 
 impl Default for OpcodeFilter {
     fn default() -> Self {
@@ -18,18 +19,22 @@ impl Default for OpcodeFilter {
 impl OpcodeFilter {
     /// Returns a new [OpcodeFilter] that does not trace any opcodes.
     pub const fn new() -> Self {
-        Self([false; 256])
+        Self(U256::ZERO)
     }
 
     /// Returns whether steps with given [OpCode] should be traced.
-    pub fn enabled(&self, op: &OpCode) -> bool {
-        self.0[op.get() as usize]
+    pub fn is_enabled(&self, op: &OpCode) -> bool {
+        self.0.bit(op.get() as usize)
     }
 
     /// Enables tracing of given [OpCode].
-    pub const fn enable(mut self, op: OpCode) -> Self {
-        self.0[op.get() as usize] = true;
-        self
+    pub const fn enable(self, op: OpCode) -> Self {
+        let bit = op.get() as usize;
+
+        let mut bytes = self.0.to_le_bytes::<32>();
+        bytes[bit / 8] |= 1 << (bit % 8);
+
+        Self(U256::from_le_bytes(bytes))
     }
 }
 
