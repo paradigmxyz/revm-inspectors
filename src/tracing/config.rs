@@ -2,7 +2,27 @@ use alloy_rpc_types::trace::{
     geth::{CallConfig, GethDefaultTracingOptions, PreStateConfig},
     parity::TraceType,
 };
+use revm::interpreter::OpCode;
 use std::collections::HashSet;
+
+/// 256 bits each marking whether an opcode should be included into steps trace or not.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OpcodeFilter([bool; 256]);
+
+impl OpcodeFilter {
+    pub const fn new() -> Self {
+        Self([false; 256])
+    }
+
+    pub fn enabled(&self, op: &OpCode) -> bool {
+        self.0[op.get() as usize]
+    }
+
+    pub const fn enable(mut self, op: OpCode) -> Self {
+        self.0[op.get() as usize] = true;
+        self
+    }
+}
 
 /// Gives guidance to the [TracingInspector](crate::tracing::TracingInspector).
 ///
@@ -18,6 +38,11 @@ pub struct TracingInspectorConfig {
     pub record_stack_snapshots: StackSnapshotType,
     /// Whether to record state diffs.
     pub record_state_diff: bool,
+    /// Whether to record returndata buffer snapshots.
+    pub record_returndata_snapshots: bool,
+    /// Optional filter for opcodes to record. If provided, only steps with opcode in this set will
+    /// be recorded.
+    pub record_opcodes_filter: Option<OpcodeFilter>,
     /// Whether to ignore precompile calls.
     pub exclude_precompile_calls: bool,
     /// Whether to record logs
@@ -32,6 +57,8 @@ impl TracingInspectorConfig {
             record_memory_snapshots: true,
             record_stack_snapshots: StackSnapshotType::Full,
             record_state_diff: false,
+            record_returndata_snapshots: true,
+            record_opcodes_filter: None,
             exclude_precompile_calls: false,
             record_logs: true,
         }
@@ -44,8 +71,10 @@ impl TracingInspectorConfig {
             record_memory_snapshots: false,
             record_stack_snapshots: StackSnapshotType::None,
             record_state_diff: false,
+            record_returndata_snapshots: false,
             exclude_precompile_calls: false,
             record_logs: false,
+            record_opcodes_filter: None,
         }
     }
 
@@ -58,8 +87,10 @@ impl TracingInspectorConfig {
             record_memory_snapshots: false,
             record_stack_snapshots: StackSnapshotType::None,
             record_state_diff: false,
+            record_returndata_snapshots: false,
             exclude_precompile_calls: true,
             record_logs: false,
+            record_opcodes_filter: None,
         }
     }
 
@@ -75,8 +106,10 @@ impl TracingInspectorConfig {
             record_memory_snapshots: false,
             record_stack_snapshots: StackSnapshotType::Full,
             record_state_diff: true,
+            record_returndata_snapshots: false,
             exclude_precompile_calls: false,
             record_logs: false,
+            record_opcodes_filter: None,
         }
     }
 
