@@ -9,15 +9,24 @@ use std::collections::HashSet;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OpcodeFilter([bool; 256]);
 
+impl Default for OpcodeFilter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl OpcodeFilter {
+    /// Returns a new [OpcodeFilter] that does not trace any opcodes.
     pub const fn new() -> Self {
         Self([false; 256])
     }
 
+    /// Returns whether steps with given [OpCode] should be traced.
     pub fn enabled(&self, op: &OpCode) -> bool {
         self.0[op.get() as usize]
     }
 
+    /// Enables tracing of given [OpCode].
     pub const fn enable(mut self, op: OpCode) -> Self {
         self.0[op.get() as usize] = true;
         self

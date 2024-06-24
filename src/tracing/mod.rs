@@ -338,8 +338,7 @@ impl TracingInspector {
         // that not a known constant
         let op = unsafe { OpCode::new_unchecked(interp.current_opcode()) };
 
-        let record =
-            self.config.record_opcodes_filter.as_ref().map(|f| f.enabled(&op)).unwrap_or(true);
+        let record = self.config.record_opcodes_filter.as_ref().map_or(true, |f| f.enabled(&op));
 
         self.step_stack.push(StackStep { trace_idx, step_idx, record });
 
