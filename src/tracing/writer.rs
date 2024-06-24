@@ -187,7 +187,7 @@ impl<W: Write> TraceWriter<W> {
                     write!(self.writer, "{param_name}: {value}")?;
                 }
             }
-            write!(self.writer, "{log_style:#})")?;
+            writeln!(self.writer, "{log_style:#})")?;
         } else {
             for (i, topic) in log.raw_log.topics().iter().enumerate() {
                 if i == 0 {
