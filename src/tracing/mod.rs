@@ -338,7 +338,7 @@ impl TracingInspector {
         // that not a known constant
         let op = unsafe { OpCode::new_unchecked(interp.current_opcode()) };
 
-        let record = self.config.record_opcodes_filter.as_ref().map_or(true, |f| f.is_enabled(&op));
+        let record = self.config.should_record_opcode(&op);
 
         self.step_stack.push(StackStep { trace_idx, step_idx, record });
 
@@ -582,9 +582,19 @@ where
     }
 }
 
+/// Struct keeping track of internal inspector steps stack.
 #[derive(Clone, Copy, Debug)]
 struct StackStep {
-    trace_idx: usize,
-    step_idx: usize,
+    /// Whether this step should be recorded.
+    ///
+    /// This is set to `false` if [OpcodeFilter] is configured and this step's opcode is not
+    /// enabled for tracking
     record: bool,
+    /// Idx of the trace node this step belongs.
+    trace_idx: usize,
+    /// Idx of this step in the [CallTrace::steps].
+    ///
+    /// Please note that if `record` is `false`, this will still contain a value, but the step will
+    /// not appear in the steps list.
+    step_idx: usize,
 }

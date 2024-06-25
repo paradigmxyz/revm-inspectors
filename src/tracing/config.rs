@@ -281,6 +281,12 @@ impl TracingInspectorConfig {
         self.record_logs = record_logs;
         self
     }
+
+    /// If [OpcodeFilter] is configured, returns whether the given opcode should be recorded.
+    /// Otherwise, always returns true.
+    pub fn should_record_opcode(&self, op: &OpCode) -> bool {
+        self.record_opcodes_filter.map_or(true, |filter| filter.is_enabled(op))
+    }
 }
 
 /// How much of the stack to record. Nothing, just the items pushed, or the full stack
