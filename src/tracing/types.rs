@@ -506,10 +506,14 @@ pub struct CallTraceStep {
     pub memory: RecordedMemory,
     /// Size of memory at the beginning of the step
     pub memory_size: usize,
+    /// Returndata before step execution
+    pub returndata: Bytes,
     /// Remaining gas before step execution
     pub gas_remaining: u64,
     /// Gas refund counter before step execution
     pub gas_refund_counter: u64,
+    /// Total gas used before step execution
+    pub gas_used: u64,
     // Fields filled in `step_end`
     /// Gas cost of step execution
     pub gas_cost: u64,
