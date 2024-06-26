@@ -578,7 +578,7 @@ where
         let node = self.last_trace();
         node.trace.address = contract;
         node.trace.selfdestruct_refund_target = Some(target);
-        node.trace.value = value;
+        node.trace.selfdestruct_transferred_value = Some(value);
     }
 }
 
