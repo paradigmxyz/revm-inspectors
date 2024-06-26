@@ -1,9 +1,9 @@
 //! Parity tests
 
 use crate::utils::{inspect, print_traces};
-use alloy_primitives::{address, hex, Address, U256};
+use alloy_primitives::{address, hex, Address, U256, U64};
 use alloy_rpc_types::{
-    trace::parity::{Action, SelfdestructAction, TraceType},
+    trace::parity::{Action, CallAction, CallType, SelfdestructAction, TraceType},
     TransactionInfo,
 };
 use revm::{
@@ -93,7 +93,7 @@ fn test_parity_selfdestruct(spec_id: SpecId) {
 
     // TODO: Transfer still happens in Cancun, but this is not reflected in the trace.
     let (expected_value, expected_target) =
-        if spec_id < SpecId::CANCUN { (value, Some(deployer)) } else { (U256::ZERO, None) };
+        if spec_id < SpecId::CANCUN { (Some(value), Some(deployer)) } else { (None, None) };
 
     {
         assert_eq!(insp.get_traces().nodes().len(), 1);
@@ -101,7 +101,7 @@ fn test_parity_selfdestruct(spec_id: SpecId) {
         assert!(node.is_selfdestruct(), "{node:#?}");
         assert_eq!(node.trace.address, contract_address);
         assert_eq!(node.trace.selfdestruct_refund_target, expected_target);
-        assert_eq!(node.trace.value, expected_value);
+        assert_eq!(node.trace.selfdestruct_transferred_value, expected_value);
     }
 
     let traces = insp
@@ -115,7 +115,7 @@ fn test_parity_selfdestruct(spec_id: SpecId) {
         Action::Selfdestruct(SelfdestructAction {
             address: contract_address,
             refund_address: expected_target.unwrap_or_default(),
-            balance: expected_value,
+            balance: expected_value.unwrap_or_default(),
         })
     );
 }
@@ -199,6 +199,94 @@ fn test_parity_constructor_selfdestruct() {
     assert_eq!(traces[1].trace.subtraces, 1);
     assert!(traces[2].trace.action.is_selfdestruct());
     assert_eq!(traces[2].trace.trace_address, vec![0, 0]);
+}
+
+// Minimal example of <https://github.com/paradigmxyz/reth/issues/9124>, <https://etherscan.io/tx/0x4f3638c40c0a5aba96f409cb47603cd30ed8ef084a9cba89169812d20fc9a04f>
+#[test]
+fn test_parity_call_selfdestruct() {
+    let caller = address!("500a229A1047D3D684210BF1b67A26eB2994794a");
+    // let to = address!("1AB3b12861B1B8a497fD3248EdCb7d844E60C8f5");
+    let balance = U256::from(50000000000000000u128);
+    let input = hex!("43d726d6");
+
+    let code = hex!("608080604052606b908160108239f3fe6004361015600c57600080fd5b6000803560e01c6343d726d614602157600080fd5b346032578060031936011260325733ff5b80fdfea2646970667358221220f393fc6be90126d52315ccd38ae6608ac4fd5bef4c59e119e280b2a2b149d0dc64736f6c63430008190033");
+
+    let deployer = address!("341348115259a8bf69f1f50101c227fced83bac6");
+    let value = U256::from(69);
+
+    let mut db = CacheDB::new(EmptyDB::default());
+    db.insert_account_info(deployer, AccountInfo { balance: value, ..Default::default() });
+
+    let cfg = CfgEnvWithHandlerCfg::new(CfgEnv::default(), HandlerCfg::new(SpecId::LONDON));
+    let env = EnvWithHandlerCfg::new_with_cfg_env(
+        cfg.clone(),
+        BlockEnv::default(),
+        TxEnv {
+            caller: deployer,
+            gas_limit: 1000000,
+            transact_to: TransactTo::Create,
+            data: code.into(),
+            value,
+            ..Default::default()
+        },
+    );
+
+    let mut insp = TracingInspector::new(TracingInspectorConfig::default_parity());
+    let (res, _) = inspect(&mut db, env, &mut insp).unwrap();
+    let to = match res.result {
+        ExecutionResult::Success { output, .. } => match output {
+            Output::Create(_, addr) => addr.unwrap(),
+            _ => panic!("Create failed"),
+        },
+        _ => panic!("Execution failed"),
+    };
+    db.commit(res.state);
+
+    db.accounts.get_mut(&to).unwrap().info.balance = balance;
+
+    let env = EnvWithHandlerCfg::new_with_cfg_env(
+        cfg,
+        BlockEnv::default(),
+        TxEnv {
+            caller,
+            gas_limit: 100000000,
+            transact_to: TransactTo::Call(to),
+            data: input.to_vec().into(),
+            ..Default::default()
+        },
+    );
+
+    let mut insp = TracingInspector::new(TracingInspectorConfig::default_parity());
+    let (res, _) = inspect(&mut db, env, &mut insp).unwrap();
+    match &res.result {
+        ExecutionResult::Success { output, .. } => match output {
+            Output::Call(_) => {}
+            _ => panic!("call failed"),
+        },
+        err => panic!("Execution failed: {err:?}"),
+    }
+    db.commit(res.state);
+
+    let traces = insp
+        .into_parity_builder()
+        .into_trace_results(&res.result, &HashSet::from([TraceType::Trace]));
+    assert_eq!(traces.trace.len(), 2);
+
+    assert_eq!(
+        traces.trace[0].action,
+        Action::Call(CallAction {
+            from: caller,
+            call_type: CallType::Call,
+            gas: U64::from(100000000),
+            input: input.into(),
+            to,
+            value: U256::ZERO,
+        })
+    );
+    assert_eq!(
+        traces.trace[1].action,
+        Action::Selfdestruct(SelfdestructAction { address: to, refund_address: caller, balance })
+    );
 }
 
 // Minimal example of <https://github.com/paradigmxyz/reth/issues/8610>
