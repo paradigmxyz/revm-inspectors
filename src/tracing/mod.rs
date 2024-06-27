@@ -27,7 +27,7 @@ pub use builder::{
 };
 
 mod config;
-pub use config::{StackSnapshotType, TracingInspectorConfig};
+pub use config::{OpcodeFilter, StackSnapshotType, TracingInspectorConfig};
 
 mod fourbyte;
 pub use fourbyte::FourByteInspector;
@@ -117,19 +117,44 @@ impl TracingInspector {
         &self.config
     }
 
+    /// Returns a mutable reference to the config of the inspector.
+    pub fn config_mut(&mut self) -> &mut TracingInspectorConfig {
+        &mut self.config
+    }
+
+    /// Updates the config of the inspector.
+    pub fn update_config(
+        &mut self,
+        f: impl FnOnce(TracingInspectorConfig) -> TracingInspectorConfig,
+    ) {
+        self.config = f(self.config);
+    }
+
     /// Gets a reference to the recorded call traces.
+    pub const fn traces(&self) -> &CallTraceArena {
+        &self.traces
+    }
+
+    #[doc(hidden)]
+    #[deprecated = "use `traces` instead"]
     pub const fn get_traces(&self) -> &CallTraceArena {
         &self.traces
+    }
+
+    /// Gets a mutable reference to the recorded call traces.
+    pub fn traces_mut(&mut self) -> &mut CallTraceArena {
+        &mut self.traces
+    }
+
+    #[doc(hidden)]
+    #[deprecated = "use `traces_mut` instead"]
+    pub fn get_traces_mut(&mut self) -> &mut CallTraceArena {
+        &mut self.traces
     }
 
     /// Consumes the inspector and returns the recorded call traces.
     pub fn into_traces(self) -> CallTraceArena {
         self.traces
-    }
-
-    /// Gets a mutable reference to the recorded call traces.
-    pub fn get_traces_mut(&mut self) -> &mut CallTraceArena {
-        &mut self.traces
     }
 
     /// Manually the gas used of the root trace.
@@ -334,7 +359,17 @@ impl TracingInspector {
         let trace = &mut self.traces.arena[trace_idx];
 
         let step_idx = trace.trace.steps.len();
-        self.step_stack.push(StackStep { trace_idx, step_idx });
+        // we always want an OpCode, even it is unknown because it could be an additional opcode
+        // that not a known constant
+        let op = unsafe { OpCode::new_unchecked(interp.current_opcode()) };
+
+        let record = self.config.should_record_opcode(&op);
+
+        self.step_stack.push(StackStep { trace_idx, step_idx, record });
+
+        if !record {
+            return;
+        }
 
         let memory = self
             .config
@@ -346,10 +381,17 @@ impl TracingInspector {
         } else {
             None
         };
+        let returndata = self
+            .config
+            .record_returndata_snapshots
+            .then(|| interp.return_data_buffer.clone())
+            .unwrap_or_default();
 
-        // we always want an OpCode, even it is unknown because it could be an additional opcode
-        // that not a known constant
-        let op = unsafe { OpCode::new_unchecked(interp.current_opcode()) };
+        let gas_used = gas_used(
+            context.spec_id(),
+            interp.gas.limit().saturating_sub(interp.gas.remaining()),
+            interp.gas.refunded() as u64,
+        );
 
         trace.trace.steps.push(CallTraceStep {
             depth: context.journaled_state.depth(),
@@ -360,8 +402,10 @@ impl TracingInspector {
             push_stack: None,
             memory_size: memory.len(),
             memory,
+            returndata,
             gas_remaining: interp.gas.remaining(),
             gas_refund_counter: interp.gas.refunded() as u64,
+            gas_used,
 
             // fields will be populated end of call
             gas_cost: 0,
@@ -381,8 +425,13 @@ impl TracingInspector {
         interp: &mut Interpreter,
         context: &mut EvmContext<DB>,
     ) {
-        let StackStep { trace_idx, step_idx } =
+        let StackStep { trace_idx, step_idx, record } =
             self.step_stack.pop().expect("can't fill step without starting a step first");
+
+        if !record {
+            return;
+        }
+
         let step = &mut self.traces.arena[trace_idx].trace.steps[step_idx];
 
         if self.config.record_stack_snapshots.is_pushes() {
@@ -554,12 +603,23 @@ where
         let node = self.last_trace();
         node.trace.address = contract;
         node.trace.selfdestruct_refund_target = Some(target);
-        node.trace.value = value;
+        node.trace.selfdestruct_transferred_value = Some(value);
     }
 }
 
+/// Struct keeping track of internal inspector steps stack.
 #[derive(Clone, Copy, Debug)]
 struct StackStep {
+    /// Whether this step should be recorded.
+    ///
+    /// This is set to `false` if [OpcodeFilter] is configured and this step's opcode is not
+    /// enabled for tracking
+    record: bool,
+    /// Idx of the trace node this step belongs.
     trace_idx: usize,
+    /// Idx of this step in the [CallTrace::steps].
+    ///
+    /// Please note that if `record` is `false`, this will still contain a value, but the step will
+    /// not appear in the steps list.
     step_idx: usize,
 }

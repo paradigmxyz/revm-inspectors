@@ -63,6 +63,13 @@ pub struct CallTrace {
     ///
     /// See [`is_selfdestruct`](Self::is_selfdestruct) for more information.
     pub selfdestruct_refund_target: Option<Address>,
+    /// The value transferred on a selfdestruct.
+    ///
+    /// This is only `Some` if a selfdestruct was executed and the call is executed before the
+    /// Cancun hardfork.
+    ///
+    /// See [`is_selfdestruct`](Self::is_selfdestruct) for more information.
+    pub selfdestruct_transferred_value: Option<U256>,
     /// The kind of call.
     pub kind: CallKind,
     /// The value transferred in the call.
@@ -293,7 +300,7 @@ impl CallTraceNode {
             Some(Action::Selfdestruct(SelfdestructAction {
                 address: self.trace.address,
                 refund_address: self.trace.selfdestruct_refund_target.unwrap_or_default(),
-                balance: self.trace.value,
+                balance: self.trace.selfdestruct_transferred_value.unwrap_or_default(),
             }))
         } else {
             None
@@ -307,7 +314,7 @@ impl CallTraceNode {
                 typ: "SELFDESTRUCT".to_string(),
                 from: self.trace.caller,
                 to: self.trace.selfdestruct_refund_target,
-                value: Some(self.trace.value),
+                value: self.trace.selfdestruct_transferred_value,
                 ..Default::default()
             })
         } else {
@@ -559,10 +566,14 @@ pub struct CallTraceStep {
     pub memory: RecordedMemory,
     /// Size of memory at the beginning of the step
     pub memory_size: usize,
+    /// Returndata before step execution
+    pub returndata: Bytes,
     /// Remaining gas before step execution
     pub gas_remaining: u64,
     /// Gas refund counter before step execution
     pub gas_refund_counter: u64,
+    /// Total gas used before step execution
+    pub gas_used: u64,
     // Fields filled in `step_end`
     /// Gas cost of step execution
     pub gas_cost: u64,

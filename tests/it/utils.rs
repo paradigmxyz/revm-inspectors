@@ -110,7 +110,7 @@ pub fn write_traces(tracer: &TracingInspector) -> String {
 
 pub fn write_traces_with(tracer: &TracingInspector, color: ColorChoice) -> String {
     let mut w = revm_inspectors::tracing::TraceWriter::new(Vec::<u8>::new()).use_colors(color);
-    w.write_arena(tracer.get_traces()).expect("failed to write traces to Vec<u8>");
+    w.write_arena(tracer.traces()).expect("failed to write traces to Vec<u8>");
     String::from_utf8(w.into_writer()).expect("trace writer wrote invalid UTF-8")
 }
 
