@@ -126,10 +126,10 @@ impl<W: Write> TraceWriter<W> {
             write!(
                 self.writer,
                 "{trace_kind_style}{CALL}new{trace_kind_style:#} {label}@{address}",
-                label = trace.decoded_label.as_deref().unwrap_or("<unknown>")
+                label = trace.decoded.label.as_deref().unwrap_or("<unknown>")
             )?;
         } else {
-            let (func_name, inputs) = match &trace.decoded_call_data {
+            let (func_name, inputs) = match &trace.decoded.call_data {
                 Some(DecodedCallData { signature, args }) => {
                     let name = signature.split('(').next().unwrap();
                     (name.to_string(), args.join(", "))
@@ -148,7 +148,7 @@ impl<W: Write> TraceWriter<W> {
                 self.writer,
                 "{style}{addr}{style:#}::{style}{func_name}{style:#}",
                 style = self.trace_style(trace),
-                addr = trace.decoded_label.as_deref().unwrap_or(address.as_str()),
+                addr = trace.decoded.label.as_deref().unwrap_or(address.as_str()),
             )?;
 
             if !trace.value.is_zero() {
@@ -177,9 +177,9 @@ impl<W: Write> TraceWriter<W> {
         let log_style = self.log_style();
         self.write_branch()?;
 
-        if let Some(name) = &log.decoded_name {
+        if let Some(name) = &log.decoded.name {
             write!(self.writer, "emit {name}({log_style}")?;
-            if let Some(params) = &log.decoded_params {
+            if let Some(params) = &log.decoded.params {
                 for (i, (param_name, value)) in params.iter().enumerate() {
                     if i > 0 {
                         self.writer.write_all(b", ")?;
@@ -221,7 +221,7 @@ impl<W: Write> TraceWriter<W> {
             status = trace.status,
         )?;
 
-        if let Some(decoded) = &trace.decoded_return_data {
+        if let Some(decoded) = &trace.decoded.return_data {
             return self.writer.write_all(decoded.as_bytes());
         }
 

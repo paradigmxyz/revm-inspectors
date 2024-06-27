@@ -311,17 +311,17 @@ fn patch_output(s: &mut str) {
 // The actual decoding logic, including edge case handling, is not implemented here.
 fn patch_traces(patch: usize, t: &mut TracingInspector) {
     for node in t.get_traces_mut().nodes_mut() {
-        // Inserts `decoded_label` into the output, simulating actual decoding.
+        // Inserts decoded `label` into the output, simulating actual decoding.
         LABELS.iter().for_each(|(label, address)| {
             if node.trace.address.to_string() == *address {
-                node.trace.decoded_label = Some(label.to_string());
+                node.trace.decoded.label = Some(label.to_string());
             }
         });
 
-        // Inserts `decoded_call_data` into the output, simulating actual decoding.
+        // Inserts decoded `call_data` into the output, simulating actual decoding.
         FUNCTION_SELECTORS.iter().for_each(|(name, selector)| {
             if node.trace.data.len() == 4 && node.trace.data.to_string().starts_with(*selector) {
-                node.trace.decoded_call_data =
+                node.trace.decoded.call_data =
                     Some(DecodedCallData { signature: name.to_string(), args: vec![] });
             } else if node.trace.data.len() > 4
                 && node.trace.data.to_string().starts_with(*selector)
@@ -329,29 +329,29 @@ fn patch_traces(patch: usize, t: &mut TracingInspector) {
             }
         });
 
-        // Inserts `decoded_name` into the output, simulating actual decoding.
+        // Inserts decoded `name` into the output, simulating actual decoding.
         for log in node.logs.iter_mut() {
             EVENT_SIGNATURES.iter().for_each(|(name, signature)| {
                 if !log.raw_log.topics().is_empty()
                     && log.raw_log.topics()[0].to_string() == *signature
                 {
-                    log.decoded_name = Some(name.to_string());
+                    log.decoded.name = Some(name.to_string());
                 }
             });
         }
 
         // Custom patches for specific traces.
         match patch {
-            0 => node.trace.decoded_return_data = Some("0".to_string()),
-            2 => node.trace.decoded_return_data = Some("1".to_string()),
+            0 => node.trace.decoded.return_data = Some("0".to_string()),
+            2 => node.trace.decoded.return_data = Some("1".to_string()),
             3 => {
-                node.trace.decoded_call_data = Some(DecodedCallData {
+                node.trace.decoded.call_data = Some(DecodedCallData {
                     signature: "setNumber".to_string(),
                     args: vec!["69".to_string()],
                 });
-                node.trace.decoded_return_data = Some("69".to_string())
+                node.trace.decoded.return_data = Some("69".to_string())
             }
-            4 => node.trace.decoded_return_data = Some("69".to_string()),
+            4 => node.trace.decoded.return_data = Some("69".to_string()),
             _ => continue,
         }
     }

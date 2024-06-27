@@ -23,6 +23,18 @@ pub struct DecodedCallData {
     pub args: Vec<String>,
 }
 
+/// Additional decoded data enhancing the [CallTrace].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct DecodedCallTrace {
+    /// Optional decoded label for the call.
+    pub label: Option<String>,
+    /// Optional decoded return data.
+    pub return_data: Option<String>,
+    /// Optional decoded call data.
+    pub call_data: Option<DecodedCallData>,
+}
+
 /// A trace of a call with optional decoded data.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -67,12 +79,8 @@ pub struct CallTrace {
     pub status: InstructionResult,
     /// Opcode-level execution steps.
     pub steps: Vec<CallTraceStep>,
-    /// Optional decoded label for the call.
-    pub decoded_label: Option<String>,
-    /// Optional decoded return data.
-    pub decoded_return_data: Option<String>,
-    /// Optional decoded call data.
-    pub decoded_call_data: Option<DecodedCallData>,
+    /// Optional complementary decoded call data.
+    pub decoded: DecodedCallTrace,
 }
 
 impl CallTrace {
@@ -130,22 +138,32 @@ impl CallTrace {
     }
 }
 
+/// Additional decoded data enhancing the [CallLog].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+
+pub struct DecodedCallLog {
+    /// The decoded event name.
+    pub name: Option<String>,
+    /// The decoded log parameters, a vector of the parameter name (e.g. topic0) and the parameter
+    /// value (e.g. 0x9d3...45ca)
+    pub params: Option<Vec<(String, String)>>,
+}
+
 /// A log with optional decoded data.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CallLog {
     /// The raw log data.
     pub raw_log: LogData,
-    /// The decoded event name.
-    pub decoded_name: Option<String>,
-    /// The decoded log parameters.
-    pub decoded_params: Option<Vec<(String, String)>>,
+    /// Optional complementary decoded log data.
+    pub decoded: DecodedCallLog,
 }
 
 impl From<Log> for CallLog {
     /// Converts a [`Log`] into a [`CallLog`].
     fn from(log: Log) -> Self {
-        Self { raw_log: log.data, decoded_name: None, decoded_params: None }
+        Self { raw_log: log.data, decoded: DecodedCallLog { name: None, params: None } }
     }
 }
 
