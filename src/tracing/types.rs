@@ -148,7 +148,6 @@ impl CallTrace {
 /// Additional decoded data enhancing the [CallLog].
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-
 pub struct DecodedCallLog {
     /// The decoded event name.
     pub name: Option<String>,
