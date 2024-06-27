@@ -13,7 +13,29 @@ use alloy_rpc_types::trace::{
 use revm::interpreter::{opcode, CallScheme, CreateScheme, InstructionResult, OpCode};
 use std::collections::VecDeque;
 
-/// A trace of a call.
+/// Decoded call data.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct DecodedCallData {
+    /// The function signature.
+    pub signature: String,
+    /// The function arguments.
+    pub args: Vec<String>,
+}
+
+/// Additional decoded data enhancing the [CallTrace].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct DecodedCallTrace {
+    /// Optional decoded label for the call.
+    pub label: Option<String>,
+    /// Optional decoded return data.
+    pub return_data: Option<String>,
+    /// Optional decoded call data.
+    pub call_data: Option<DecodedCallData>,
+}
+
+/// A trace of a call with optional decoded data.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CallTrace {
@@ -64,6 +86,8 @@ pub struct CallTrace {
     pub status: InstructionResult,
     /// Opcode-level execution steps.
     pub steps: Vec<CallTraceStep>,
+    /// Optional complementary decoded call data.
+    pub decoded: DecodedCallTrace,
 }
 
 impl CallTrace {
@@ -73,7 +97,7 @@ impl CallTrace {
         !self.status.is_ok()
     }
 
-    /// Returns true if the status code is a revert
+    /// Returns true if the status code is a revert.
     #[inline]
     pub fn is_revert(&self) -> bool {
         self.status == InstructionResult::Revert
@@ -121,6 +145,34 @@ impl CallTrace {
     }
 }
 
+/// Additional decoded data enhancing the [CallLog].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct DecodedCallLog {
+    /// The decoded event name.
+    pub name: Option<String>,
+    /// The decoded log parameters, a vector of the parameter name (e.g. foo) and the parameter
+    /// value (e.g. 0x9d3...45ca).
+    pub params: Option<Vec<(String, String)>>,
+}
+
+/// A log with optional decoded data.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct CallLog {
+    /// The raw log data.
+    pub raw_log: LogData,
+    /// Optional complementary decoded log data.
+    pub decoded: DecodedCallLog,
+}
+
+impl From<Log> for CallLog {
+    /// Converts a [`Log`] into a [`CallLog`].
+    fn from(log: Log) -> Self {
+        Self { raw_log: log.data, decoded: DecodedCallLog { name: None, params: None } }
+    }
+}
+
 /// A node in the arena
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -134,7 +186,7 @@ pub struct CallTraceNode {
     /// The call trace
     pub trace: CallTrace,
     /// Recorded logs, if enabled
-    pub logs: Vec<LogData>,
+    pub logs: Vec<CallLog>,
     /// Ordering of child calls and logs
     pub ordering: Vec<TraceMemberOrder>,
 }
@@ -344,8 +396,8 @@ impl CallTraceNode {
                 .iter()
                 .map(|log| CallLogFrame {
                     address: Some(self.execution_address()),
-                    topics: Some(log.topics().to_vec()),
-                    data: Some(log.data.clone()),
+                    topics: Some(log.raw_log.topics().to_vec()),
+                    data: Some(log.raw_log.data.clone()),
                 })
                 .collect();
         }

@@ -36,7 +36,7 @@ mod opcount;
 pub use opcount::OpcodeCountInspector;
 
 pub mod types;
-use types::{CallTrace, CallTraceStep};
+use types::{CallLog, CallTrace, CallTraceStep};
 
 mod utils;
 
@@ -510,7 +510,7 @@ where
         if self.config.record_logs {
             let trace = self.last_trace();
             trace.ordering.push(TraceMemberOrder::Log(trace.logs.len()));
-            trace.logs.push(log.data.clone());
+            trace.logs.push(CallLog::from(log.clone()));
         }
     }
 

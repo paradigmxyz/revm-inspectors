@@ -1,8 +1,8 @@
 use super::{
-    types::{CallKind, CallTrace, CallTraceNode, TraceMemberOrder},
+    types::{CallKind, CallLog, CallTrace, CallTraceNode, DecodedCallData, TraceMemberOrder},
     CallTraceArena,
 };
-use alloy_primitives::{address, hex, Address, LogData};
+use alloy_primitives::{address, hex, Address};
 use anstyle::{AnsiColor, Color, Style};
 use colorchoice::ColorChoice;
 use std::io::{self, Write};
@@ -86,6 +86,7 @@ impl<W: Write> TraceWriter<W> {
         self.writer.flush()
     }
 
+    /// Writes a single node and its children to the writer.
     fn write_node(&mut self, nodes: &[CallTraceNode], idx: usize) -> io::Result<()> {
         let node = &nodes[idx];
 
@@ -98,7 +99,7 @@ impl<W: Write> TraceWriter<W> {
         self.indentation_level += 1;
         for child in &node.ordering {
             match *child {
-                TraceMemberOrder::Log(index) => self.write_raw_log(&node.logs[index]),
+                TraceMemberOrder::Log(index) => self.write_log(&node.logs[index]),
                 TraceMemberOrder::Call(index) => self.write_node(nodes, node.children[index]),
                 TraceMemberOrder::Step(_) => Ok(()),
             }?;
@@ -114,6 +115,7 @@ impl<W: Write> TraceWriter<W> {
         Ok(())
     }
 
+    /// Writes the header of a call trace.
     fn write_trace_header(&mut self, trace: &CallTrace) -> io::Result<()> {
         write!(self.writer, "[{}] ", trace.gas_used)?;
 
@@ -121,21 +123,17 @@ impl<W: Write> TraceWriter<W> {
         let address = trace.address.to_checksum_buffer(None);
 
         if trace.kind.is_any_create() {
-            #[allow(clippy::write_literal)] // TODO
             write!(
                 self.writer,
                 "{trace_kind_style}{CALL}new{trace_kind_style:#} {label}@{address}",
-                // TODO: trace.label.as_deref().unwrap_or("<unknown>")
-                label = "<unknown>",
+                label = trace.decoded.label.as_deref().unwrap_or("<unknown>")
             )?;
         } else {
-            let (func_name, inputs) = match None::<()> {
-                // TODO
-                // Some(DecodedCallData { signature, args }) => {
-                //     let name = signature.split('(').next().unwrap();
-                //     (name.to_string(), args.join(", "))
-                // }
-                Some(()) => unreachable!(),
+            let (func_name, inputs) = match &trace.decoded.call_data {
+                Some(DecodedCallData { signature, args }) => {
+                    let name = signature.split('(').next().unwrap();
+                    (name.to_string(), args.join(", "))
+                }
                 None => {
                     if trace.data.len() < 4 {
                         ("fallback".to_string(), hex::encode(&trace.data))
@@ -150,8 +148,7 @@ impl<W: Write> TraceWriter<W> {
                 self.writer,
                 "{style}{addr}{style:#}::{style}{func_name}{style:#}",
                 style = self.trace_style(trace),
-                // TODO: trace.label
-                addr = None::<String>.as_deref().unwrap_or(address.as_str())
+                addr = trace.decoded.label.as_deref().unwrap_or(address.as_str()),
             )?;
 
             if !trace.value.is_zero() {
@@ -176,41 +173,46 @@ impl<W: Write> TraceWriter<W> {
         Ok(())
     }
 
-    fn write_raw_log(&mut self, log: &LogData) -> io::Result<()> {
+    fn write_log(&mut self, log: &CallLog) -> io::Result<()> {
         let log_style = self.log_style();
         self.write_branch()?;
 
-        for (i, topic) in log.topics().iter().enumerate() {
-            if i == 0 {
-                self.writer.write_all(b" emit topic 0")?;
-            } else {
-                self.write_pipes()?;
-                write!(self.writer, "       topic {i}")?;
+        if let Some(name) = &log.decoded.name {
+            write!(self.writer, "emit {name}({log_style}")?;
+            if let Some(params) = &log.decoded.params {
+                for (i, (param_name, value)) in params.iter().enumerate() {
+                    if i > 0 {
+                        self.writer.write_all(b", ")?;
+                    }
+                    write!(self.writer, "{param_name}: {value}")?;
+                }
             }
-            writeln!(self.writer, ": {log_style}{topic}{log_style:#}")?;
+            writeln!(self.writer, "{log_style:#})")?;
+        } else {
+            for (i, topic) in log.raw_log.topics().iter().enumerate() {
+                if i == 0 {
+                    self.writer.write_all(b" emit topic 0")?;
+                } else {
+                    self.write_pipes()?;
+                    write!(self.writer, "       topic {i}")?;
+                }
+                writeln!(self.writer, ": {log_style}{topic}{log_style:#}")?;
+            }
+
+            if !log.raw_log.topics().is_empty() {
+                self.write_pipes()?;
+            }
+            writeln!(
+                self.writer,
+                "          data: {log_style}{data}{log_style:#}",
+                data = log.raw_log.data
+            )?;
         }
 
-        if !log.topics().is_empty() {
-            self.write_pipes()?;
-        }
-        writeln!(self.writer, "          data: {log_style}{data}{log_style:#}", data = log.data)
+        Ok(())
     }
 
-    // #[cfg(TODO)]
-    // fn write_decoded_log(&mut self, name: &str, params: &[(String, String)]) -> io::Result<()> {
-    //     let log_style = self.log_style();
-    //     self.write_left_prefix()?;
-    //
-    //     write!(self.writer, "emit {name}({log_style}")?;
-    //     for (i, (name, value)) in params.iter().enumerate() {
-    //         if i > 0 {
-    //             self.writer.write_all(b", ")?;
-    //         }
-    //         write!(self.writer, "{name}: {value}")?;
-    //     }
-    //     write!(self.writer, "{log_style:#})")
-    // }
-
+    /// Writes the footer of a call trace.
     fn write_trace_footer(&mut self, trace: &CallTrace) -> io::Result<()> {
         write!(
             self.writer,
@@ -219,10 +221,9 @@ impl<W: Write> TraceWriter<W> {
             status = trace.status,
         )?;
 
-        // TODO:
-        // if let Some(decoded) = trace.decoded_return_data {
-        //     return self.writer.write_all(decoded.as_bytes());
-        // }
+        if let Some(decoded) = &trace.decoded.return_data {
+            return self.writer.write_all(decoded.as_bytes());
+        }
 
         if trace.kind.is_any_create() {
             write!(self.writer, "{} bytes of code", trace.output.len())?;
@@ -241,7 +242,7 @@ impl<W: Write> TraceWriter<W> {
         Ok(())
     }
 
-    // FKA left_prefix
+    #[doc(alias = "left_prefix")]
     fn write_branch(&mut self) -> io::Result<()> {
         self.write_indentation()?;
         if self.indentation_level != 0 {
@@ -250,7 +251,7 @@ impl<W: Write> TraceWriter<W> {
         Ok(())
     }
 
-    // FKA right_prefix
+    #[doc(alias = "right_prefix")]
     fn write_pipes(&mut self) -> io::Result<()> {
         self.write_indentation()?;
         self.writer.write_all(PIPE.as_bytes())
