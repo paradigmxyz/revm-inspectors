@@ -316,7 +316,7 @@ fn patch_output(s: &mut str) {
 // Note: This is meant to verify that patches are correctly applied to the output.
 // The actual decoding logic, including edge case handling, is not implemented here.
 fn patch_traces(patch: usize, t: &mut TracingInspector) {
-    for node in t.get_traces_mut().nodes_mut() {
+    for node in t.traces_mut().nodes_mut() {
         // Inserts decoded `label` into the output, simulating actual decoding.
         LABELS.iter().for_each(|(label, address)| {
             if node.trace.address.to_string() == *address {
