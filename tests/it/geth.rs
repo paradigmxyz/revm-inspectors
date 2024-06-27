@@ -301,19 +301,19 @@ fn test_geth_inspector_reset() {
         },
     );
 
-    assert_eq!(insp.get_traces().nodes().first().unwrap().trace.gas_limit, 0);
+    assert_eq!(insp.traces().nodes().first().unwrap().trace.gas_limit, 0);
 
     // first run inspector
     let (res, _) = inspect(&mut db, env.clone(), &mut insp).unwrap();
     assert!(res.result.is_success());
-    assert_eq!(insp.get_traces().nodes().first().unwrap().trace.gas_limit, 1000000);
+    assert_eq!(insp.traces().nodes().first().unwrap().trace.gas_limit, 1000000);
 
     // reset the inspector
     insp.fuse();
-    assert_eq!(insp.get_traces().nodes().first().unwrap().trace.gas_limit, 0);
+    assert_eq!(insp.traces().nodes().first().unwrap().trace.gas_limit, 0);
 
     // second run inspector after reset
     let (res, _) = inspect(&mut db, env, &mut insp).unwrap();
     assert!(res.result.is_success());
-    assert_eq!(insp.get_traces().nodes().first().unwrap().trace.gas_limit, 1000000);
+    assert_eq!(insp.traces().nodes().first().unwrap().trace.gas_limit, 1000000);
 }
