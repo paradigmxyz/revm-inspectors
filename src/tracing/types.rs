@@ -226,11 +226,13 @@ impl CallTraceNode {
                 gas_used: U64::from(self.trace.gas_used),
                 output: self.trace.output.clone(),
             }),
-            CallKind::Create | CallKind::Create2 => TraceOutput::Create(CreateOutput {
-                gas_used: U64::from(self.trace.gas_used),
-                code: self.trace.output.clone(),
-                address: self.trace.address,
-            }),
+            CallKind::Create | CallKind::Create2 | CallKind::EOFCreate => {
+                TraceOutput::Create(CreateOutput {
+                    gas_used: U64::from(self.trace.gas_used),
+                    code: self.trace.output.clone(),
+                    address: self.trace.address,
+                })
+            }
         }
     }
 
@@ -292,12 +294,14 @@ impl CallTraceNode {
                 input: self.trace.data.clone(),
                 call_type: self.kind().into(),
             }),
-            CallKind::Create | CallKind::Create2 => Action::Create(CreateAction {
-                from: self.trace.caller,
-                value: self.trace.value,
-                gas: U64::from(self.trace.gas_limit),
-                init: self.trace.data.clone(),
-            }),
+            CallKind::Create | CallKind::Create2 | CallKind::EOFCreate => {
+                Action::Create(CreateAction {
+                    from: self.trace.caller,
+                    value: self.trace.value,
+                    gas: U64::from(self.trace.gas_limit),
+                    init: self.trace.data.clone(),
+                })
+            }
         }
     }
 
@@ -367,6 +371,8 @@ pub enum CallKind {
     Create,
     /// Represents a contract creation operation using the CREATE2 opcode.
     Create2,
+    /// Represents an EOF contract creation operation.
+    EOFCreate,
 }
 
 impl CallKind {
@@ -380,6 +386,7 @@ impl CallKind {
             Self::AuthCall => "AUTHCALL",
             Self::Create => "CREATE",
             Self::Create2 => "CREATE2",
+            Self::EOFCreate => "EOF_CREATE",
         }
     }
 
@@ -442,8 +449,7 @@ impl From<CallKind> for ActionType {
             | CallKind::DelegateCall
             | CallKind::CallCode
             | CallKind::AuthCall => Self::Call,
-            CallKind::Create => Self::Create,
-            CallKind::Create2 => Self::Create,
+            CallKind::Create | CallKind::Create2 | CallKind::EOFCreate => Self::Create,
         }
     }
 }
@@ -455,7 +461,7 @@ impl From<CallKind> for CallType {
             CallKind::StaticCall => Self::StaticCall,
             CallKind::CallCode => Self::CallCode,
             CallKind::DelegateCall => Self::DelegateCall,
-            CallKind::Create | CallKind::Create2 => Self::None,
+            CallKind::Create | CallKind::Create2 | CallKind::EOFCreate => Self::None,
             CallKind::AuthCall => Self::AuthCall,
         }
     }

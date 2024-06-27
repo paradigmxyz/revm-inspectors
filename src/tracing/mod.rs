@@ -10,7 +10,7 @@ use crate::tracing::{
 use alloy_primitives::{Address, Bytes, Log, U256};
 use revm::{
     interpreter::{
-        opcode, CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome,
+        opcode, CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, EOFCreateInputs,
         InstructionResult, Interpreter, InterpreterResult, OpCode,
     },
     primitives::SpecId,
@@ -532,6 +532,27 @@ where
             inputs.init_code.clone(),
             inputs.value,
             inputs.scheme.into(),
+            inputs.caller,
+            inputs.gas_limit,
+            Some(false),
+        );
+
+        None
+    }
+
+    fn eofcreate(
+        &mut self,
+        context: &mut EvmContext<DB>,
+        inputs: &mut EOFCreateInputs,
+    ) -> Option<CreateOutcome> {
+        let _ = context.load_account(inputs.caller);
+        let nonce = context.journaled_state.account(inputs.caller).info.nonce;
+        self.start_trace_on_call(
+            context,
+            inputs.kind.created_address().cloned().unwrap_or_else(|| inputs.caller.create(nonce)),
+            Bytes::new(),
+            inputs.value,
+            CallKind::EOFCreate,
             inputs.caller,
             inputs.gas_limit,
             Some(false),
