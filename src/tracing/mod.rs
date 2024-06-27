@@ -472,22 +472,23 @@ where
     ) -> Option<CallOutcome> {
         // determine correct `from` and `to` based on the call scheme
         let (from, to) = match inputs.scheme {
-            CallScheme::DelegateCall | CallScheme::CallCode => {
+            CallScheme::DelegateCall | CallScheme::CallCode | CallScheme::ExtDelegateCall => {
                 (inputs.target_address, inputs.bytecode_address)
             }
             _ => (inputs.caller, inputs.target_address),
         };
 
-        let value = if matches!(inputs.scheme, CallScheme::DelegateCall) {
-            // for delegate calls we need to use the value of the top trace
-            if let Some(parent) = self.active_trace() {
-                parent.trace.value
+        let value =
+            if matches!(inputs.scheme, CallScheme::DelegateCall | CallScheme::ExtDelegateCall) {
+                // for delegate calls we need to use the value of the top trace
+                if let Some(parent) = self.active_trace() {
+                    parent.trace.value
+                } else {
+                    inputs.call_value()
+                }
             } else {
                 inputs.call_value()
-            }
-        } else {
-            inputs.call_value()
-        };
+            };
 
         // if calls to precompiles should be excluded, check whether this is a call to a precompile
         let maybe_precompile = self
@@ -559,6 +560,16 @@ where
         );
 
         None
+    }
+
+    fn eofcreate_end(
+        &mut self,
+        context: &mut EvmContext<DB>,
+        _inputs: &EOFCreateInputs,
+        outcome: CreateOutcome,
+    ) -> CreateOutcome {
+        self.fill_trace_on_call_end(context, &outcome.result, outcome.address);
+        outcome
     }
 
     fn create_end(
