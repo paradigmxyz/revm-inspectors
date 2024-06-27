@@ -2,9 +2,9 @@
 pragma solidity ^0.8.13;
 
 contract Counter {
-    event Log0(uint256 number, bytes dump) anonymous;
-    event Log1(uint256 indexed number, bytes dump);
-    event Log2(uint256 indexed number, bytes dump);
+    event Log0(uint256 foo, bytes dump) anonymous;
+    event Log1(uint256 indexed foo, bytes dump);
+    event Log2(uint256 indexed foo, uint256 indexed bar, bytes dump);
 
     uint256 public number;
 
@@ -26,7 +26,7 @@ contract Counter {
     }
 
     function log2() public {
-        emit Log2(number, "hi from log2");
+        emit Log2(number, 123, "hi from log2");
     }
 
     function nest1() public {
@@ -38,7 +38,7 @@ contract Counter {
     function nest2() public {
         increment();
         this.nest3();
-        emit Log2(number, "hi from 2");
+        emit Log2(number, 123, "hi from 2");
     }
 
     function nest3() public {

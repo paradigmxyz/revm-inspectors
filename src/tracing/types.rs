@@ -145,8 +145,8 @@ impl CallTrace {
 pub struct DecodedCallLog {
     /// The decoded event name.
     pub name: Option<String>,
-    /// The decoded log parameters, a vector of the parameter name (e.g. topic0) and the parameter
-    /// value (e.g. 0x9d3...45ca)
+    /// The decoded log parameters, a vector of the parameter name (e.g. foo) and the parameter
+    /// value (e.g. 0x9d3...45ca).
     pub params: Option<Vec<(String, String)>>,
 }
 
