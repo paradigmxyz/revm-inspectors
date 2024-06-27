@@ -148,9 +148,11 @@ fn test_basic_trace_printing() {
     "#]].assert_eq(&s);
 }
 
+// (name, address)
 const LABELS: &[(&str, &str)] = &[("Counter", "0xBd770416a3345F91E4B34576cb804a576fa48EB1")];
 
 // solc testdata/Counter.sol --via-ir --optimize --hashes
+// (name, signature)
 const FUNCTION_SELECTORS: &[(&str, &str)] = &[
     ("increment", "0xd09de08a"),
     ("log0", "0x0aa73185"),
@@ -164,9 +166,10 @@ const FUNCTION_SELECTORS: &[(&str, &str)] = &[
 ];
 
 // solc testdata/Counter.sol --via-ir --optimize --hashes
-const EVENT_SIGNATURES: &[(&str, &str)] = &[
-    ("Log1", "0x9d39c21a43a4dfcd7857f27f3399f31a24694b6cb361496355ab537d16f745ca"),
-    ("Log2", "0x5ae719eb0250b8686767e291df04bec55e7f45a5997e120be020424da1896d76"),
+// (name, signature, [params])
+const EVENT_SIGNATURES: &[(&str, &str, &[&str])] = &[
+    ("Log1", "0x9d39c21a43a4dfcd7857f27f3399f31a24694b6cb361496355ab537d16f745ca", &["foo"]),
+    ("Log2", "0x5ae719eb0250b8686767e291df04bec55e7f45a5997e120be020424da1896d76", &["foo", "bar"]),
 ];
 
 #[test]
@@ -334,14 +337,13 @@ fn patch_traces(patch: usize, t: &mut TracingInspector) {
 
         // Inserts decoded `name` into the output, simulating actual decoding.
         for log in node.logs.iter_mut() {
-            EVENT_SIGNATURES.iter().for_each(|(name, signature)| {
+            EVENT_SIGNATURES.iter().for_each(|(name, signature, topics)| {
                 if !log.raw_log.topics().is_empty()
                     && log.raw_log.topics()[0].to_string() == *signature
                 {
                     log.decoded.name = Some(name.to_string());
 
                     if log.raw_log.topics().len() > 1 {
-                        let topics = ["foo", "bar"];
                         log.decoded.params = Some(
                             log.raw_log.topics()[1..]
                                 .iter()
