@@ -96,8 +96,8 @@ fn test_parity_selfdestruct(spec_id: SpecId) {
         if spec_id < SpecId::CANCUN { (Some(value), Some(deployer)) } else { (None, None) };
 
     {
-        assert_eq!(insp.get_traces().nodes().len(), 1);
-        let node = &insp.get_traces().nodes()[0];
+        assert_eq!(insp.traces().nodes().len(), 1);
+        let node = &insp.traces().nodes()[0];
         assert!(node.is_selfdestruct(), "{node:#?}");
         assert_eq!(node.trace.address, contract_address);
         assert_eq!(node.trace.selfdestruct_refund_target, expected_target);

@@ -117,19 +117,44 @@ impl TracingInspector {
         &self.config
     }
 
+    /// Returns a mutable reference to the config of the inspector.
+    pub fn config_mut(&mut self) -> &mut TracingInspectorConfig {
+        &mut self.config
+    }
+
+    /// Updates the config of the inspector.
+    pub fn update_config(
+        &mut self,
+        f: impl FnOnce(TracingInspectorConfig) -> TracingInspectorConfig,
+    ) {
+        self.config = f(self.config);
+    }
+
     /// Gets a reference to the recorded call traces.
+    pub const fn traces(&self) -> &CallTraceArena {
+        &self.traces
+    }
+
+    #[doc(hidden)]
+    #[deprecated = "use `traces` instead"]
     pub const fn get_traces(&self) -> &CallTraceArena {
         &self.traces
+    }
+
+    /// Gets a mutable reference to the recorded call traces.
+    pub fn traces_mut(&mut self) -> &mut CallTraceArena {
+        &mut self.traces
+    }
+
+    #[doc(hidden)]
+    #[deprecated = "use `traces_mut` instead"]
+    pub fn get_traces_mut(&mut self) -> &mut CallTraceArena {
+        &mut self.traces
     }
 
     /// Consumes the inspector and returns the recorded call traces.
     pub fn into_traces(self) -> CallTraceArena {
         self.traces
-    }
-
-    /// Gets a mutable reference to the recorded call traces.
-    pub fn get_traces_mut(&mut self) -> &mut CallTraceArena {
-        &mut self.traces
     }
 
     /// Manually the gas used of the root trace.
