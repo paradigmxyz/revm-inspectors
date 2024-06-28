@@ -473,6 +473,7 @@ where
         context: &mut EvmContext<DB>,
         inputs: &mut CallInputs,
     ) -> Option<CallOutcome> {
+        print!("CALL: depth: {:?}, inputs: {:?}", context.journaled_state.depth(), inputs);
         // determine correct `from` and `to` based on the call scheme
         let (from, to) = match inputs.scheme {
             CallScheme::DelegateCall | CallScheme::CallCode | CallScheme::ExtDelegateCall => {
@@ -519,6 +520,7 @@ where
         _inputs: &CallInputs,
         outcome: CallOutcome,
     ) -> CallOutcome {
+        println!("END CALL: depth {} outcome: {:?}", context.journaled_state.depth(), outcome);
         self.fill_trace_on_call_end(context, &outcome.result, None);
         outcome
     }
@@ -528,6 +530,7 @@ where
         context: &mut EvmContext<DB>,
         inputs: &mut CreateInputs,
     ) -> Option<CreateOutcome> {
+        println!("CREATE: depth: {} inputs: {:?}", context.journaled_state.depth(), inputs);
         let _ = context.load_account(inputs.caller);
         let nonce = context.journaled_state.account(inputs.caller).info.nonce;
         self.start_trace_on_call(
@@ -549,6 +552,7 @@ where
         context: &mut EvmContext<DB>,
         inputs: &mut EOFCreateInputs,
     ) -> Option<CreateOutcome> {
+        println!("EOF CREATE: depth: {} inputs: {:?}", context.journaled_state.depth(), inputs);
         let _ = context.load_account(inputs.caller);
         let nonce = context.journaled_state.account(inputs.caller).info.nonce;
         self.start_trace_on_call(
@@ -571,6 +575,7 @@ where
         _inputs: &EOFCreateInputs,
         outcome: CreateOutcome,
     ) -> CreateOutcome {
+        println!("EOF CREATE END: depth: {} outcome: {:?}", context.journaled_state.depth(), outcome);
         self.fill_trace_on_call_end(context, &outcome.result, outcome.address);
         outcome
     }
@@ -581,6 +586,7 @@ where
         _inputs: &CreateInputs,
         outcome: CreateOutcome,
     ) -> CreateOutcome {
+        println!("CREATE END: depth: {} outcome: {:?}", context.journaled_state.depth(), outcome);
         self.fill_trace_on_call_end(context, &outcome.result, outcome.address);
         outcome
     }
