@@ -371,11 +371,10 @@ impl ParityTraceBuilder {
             val: storage_change.value,
         });
 
-        let maybe_memory = if step.memory.is_empty() {
-            None
-        } else {
-            Some(MemoryDelta { off: step.memory_size, data: step.memory.as_bytes().clone() })
-        };
+        let maybe_memory = step
+            .memory
+            .as_ref()
+            .map(|memory| MemoryDelta { off: memory.len(), data: memory.as_bytes().clone() });
 
         let maybe_execution = Some(VmExecutedOperation {
             used: step.gas_remaining,

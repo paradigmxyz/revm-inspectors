@@ -378,28 +378,22 @@ impl TracingInspector {
         // that not a known constant
         let op = unsafe { OpCode::new_unchecked(interp.current_opcode()) };
 
-        // reuse the memory from previous step if the previous step's opcode did not modifiy it
-        // reason: https://github.com/ethereum/go-ethereum/blob/767b00b0b514771a663f3362dd0310fc28d40c25/core/vm/interpreter.go#L262-L274
-        let memory_modified_prev_step =
-            trace.trace.steps.last().map(|step| modifies_memory(step.op));
-        // if current step is the first step in the trace, then you cannot reuse prev memory
-        let is_first_step = memory_modified_prev_step.is_none();
-        let is_memory_modified_prev_step = memory_modified_prev_step.unwrap_or(true);
-
-        let memory = self
-            .config
-            .record_memory_snapshots
-            .then(|| modifies_memory(op))
-            .and_then(|is_memory_modified_curr_step| {
-                if is_memory_modified_curr_step || is_first_step || is_memory_modified_prev_step {
-                    Some(RecordedMemory::new(interp.shared_memory.context_memory()))
-                } else {
-                    // Reuse the memory from the previous step if the previous opcode did not modify
-                    // it and current opcode also does not modify it.
-                    trace.trace.steps.last().map(|step| step.memory.clone())
+        // Reuse the memory from the previous step if:
+        // - the current opcode does not modify memory
+        // - there is not opcode filter -- in this case we cannot rely on the order of steps
+        // - the previous step exists and has memory
+        let memory = self.config.record_memory_snapshots.then(|| modifies_memory(op)).map(
+            |modifies_memory| {
+                if !modifies_memory && self.config.record_opcodes_filter.is_none() {
+                    if let Some(step) = trace.trace.steps.last() {
+                        if let Some(memory) = &step.memory {
+                            return memory.clone();
+                        }
+                    }
                 }
-            })
-            .unwrap_or_default();
+                RecordedMemory::new(interp.shared_memory.context_memory())
+            },
+        );
 
         let stack = if self.config.record_stack_snapshots.is_full() {
             Some(interp.stack.data().clone())
@@ -425,7 +419,6 @@ impl TracingInspector {
             contract: interp.contract.target_address,
             stack,
             push_stack: None,
-            memory_size: memory.len(),
             memory,
             returndata,
             gas_remaining: interp.gas.remaining(),
@@ -465,12 +458,6 @@ impl TracingInspector {
             step.push_stack = Some(interp.stack.data()[start..].to_vec());
         }
 
-        if self.config.record_memory_snapshots {
-            // resize memory so opcodes that allocated memory is correctly displayed
-            if interp.shared_memory.len() > step.memory.len() {
-                step.memory.resize(interp.shared_memory.len());
-            }
-        }
         if self.config.record_state_diff {
             let op = step.op.get();
 
