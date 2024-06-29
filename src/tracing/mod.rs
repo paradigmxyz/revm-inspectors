@@ -1,11 +1,14 @@
 use self::parity::stack_push_count;
-use crate::tracing::{
-    arena::PushTraceKind,
-    types::{
-        CallKind, CallTraceNode, RecordedMemory, StorageChange, StorageChangeReason,
-        TraceMemberOrder,
+use crate::{
+    opcode::may_modify_memory,
+    tracing::{
+        arena::PushTraceKind,
+        types::{
+            CallKind, CallTraceNode, RecordedMemory, StorageChange, StorageChangeReason,
+            TraceMemberOrder,
+        },
+        utils::gas_used,
     },
-    utils::gas_used,
 };
 use alloy_primitives::{Address, Bytes, Log, U256};
 use revm::{
@@ -371,11 +374,26 @@ impl TracingInspector {
             return;
         }
 
-        let memory = self
-            .config
-            .record_memory_snapshots
-            .then(|| RecordedMemory::new(interp.shared_memory.context_memory()))
-            .unwrap_or_default();
+        // we always want an OpCode, even it is unknown because it could be an additional opcode
+        // that not a known constant
+        let op = unsafe { OpCode::new_unchecked(interp.current_opcode()) };
+
+        // Reuse the memory from the previous step if:
+        // - there is not opcode filter -- in this case we cannot rely on the order of steps
+        // - it exists and has not modified memory
+        let memory = self.config.record_memory_snapshots.then(|| {
+            if self.config.record_opcodes_filter.is_none() {
+                if let Some(prev) = trace.trace.steps.last() {
+                    if !may_modify_memory(prev.op) {
+                        if let Some(memory) = &prev.memory {
+                            return memory.clone();
+                        }
+                    }
+                }
+            }
+            RecordedMemory::new(interp.shared_memory.context_memory())
+        });
+
         let stack = if self.config.record_stack_snapshots.is_full() {
             Some(interp.stack.data().clone())
         } else {
@@ -400,7 +418,6 @@ impl TracingInspector {
             contract: interp.contract.target_address,
             stack,
             push_stack: None,
-            memory_size: memory.len(),
             memory,
             returndata,
             gas_remaining: interp.gas.remaining(),
@@ -440,12 +457,6 @@ impl TracingInspector {
             step.push_stack = Some(interp.stack.data()[start..].to_vec());
         }
 
-        if self.config.record_memory_snapshots {
-            // resize memory so opcodes that allocated memory is correctly displayed
-            if interp.shared_memory.len() > step.memory.len() {
-                step.memory.resize(interp.shared_memory.len());
-            }
-        }
         if self.config.record_state_diff {
             let op = step.op.get();
 

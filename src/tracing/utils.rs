@@ -7,14 +7,20 @@ use revm::{
     DatabaseRef,
 };
 
-/// creates the memory data in 32byte chunks
-/// see <https://github.com/ethereum/go-ethereum/blob/366d2169fbc0e0f803b68c042b77b6b480836dbc/eth/tracers/logger/logger.go#L450-L452>
-#[inline]
+/// Formats memory data into a list of 32-byte hex-encoded chunks.
+///
+/// See: <https://github.com/ethereum/go-ethereum/blob/366d2169fbc0e0f803b68c042b77b6b480836dbc/eth/tracers/logger/logger.go#L450-L452>
 pub(crate) fn convert_memory(data: &[u8]) -> Vec<String> {
     let mut memory = Vec::with_capacity((data.len() + 31) / 32);
-    for idx in (0..data.len()).step_by(32) {
-        let len = std::cmp::min(idx + 32, data.len());
-        memory.push(hex::encode(&data[idx..len]));
+    let chunks = data.chunks_exact(32);
+    let remainder = chunks.remainder();
+    for chunk in chunks {
+        memory.push(hex::encode(chunk));
+    }
+    if !remainder.is_empty() {
+        let mut last_chunk = [0u8; 32];
+        last_chunk[..remainder.len()].copy_from_slice(remainder);
+        memory.push(hex::encode(last_chunk));
     }
     memory
 }

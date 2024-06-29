@@ -559,12 +559,10 @@ pub struct CallTraceStep {
     pub stack: Option<Vec<U256>>,
     /// The new stack items placed by this step if any
     pub push_stack: Option<Vec<U256>>,
-    /// All allocated memory in a step
+    /// Memory before step execution.
     ///
-    /// This will be empty if memory capture is disabled
-    pub memory: RecordedMemory,
-    /// Size of memory at the beginning of the step
-    pub memory_size: usize,
+    /// This will be `None` only if memory capture is disabled.
+    pub memory: Option<RecordedMemory>,
     /// Returndata before step execution
     pub returndata: Bytes,
     /// Remaining gas before step execution
@@ -616,7 +614,7 @@ impl CallTraceStep {
         }
 
         if opts.is_memory_enabled() {
-            log.memory = Some(self.memory.memory_chunks());
+            log.memory = self.memory.as_ref().map(RecordedMemory::memory_chunks);
         }
 
         log
@@ -698,6 +696,10 @@ pub struct RecordedMemory(pub(crate) Bytes);
 impl RecordedMemory {
     #[inline]
     pub(crate) fn new(mem: &[u8]) -> Self {
+        if mem.is_empty() {
+            return Self(Bytes::new());
+        }
+
         Self(Bytes::copy_from_slice(mem))
     }
 
@@ -713,29 +715,21 @@ impl RecordedMemory {
         self.0
     }
 
-    #[inline]
-    pub(crate) fn resize(&mut self, len: usize) {
-        if len <= self.len() {
-            return self.0.truncate(len);
-        }
-        let mut data = self.0.to_vec();
-        data.resize(len, 0);
-        self.0 = Bytes::from(data);
-    }
-
-    /// Returns the size of the memory
+    /// Returns the size of the memory.
     #[inline]
     pub fn len(&self) -> usize {
         self.0.len()
     }
 
-    /// Returns whether the memory is empty
+    /// Returns whether the memory is empty.
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
 
-    /// Converts the memory into 32byte hex chunks
+    /// Formats memory data into a list of 32-byte hex-encoded chunks.
+    ///
+    /// See: <https://github.com/ethereum/go-ethereum/blob/366d2169fbc0e0f803b68c042b77b6b480836dbc/eth/tracers/logger/logger.go#L450-L452>
     #[inline]
     pub fn memory_chunks(&self) -> Vec<String> {
         convert_memory(self.as_bytes())
