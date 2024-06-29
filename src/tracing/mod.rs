@@ -1,6 +1,6 @@
 use self::parity::stack_push_count;
 use crate::{
-    opcode::modifies_memory,
+    opcode::may_modify_memory,
     tracing::{
         arena::PushTraceKind,
         types::{
@@ -379,21 +379,20 @@ impl TracingInspector {
         let op = unsafe { OpCode::new_unchecked(interp.current_opcode()) };
 
         // Reuse the memory from the previous step if:
-        // - the current opcode does not modify memory
         // - there is not opcode filter -- in this case we cannot rely on the order of steps
-        // - the previous step exists and has memory
-        let memory = self.config.record_memory_snapshots.then(|| modifies_memory(op)).map(
-            |modifies_memory| {
-                if !modifies_memory && self.config.record_opcodes_filter.is_none() {
-                    if let Some(step) = trace.trace.steps.last() {
-                        if let Some(memory) = &step.memory {
+        // - it exists and has not modified memory
+        let memory = self.config.record_memory_snapshots.then(|| {
+            if self.config.record_opcodes_filter.is_none() {
+                if let Some(prev) = trace.trace.steps.last() {
+                    if !may_modify_memory(prev.op) {
+                        if let Some(memory) = &prev.memory {
                             return memory.clone();
                         }
                     }
                 }
-                RecordedMemory::new(interp.shared_memory.context_memory())
-            },
-        );
+            }
+            RecordedMemory::new(interp.shared_memory.context_memory())
+        });
 
         let stack = if self.config.record_stack_snapshots.is_full() {
             Some(interp.stack.data().clone())

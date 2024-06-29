@@ -78,11 +78,12 @@ where
     }
 }
 
-/// Returns true if the opcode modifies memory.
+/// Returns true if the opcode may modify memory.
+///
 /// <https://bluealloy.github.io/revm/crates/interpreter/memory.html#opcodes>
 /// <https://github.com/crytic/evm-opcodes>
 #[inline]
-pub const fn modifies_memory(opcode: OpCode) -> bool {
+pub const fn may_modify_memory(opcode: OpCode) -> bool {
     matches!(
         opcode,
         OpCode::EXTCODECOPY
