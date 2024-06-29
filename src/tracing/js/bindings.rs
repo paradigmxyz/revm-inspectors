@@ -394,8 +394,8 @@ impl OpObj {
         let to_string = FunctionObjectBuilder::new(
             context.realm(),
             NativeFunction::from_copy_closure(move |_this, _args, _ctx| {
-                // we always want an OpCode, even it is unknown because it could be an additional
-                // opcode that not a known constant
+                // We always want an OpCode, even it is unknown because it could be an additional
+                // opcode that not a known constant.
                 let op = unsafe { OpCode::new_unchecked(value) };
                 let s = op.to_string();
                 Ok(JsValue::from(js_string!(s)))
