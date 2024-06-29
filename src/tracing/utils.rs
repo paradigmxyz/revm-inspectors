@@ -20,7 +20,7 @@ pub(crate) fn convert_memory(data: &[u8]) -> Vec<String> {
     if !remainder.is_empty() {
         let mut last_chunk = [0u8; 32];
         last_chunk[..remainder.len()].copy_from_slice(remainder);
-        memory.push(hex::encode(&last_chunk));
+        memory.push(hex::encode(last_chunk));
     }
     memory
 }
