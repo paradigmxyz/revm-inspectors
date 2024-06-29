@@ -5,14 +5,10 @@ use crate::tracing::{
     TracingInspectorConfig,
 };
 use alloy_primitives::{Address, U64};
-use alloy_rpc_types::TransactionInfo;
-use alloy_rpc_types_trace::parity::*;
+use alloy_rpc_types::{trace::parity::*, TransactionInfo};
 use revm::{
     db::DatabaseRef,
-    interpreter::{
-        opcode::{self, spec_opcode_gas},
-        OpCode,
-    },
+    interpreter::{opcode, OpCode},
     primitives::{Account, ExecutionResult, ResultAndState, SpecId, KECCAK_EMPTY},
 };
 use std::collections::{HashSet, VecDeque};
@@ -24,21 +20,16 @@ use std::collections::{HashSet, VecDeque};
 pub struct ParityTraceBuilder {
     /// Recorded trace nodes
     nodes: Vec<CallTraceNode>,
-    /// The spec id of the EVM.
-    spec_id: Option<SpecId>,
-
-    /// How the traces were recorded
-    _config: TracingInspectorConfig,
 }
 
 impl ParityTraceBuilder {
     /// Returns a new instance of the builder
     pub fn new(
         nodes: Vec<CallTraceNode>,
-        spec_id: Option<SpecId>,
+        _spec_id: Option<SpecId>,
         _config: TracingInspectorConfig,
     ) -> Self {
-        Self { nodes, spec_id, _config }
+        Self { nodes }
     }
 
     /// Returns a list of all addresses that appeared as callers.
@@ -383,10 +374,7 @@ impl ParityTraceBuilder {
         let maybe_memory = if step.memory.is_empty() {
             None
         } else {
-            Some(MemoryDelta {
-                off: step.memory_size,
-                data: step.memory.as_bytes().to_vec().into(),
-            })
+            Some(MemoryDelta { off: step.memory_size, data: step.memory.as_bytes().clone() })
         };
 
         let maybe_execution = Some(VmExecutedOperation {
@@ -396,16 +384,9 @@ impl ParityTraceBuilder {
             store: maybe_storage,
         });
 
-        let cost = self
-            .spec_id
-            .and_then(|spec_id| {
-                spec_opcode_gas(spec_id).get(step.op.get() as usize).map(|op| op.get_gas())
-            })
-            .unwrap_or_default();
-
         VmInstruction {
             pc: step.pc,
-            cost: cost as u64,
+            cost: step.gas_cost,
             ex: maybe_execution,
             sub: maybe_sub_call,
             op: Some(step.op.to_string()),
@@ -505,7 +486,9 @@ where
         let entry = state_diff.entry(addr).or_default();
 
         // we check if this account was created during the transaction
-        if changed_acc.is_created() || changed_acc.is_loaded_as_not_existing() {
+        if changed_acc.is_created() {
+            // This only applies to newly created accounts
+            // A non existing touched account (e.g. `to` that does not exist) is excluded here
             entry.balance = Delta::Added(changed_acc.info.balance);
             entry.nonce = Delta::Added(U64::from(changed_acc.info.nonce));
 
@@ -519,17 +502,14 @@ where
                 entry.storage.insert((*key).into(), Delta::Added(slot.present_value.into()));
             }
         } else {
-            // account already exists, we need to fetch the account from the db
+            // account may exist or not, we need to fetch the account from the db
             let db_acc = db.basic_ref(addr)?.unwrap_or_default();
 
             // update _changed_ storage values
             for (key, slot) in changed_acc.storage.iter().filter(|(_, slot)| slot.is_changed()) {
                 entry.storage.insert(
                     (*key).into(),
-                    Delta::changed(
-                        slot.previous_or_original_value.into(),
-                        slot.present_value.into(),
-                    ),
+                    Delta::changed(slot.original_value.into(), slot.present_value.into()),
                 );
             }
 

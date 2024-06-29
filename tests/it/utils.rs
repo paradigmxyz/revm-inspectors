@@ -4,8 +4,8 @@ use revm::{
     db::{CacheDB, EmptyDB},
     inspector_handle_register,
     primitives::{
-        BlockEnv, CreateScheme, EVMError, Env, EnvWithHandlerCfg, ExecutionResult, HandlerCfg,
-        Output, ResultAndState, SpecId, TransactTo, TxEnv,
+        BlockEnv, EVMError, Env, EnvWithHandlerCfg, ExecutionResult, HandlerCfg, Output,
+        ResultAndState, SpecId, TransactTo, TxEnv,
     },
     Database, DatabaseCommit, GetInspector,
 };
@@ -46,7 +46,7 @@ impl TestEvm {
         inspector: I,
     ) -> Result<Address, EVMError<Infallible>> {
         self.env.tx.data = data;
-        self.env.tx.transact_to = TransactTo::Create(CreateScheme::Create);
+        self.env.tx.transact_to = TransactTo::Create;
 
         let (ResultAndState { result, state }, env) = self.inspect(inspector)?;
         self.db.commit(state);
@@ -110,7 +110,7 @@ pub fn write_traces(tracer: &TracingInspector) -> String {
 
 pub fn write_traces_with(tracer: &TracingInspector, color: ColorChoice) -> String {
     let mut w = revm_inspectors::tracing::TraceWriter::new(Vec::<u8>::new()).use_colors(color);
-    w.write_arena(tracer.get_traces()).expect("failed to write traces to Vec<u8>");
+    w.write_arena(tracer.traces()).expect("failed to write traces to Vec<u8>");
     String::from_utf8(w.into_writer()).expect("trace writer wrote invalid UTF-8")
 }
 

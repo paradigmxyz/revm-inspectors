@@ -2,13 +2,12 @@
 
 use crate::utils::inspect;
 use alloy_primitives::{hex, Address, Bytes};
-use alloy_rpc_types_trace::geth::{
+use alloy_rpc_types::trace::geth::{
     mux::MuxConfig, CallConfig, GethDebugBuiltInTracerType, GethDebugTracerConfig, GethTrace,
     PreStateConfig,
 };
 use revm::{
     db::{CacheDB, EmptyDB},
-    interpreter::CreateScheme,
     primitives::{
         BlockEnv, CfgEnv, CfgEnvWithHandlerCfg, EnvWithHandlerCfg, ExecutionResult, HandlerCfg,
         Output, SpecId, TransactTo, TxEnv,
@@ -66,7 +65,7 @@ fn test_geth_calltracer_logs() {
         TxEnv {
             caller: deployer,
             gas_limit: 1000000,
-            transact_to: TransactTo::Create(CreateScheme::Create),
+            transact_to: TransactTo::Create,
             data: code.into(),
             ..Default::default()
         },
@@ -175,7 +174,7 @@ fn test_geth_mux_tracer() {
         TxEnv {
             caller: deployer,
             gas_limit: 1000000,
-            transact_to: TransactTo::Create(CreateScheme::Create),
+            transact_to: TransactTo::Create,
             data: code.into(),
             ..Default::default()
         },
@@ -282,4 +281,39 @@ fn test_geth_mux_tracer() {
         }
         _ => panic!("Expected MuxTracer"),
     }
+}
+
+#[test]
+fn test_geth_inspector_reset() {
+    let mut insp = TracingInspector::new(TracingInspectorConfig::default_geth());
+
+    let mut db = CacheDB::new(EmptyDB::default());
+    let cfg = CfgEnvWithHandlerCfg::new(CfgEnv::default(), HandlerCfg::new(SpecId::LONDON));
+    let env = EnvWithHandlerCfg::new_with_cfg_env(
+        cfg.clone(),
+        BlockEnv::default(),
+        TxEnv {
+            caller: Address::ZERO,
+            gas_limit: 1000000,
+            gas_price: Default::default(),
+            transact_to: TransactTo::Call(Address::ZERO),
+            ..Default::default()
+        },
+    );
+
+    assert_eq!(insp.traces().nodes().first().unwrap().trace.gas_limit, 0);
+
+    // first run inspector
+    let (res, _) = inspect(&mut db, env.clone(), &mut insp).unwrap();
+    assert!(res.result.is_success());
+    assert_eq!(insp.traces().nodes().first().unwrap().trace.gas_limit, 1000000);
+
+    // reset the inspector
+    insp.fuse();
+    assert_eq!(insp.traces().nodes().first().unwrap().trace.gas_limit, 0);
+
+    // second run inspector after reset
+    let (res, _) = inspect(&mut db, env, &mut insp).unwrap();
+    assert!(res.result.is_success());
+    assert_eq!(insp.traces().nodes().first().unwrap().trace.gas_limit, 1000000);
 }

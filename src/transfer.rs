@@ -57,12 +57,12 @@ where
             return None;
         }
 
-        if !inputs.transfer.value.is_zero() {
+        if inputs.transfers_value() {
             self.transfers.push(TransferOperation {
                 kind: TransferKind::Call,
-                from: inputs.transfer.source,
-                to: inputs.transfer.target,
-                value: inputs.transfer.value,
+                from: inputs.caller,
+                to: inputs.target_address,
+                value: inputs.call_value(),
             });
         }
 

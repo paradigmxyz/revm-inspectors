@@ -1,7 +1,7 @@
 [package]
 name = "revm-inspectors"
 description = "Revm inspector implementations"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.76.0"
 license = "MIT OR Apache-2.0"
@@ -9,31 +9,39 @@ homepage = "https://github.com/paradigmxyz/evm-inspectors"
 repository = "https://github.com/paradigmxyz/evm-inspectors"
 categories = ["cryptography"]
 keywords = ["ethereum", "evm", "inspectors", "tracing", "debugging"]
+exclude = [
+    ".github",
+    "scripts",
+    "testdata",
+    "tests",
+    "cliff.toml",
+    "deny.toml",
+    "release.toml",
+]
 
 [lints]
 rust.missing_debug_implementations = "warn"
 rust.missing_docs = "warn"
 rust.unreachable_pub = "warn"
-rustdoc.all = "warn"
 rust.unused_must_use = "deny"
 rust.rust_2018_idioms = "deny"
+rustdoc.all = "warn"
 clippy.lint_groups_priority = "allow"
 
 [dependencies]
 # eth
-alloy-sol-types = "0.7.0"
-alloy-primitives = "0.7.0"
-alloy-rpc-types = { git = "https://github.com/alloy-rs/alloy", rev = "6aab216" }
-alloy-rpc-types-trace = { git = "https://github.com/alloy-rs/alloy", rev = "6aab216" }
-revm = { version = "8.0", default-features = false, features = ["std"] }
+alloy-sol-types = "0.7"
+alloy-primitives = "0.7"
+alloy-rpc-types = { version = "0.1", features = ["eth", "trace"] }
+revm = { version = "10.0", default-features = false, features = ["std"] }
 
 anstyle = "1.0"
 colorchoice = "1.0"
-thiserror = { version = "1" }
+thiserror = "1.0"
 
 # serde
 serde = { version = "1", optional = true, features = ["derive"] }
-serde_json = { version = "1" }
+serde_json = "1.0"
 
 # js-tracer
 boa_engine = { version = "0.18", optional = true }

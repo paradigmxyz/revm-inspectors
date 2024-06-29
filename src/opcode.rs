@@ -1,4 +1,4 @@
-use alloy_rpc_types_trace::opcode::OpcodeGas;
+use alloy_rpc_types::trace::opcode::OpcodeGas;
 use revm::{
     interpreter::{opcode::OpCode, Interpreter},
     Database, EvmContext, Inspector,
@@ -69,19 +69,10 @@ where
         }
     }
 
-    fn step_end(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
+    fn step_end(&mut self, interp: &mut Interpreter, _context: &mut EvmContext<DB>) {
         // update gas usage for the last opcode
         if let Some((opcode, gas_remaining)) = self.last_opcode_gas_remaining.take() {
-            let gas_table =
-                revm::interpreter::instructions::opcode::spec_opcode_gas(context.spec_id());
-            let opcode_gas_info = gas_table[opcode.get() as usize];
-
-            let mut gas_cost = opcode_gas_info.get_gas() as u64;
-            // if gas cost is 0 then this is dynamic gas and we need to use the tracked gas
-            if gas_cost == 0 {
-                gas_cost = gas_remaining.saturating_sub(interp.gas().remaining());
-            }
-
+            let gas_cost = gas_remaining.saturating_sub(interp.gas().remaining());
             *self.opcode_gas.entry(opcode).or_default() += gas_cost;
         }
     }

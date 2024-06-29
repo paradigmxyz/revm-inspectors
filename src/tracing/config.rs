@@ -1,14 +1,49 @@
-use alloy_rpc_types_trace::{
+use alloy_primitives::U256;
+use alloy_rpc_types::trace::{
     geth::{CallConfig, GethDefaultTracingOptions, PreStateConfig},
     parity::TraceType,
 };
+use revm::interpreter::OpCode;
 use std::collections::HashSet;
+
+/// 256 bits each marking whether an opcode should be included into steps trace or not.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OpcodeFilter(U256);
+
+impl Default for OpcodeFilter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl OpcodeFilter {
+    /// Returns a new [OpcodeFilter] that does not trace any opcodes.
+    pub const fn new() -> Self {
+        Self(U256::ZERO)
+    }
+
+    /// Returns whether steps with given [OpCode] should be traced.
+    pub fn is_enabled(&self, op: &OpCode) -> bool {
+        self.0.bit(op.get() as usize)
+    }
+
+    /// Enables tracing of given [OpCode].
+    #[must_use]
+    pub const fn enable(self, op: OpCode) -> Self {
+        let bit = op.get() as usize;
+
+        let mut bytes = self.0.to_le_bytes::<32>();
+        bytes[bit / 8] |= 1 << (bit % 8);
+
+        Self(U256::from_le_bytes(bytes))
+    }
+}
 
 /// Gives guidance to the [TracingInspector](crate::tracing::TracingInspector).
 ///
 /// Use [TracingInspectorConfig::default_parity] or [TracingInspectorConfig::default_geth] to get
 /// the default configs for specific styles of traces.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub struct TracingInspectorConfig {
     /// Whether to record every individual opcode level step.
     pub record_steps: bool,
@@ -18,6 +53,11 @@ pub struct TracingInspectorConfig {
     pub record_stack_snapshots: StackSnapshotType,
     /// Whether to record state diffs.
     pub record_state_diff: bool,
+    /// Whether to record returndata buffer snapshots.
+    pub record_returndata_snapshots: bool,
+    /// Optional filter for opcodes to record. If provided, only steps with opcode in this set will
+    /// be recorded.
+    pub record_opcodes_filter: Option<OpcodeFilter>,
     /// Whether to ignore precompile calls.
     pub exclude_precompile_calls: bool,
     /// Whether to record logs
@@ -32,6 +72,8 @@ impl TracingInspectorConfig {
             record_memory_snapshots: true,
             record_stack_snapshots: StackSnapshotType::Full,
             record_state_diff: false,
+            record_returndata_snapshots: true,
+            record_opcodes_filter: None,
             exclude_precompile_calls: false,
             record_logs: true,
         }
@@ -44,8 +86,10 @@ impl TracingInspectorConfig {
             record_memory_snapshots: false,
             record_stack_snapshots: StackSnapshotType::None,
             record_state_diff: false,
+            record_returndata_snapshots: false,
             exclude_precompile_calls: false,
             record_logs: false,
+            record_opcodes_filter: None,
         }
     }
 
@@ -58,8 +102,10 @@ impl TracingInspectorConfig {
             record_memory_snapshots: false,
             record_stack_snapshots: StackSnapshotType::None,
             record_state_diff: false,
+            record_returndata_snapshots: false,
             exclude_precompile_calls: true,
             record_logs: false,
+            record_opcodes_filter: None,
         }
     }
 
@@ -68,15 +114,17 @@ impl TracingInspectorConfig {
     /// This config does _not_ record opcode level traces and is suited for `debug_traceTransaction`
     ///
     /// This will configure the default output of geth's default
-    /// [StructLogTracer](alloy_rpc_types_trace::geth::DefaultFrame).
+    /// [StructLogTracer](alloy_rpc_types::trace::geth::DefaultFrame).
     pub const fn default_geth() -> Self {
         Self {
             record_steps: true,
             record_memory_snapshots: false,
             record_stack_snapshots: StackSnapshotType::Full,
             record_state_diff: true,
+            record_returndata_snapshots: false,
             exclude_precompile_calls: false,
             record_logs: false,
+            record_opcodes_filter: None,
         }
     }
 
@@ -98,7 +146,7 @@ impl TracingInspectorConfig {
     /// Returns a config for geth style traces based on the given [GethDefaultTracingOptions].
     ///
     /// This will configure the output of geth's default
-    /// [StructLogTracer](alloy_rpc_types_trace::geth::DefaultFrame) according to the given config.
+    /// [StructLogTracer](alloy_rpc_types::trace::geth::DefaultFrame) according to the given config.
     #[inline]
     pub fn from_geth_config(config: &GethDefaultTracingOptions) -> Self {
         Self {
@@ -113,7 +161,7 @@ impl TracingInspectorConfig {
         }
     }
 
-    /// Returns a config for geth's [CallTracer](alloy_rpc_types_trace::geth::CallFrame).
+    /// Returns a config for geth's [CallTracer](alloy_rpc_types::trace::geth::CallFrame).
     ///
     /// This returns [Self::none] and enables [TracingInspectorConfig::record_logs] if configured in
     /// the given [CallConfig]
@@ -124,7 +172,7 @@ impl TracingInspectorConfig {
             .set_record_logs(config.with_log.unwrap_or_default())
     }
 
-    /// Returns a config for geth's [PrestateTracer](alloy_rpc_types_trace::geth::PreStateFrame).
+    /// Returns a config for geth's [PrestateTracer](alloy_rpc_types::trace::geth::PreStateFrame).
     ///
     /// Note: This currently returns [Self::none] because the prestate tracer result currently
     /// relies on the execution result entirely, see
@@ -233,12 +281,19 @@ impl TracingInspectorConfig {
         self.record_logs = record_logs;
         self
     }
+
+    /// If [OpcodeFilter] is configured, returns whether the given opcode should be recorded.
+    /// Otherwise, always returns true.
+    pub fn should_record_opcode(&self, op: &OpCode) -> bool {
+        self.record_opcodes_filter.map_or(true, |filter| filter.is_enabled(op))
+    }
 }
 
 /// How much of the stack to record. Nothing, just the items pushed, or the full stack
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum StackSnapshotType {
     /// Don't record stack snapshots
+    #[default]
     None,
     /// Record only the items pushed to the stack
     Pushes,
