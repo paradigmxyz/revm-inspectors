@@ -1,8 +1,43 @@
+use alloy_primitives::U256;
 use alloy_rpc_types::trace::{
     geth::{CallConfig, GethDefaultTracingOptions, PreStateConfig},
     parity::TraceType,
 };
+use revm::interpreter::OpCode;
 use std::collections::HashSet;
+
+/// 256 bits each marking whether an opcode should be included into steps trace or not.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OpcodeFilter(U256);
+
+impl Default for OpcodeFilter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl OpcodeFilter {
+    /// Returns a new [OpcodeFilter] that does not trace any opcodes.
+    pub const fn new() -> Self {
+        Self(U256::ZERO)
+    }
+
+    /// Returns whether steps with given [OpCode] should be traced.
+    pub fn is_enabled(&self, op: &OpCode) -> bool {
+        self.0.bit(op.get() as usize)
+    }
+
+    /// Enables tracing of given [OpCode].
+    #[must_use]
+    pub const fn enable(self, op: OpCode) -> Self {
+        let bit = op.get() as usize;
+
+        let mut bytes = self.0.to_le_bytes::<32>();
+        bytes[bit / 8] |= 1 << (bit % 8);
+
+        Self(U256::from_le_bytes(bytes))
+    }
+}
 
 /// Gives guidance to the [TracingInspector](crate::tracing::TracingInspector).
 ///
@@ -18,6 +53,11 @@ pub struct TracingInspectorConfig {
     pub record_stack_snapshots: StackSnapshotType,
     /// Whether to record state diffs.
     pub record_state_diff: bool,
+    /// Whether to record returndata buffer snapshots.
+    pub record_returndata_snapshots: bool,
+    /// Optional filter for opcodes to record. If provided, only steps with opcode in this set will
+    /// be recorded.
+    pub record_opcodes_filter: Option<OpcodeFilter>,
     /// Whether to ignore precompile calls.
     pub exclude_precompile_calls: bool,
     /// Whether to record logs
@@ -32,6 +72,8 @@ impl TracingInspectorConfig {
             record_memory_snapshots: true,
             record_stack_snapshots: StackSnapshotType::Full,
             record_state_diff: false,
+            record_returndata_snapshots: true,
+            record_opcodes_filter: None,
             exclude_precompile_calls: false,
             record_logs: true,
         }
@@ -44,8 +86,10 @@ impl TracingInspectorConfig {
             record_memory_snapshots: false,
             record_stack_snapshots: StackSnapshotType::None,
             record_state_diff: false,
+            record_returndata_snapshots: false,
             exclude_precompile_calls: false,
             record_logs: false,
+            record_opcodes_filter: None,
         }
     }
 
@@ -58,8 +102,10 @@ impl TracingInspectorConfig {
             record_memory_snapshots: false,
             record_stack_snapshots: StackSnapshotType::None,
             record_state_diff: false,
+            record_returndata_snapshots: false,
             exclude_precompile_calls: true,
             record_logs: false,
+            record_opcodes_filter: None,
         }
     }
 
@@ -75,8 +121,10 @@ impl TracingInspectorConfig {
             record_memory_snapshots: false,
             record_stack_snapshots: StackSnapshotType::Full,
             record_state_diff: true,
+            record_returndata_snapshots: false,
             exclude_precompile_calls: false,
             record_logs: false,
+            record_opcodes_filter: None,
         }
     }
 
@@ -232,6 +280,12 @@ impl TracingInspectorConfig {
     pub const fn set_record_logs(mut self, record_logs: bool) -> Self {
         self.record_logs = record_logs;
         self
+    }
+
+    /// If [OpcodeFilter] is configured, returns whether the given opcode should be recorded.
+    /// Otherwise, always returns true.
+    pub fn should_record_opcode(&self, op: &OpCode) -> bool {
+        self.record_opcodes_filter.map_or(true, |filter| filter.is_enabled(op))
     }
 }
 

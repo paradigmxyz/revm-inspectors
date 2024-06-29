@@ -13,7 +13,29 @@ use alloy_rpc_types::trace::{
 use revm::interpreter::{opcode, CallScheme, CreateScheme, InstructionResult, OpCode};
 use std::collections::VecDeque;
 
-/// A trace of a call.
+/// Decoded call data.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct DecodedCallData {
+    /// The function signature.
+    pub signature: String,
+    /// The function arguments.
+    pub args: Vec<String>,
+}
+
+/// Additional decoded data enhancing the [CallTrace].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct DecodedCallTrace {
+    /// Optional decoded label for the call.
+    pub label: Option<String>,
+    /// Optional decoded return data.
+    pub return_data: Option<String>,
+    /// Optional decoded call data.
+    pub call_data: Option<DecodedCallData>,
+}
+
+/// A trace of a call with optional decoded data.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CallTrace {
@@ -41,6 +63,13 @@ pub struct CallTrace {
     ///
     /// See [`is_selfdestruct`](Self::is_selfdestruct) for more information.
     pub selfdestruct_refund_target: Option<Address>,
+    /// The value transferred on a selfdestruct.
+    ///
+    /// This is only `Some` if a selfdestruct was executed and the call is executed before the
+    /// Cancun hardfork.
+    ///
+    /// See [`is_selfdestruct`](Self::is_selfdestruct) for more information.
+    pub selfdestruct_transferred_value: Option<U256>,
     /// The kind of call.
     pub kind: CallKind,
     /// The value transferred in the call.
@@ -57,6 +86,8 @@ pub struct CallTrace {
     pub status: InstructionResult,
     /// Opcode-level execution steps.
     pub steps: Vec<CallTraceStep>,
+    /// Optional complementary decoded call data.
+    pub decoded: DecodedCallTrace,
 }
 
 impl CallTrace {
@@ -66,7 +97,7 @@ impl CallTrace {
         !self.status.is_ok()
     }
 
-    /// Returns true if the status code is a revert
+    /// Returns true if the status code is a revert.
     #[inline]
     pub fn is_revert(&self) -> bool {
         self.status == InstructionResult::Revert
@@ -114,6 +145,34 @@ impl CallTrace {
     }
 }
 
+/// Additional decoded data enhancing the [CallLog].
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct DecodedCallLog {
+    /// The decoded event name.
+    pub name: Option<String>,
+    /// The decoded log parameters, a vector of the parameter name (e.g. foo) and the parameter
+    /// value (e.g. 0x9d3...45ca).
+    pub params: Option<Vec<(String, String)>>,
+}
+
+/// A log with optional decoded data.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct CallLog {
+    /// The raw log data.
+    pub raw_log: LogData,
+    /// Optional complementary decoded log data.
+    pub decoded: DecodedCallLog,
+}
+
+impl From<Log> for CallLog {
+    /// Converts a [`Log`] into a [`CallLog`].
+    fn from(log: Log) -> Self {
+        Self { raw_log: log.data, decoded: DecodedCallLog { name: None, params: None } }
+    }
+}
+
 /// A node in the arena
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -127,7 +186,7 @@ pub struct CallTraceNode {
     /// The call trace
     pub trace: CallTrace,
     /// Recorded logs, if enabled
-    pub logs: Vec<LogData>,
+    pub logs: Vec<CallLog>,
     /// Ordering of child calls and logs
     pub ordering: Vec<TraceMemberOrder>,
 }
@@ -242,7 +301,7 @@ impl CallTraceNode {
             Some(Action::Selfdestruct(SelfdestructAction {
                 address: self.trace.address,
                 refund_address: self.trace.selfdestruct_refund_target.unwrap_or_default(),
-                balance: self.trace.value,
+                balance: self.trace.selfdestruct_transferred_value.unwrap_or_default(),
             }))
         } else {
             None
@@ -256,7 +315,7 @@ impl CallTraceNode {
                 typ: "SELFDESTRUCT".to_string(),
                 from: self.trace.caller,
                 to: self.trace.selfdestruct_refund_target,
-                value: Some(self.trace.value),
+                value: self.trace.selfdestruct_transferred_value,
                 ..Default::default()
             })
         } else {
@@ -341,8 +400,8 @@ impl CallTraceNode {
                 .iter()
                 .map(|log| CallLogFrame {
                     address: Some(self.execution_address()),
-                    topics: Some(log.topics().to_vec()),
-                    data: Some(log.data.clone()),
+                    topics: Some(log.raw_log.topics().to_vec()),
+                    data: Some(log.raw_log.data.clone()),
                 })
                 .collect();
         }
@@ -512,10 +571,14 @@ pub struct CallTraceStep {
     pub memory: RecordedMemory,
     /// Size of memory at the beginning of the step
     pub memory_size: usize,
+    /// Returndata before step execution
+    pub returndata: Bytes,
     /// Remaining gas before step execution
     pub gas_remaining: u64,
     /// Gas refund counter before step execution
     pub gas_refund_counter: u64,
+    /// Total gas used before step execution
+    pub gas_used: u64,
     // Fields filled in `step_end`
     /// Gas cost of step execution
     pub gas_cost: u64,
