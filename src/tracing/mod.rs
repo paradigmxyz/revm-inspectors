@@ -366,7 +366,7 @@ impl TracingInspector {
         // that not a known constant
         let op = unsafe { OpCode::new_unchecked(interp.current_opcode()) };
 
-        let record = self.config.should_record_opcode(&op);
+        let record = self.config.should_record_opcode(op);
 
         self.step_stack.push(StackStep { trace_idx, step_idx, record });
 

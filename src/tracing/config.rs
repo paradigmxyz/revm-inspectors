@@ -8,6 +8,7 @@ use std::collections::HashSet;
 
 /// 256 bits each marking whether an opcode should be included into steps trace or not.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[must_use]
 pub struct OpcodeFilter(U256);
 
 impl Default for OpcodeFilter {
@@ -18,24 +19,33 @@ impl Default for OpcodeFilter {
 
 impl OpcodeFilter {
     /// Returns a new [OpcodeFilter] that does not trace any opcodes.
+    #[inline]
     pub const fn new() -> Self {
         Self(U256::ZERO)
     }
 
     /// Returns whether steps with given [OpCode] should be traced.
-    pub fn is_enabled(&self, op: &OpCode) -> bool {
+    #[inline]
+    pub fn is_enabled(&self, op: OpCode) -> bool {
         self.0.bit(op.get() as usize)
     }
 
     /// Enables tracing of given [OpCode].
-    #[must_use]
-    pub const fn enable(self, op: OpCode) -> Self {
-        let bit = op.get() as usize;
+    #[inline]
+    pub fn enable(&mut self, op: OpCode) -> &mut Self {
+        self.0.set_bit(op.get() as usize, true);
+        self
+    }
 
-        let mut bytes = self.0.to_le_bytes::<32>();
-        bytes[bit / 8] |= 1 << (bit % 8);
-
-        Self(U256::from_le_bytes(bytes))
+    /// Enables tracing of given [OpCode].
+    #[inline]
+    pub const fn enabled(mut self, op: OpCode) -> Self {
+        let index = op.get() as usize;
+        let mut limbs = self.0.into_limbs();
+        let (limb, bit) = (index / 64, index % 64);
+        limbs[limb] |= 1 << bit;
+        self.0 = U256::from_limbs(limbs);
+        self
     }
 }
 
@@ -284,8 +294,9 @@ impl TracingInspectorConfig {
 
     /// If [OpcodeFilter] is configured, returns whether the given opcode should be recorded.
     /// Otherwise, always returns true.
-    pub fn should_record_opcode(&self, op: &OpCode) -> bool {
-        self.record_opcodes_filter.map_or(true, |filter| filter.is_enabled(op))
+    #[inline]
+    pub fn should_record_opcode(&self, op: OpCode) -> bool {
+        self.record_opcodes_filter.as_ref().map_or(true, |filter| filter.is_enabled(op))
     }
 }
 
