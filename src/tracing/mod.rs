@@ -268,8 +268,6 @@ impl TracingInspector {
         mut gas_limit: u64,
         maybe_precompile: Option<bool>,
     ) {
-        println!("start_trace_on_call: address: {}, input_data: {}, value: {}, kind: {:?}, caller: {}, gas_limit: {}, maybe_precompile: {:?}", address, input_data, value, kind, caller, gas_limit, maybe_precompile);
-        println!("depth of journaled state: {}", context.journaled_state.depth());
         // This will only be true if the inspector is configured to exclude precompiles and the call
         // is to a precompile
         let push_kind = if maybe_precompile.unwrap_or(false) {
@@ -322,7 +320,6 @@ impl TracingInspector {
         result: &InterpreterResult,
         created_address: Option<Address>,
     ) {
-        println!("END CALL: result: {:?}, created_address: {:?}", result, created_address);
         let InterpreterResult { result, ref output, ref gas } = *result;
 
         let trace_idx = self.pop_trace_idx();
