@@ -53,3 +53,6 @@ expect-test = "1.4"
 [features]
 serde = ["dep:serde", "revm/serde"]
 js-tracer = ["dep:boa_engine", "dep:boa_gc"]
+
+[patch.crates-io]
+revm = { git = "https://github.com/bluealloy/revm.git", rev = "3eb1b1a" }

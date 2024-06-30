@@ -6,7 +6,9 @@ use alloy_rpc_types::trace::geth::{
     NoopFrame, PreStateConfig,
 };
 use revm::{
-    interpreter::{CallInputs, CallOutcome, CreateInputs, CreateOutcome, Interpreter},
+    interpreter::{
+        CallInputs, CallOutcome, CreateInputs, CreateOutcome, EOFCreateInputs, Interpreter,
+    },
     primitives::ResultAndState,
     Database, DatabaseRef, EvmContext, Inspector,
 };
@@ -150,6 +152,36 @@ where
         let mut outcome = outcome;
         for (_, inspector) in &mut self.0 {
             outcome = inspector.create_end(context, inputs, outcome);
+        }
+
+        outcome
+    }
+
+    #[inline]
+    fn eofcreate(
+        &mut self,
+        context: &mut EvmContext<DB>,
+        inputs: &mut EOFCreateInputs,
+    ) -> Option<CreateOutcome> {
+        for (_, inspector) in &mut self.0 {
+            if let Some(outcome) = inspector.eofcreate(context, inputs) {
+                return Some(outcome);
+            }
+        }
+
+        None
+    }
+
+    #[inline]
+    fn eofcreate_end(
+        &mut self,
+        context: &mut EvmContext<DB>,
+        inputs: &EOFCreateInputs,
+        outcome: CreateOutcome,
+    ) -> CreateOutcome {
+        let mut outcome = outcome;
+        for (_, inspector) in &mut self.0 {
+            outcome = inspector.eofcreate_end(context, inputs, outcome);
         }
 
         outcome
@@ -351,6 +383,47 @@ impl DelegatingInspector {
             }
             DelegatingInspector::Noop => outcome,
             DelegatingInspector::Mux(inspector) => inspector.create_end(context, inputs, outcome),
+        }
+    }
+
+    #[inline]
+    fn eofcreate<DB: Database>(
+        &mut self,
+        context: &mut EvmContext<DB>,
+        inputs: &mut EOFCreateInputs,
+    ) -> Option<CreateOutcome> {
+        match self {
+            DelegatingInspector::FourByte(inspector) => inspector.eofcreate(context, inputs),
+            DelegatingInspector::Call(_, inspector) => inspector.eofcreate(context, inputs),
+            DelegatingInspector::Prestate(_, inspector) => inspector.eofcreate(context, inputs),
+            DelegatingInspector::Noop => None,
+            DelegatingInspector::Mux(inspector) => inspector.eofcreate(context, inputs),
+        };
+
+        None
+    }
+
+    #[inline]
+    fn eofcreate_end<DB: Database>(
+        &mut self,
+        context: &mut EvmContext<DB>,
+        inputs: &EOFCreateInputs,
+        outcome: CreateOutcome,
+    ) -> CreateOutcome {
+        match self {
+            DelegatingInspector::FourByte(inspector) => {
+                inspector.eofcreate_end(context, inputs, outcome)
+            }
+            DelegatingInspector::Call(_, inspector) => {
+                inspector.eofcreate_end(context, inputs, outcome)
+            }
+            DelegatingInspector::Prestate(_, inspector) => {
+                inspector.eofcreate_end(context, inputs, outcome)
+            }
+            DelegatingInspector::Noop => outcome,
+            DelegatingInspector::Mux(inspector) => {
+                inspector.eofcreate_end(context, inputs, outcome)
+            }
         }
     }
 
