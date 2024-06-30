@@ -362,21 +362,17 @@ impl TracingInspector {
         let trace = &mut self.traces.arena[trace_idx];
 
         let step_idx = trace.trace.steps.len();
-        // we always want an OpCode, even it is unknown because it could be an additional opcode
-        // that not a known constant
+        // We always want an OpCode, even it is unknown because it could be an additional opcode
+        // that not a known constant.
         let op = unsafe { OpCode::new_unchecked(interp.current_opcode()) };
 
-        let record = self.config.should_record_opcode(&op);
+        let record = self.config.should_record_opcode(op);
 
         self.step_stack.push(StackStep { trace_idx, step_idx, record });
 
         if !record {
             return;
         }
-
-        // we always want an OpCode, even it is unknown because it could be an additional opcode
-        // that not a known constant
-        let op = unsafe { OpCode::new_unchecked(interp.current_opcode()) };
 
         // Reuse the memory from the previous step if:
         // - there is not opcode filter -- in this case we cannot rely on the order of steps
@@ -405,11 +401,8 @@ impl TracingInspector {
             .then(|| interp.return_data_buffer.clone())
             .unwrap_or_default();
 
-        let gas_used = gas_used(
-            context.spec_id(),
-            interp.gas.limit().saturating_sub(interp.gas.remaining()),
-            interp.gas.refunded() as u64,
-        );
+        let gas_used =
+            gas_used(context.spec_id(), interp.gas.spent(), interp.gas.refunded() as u64);
 
         trace.trace.steps.push(CallTraceStep {
             depth: context.journaled_state.depth(),
