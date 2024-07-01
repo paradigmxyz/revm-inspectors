@@ -132,7 +132,7 @@ impl<W: Write> TraceWriter<W> {
         Ok(item_idx)
     }
 
-    /// Writes all items of a single node toe the writer.
+    /// Writes all items of a single node to the writer.
     fn write_items(&mut self, nodes: &[CallTraceNode], node_idx: usize) -> io::Result<()> {
         let items_cnt = nodes[node_idx].ordering.len();
         self.write_items_until(nodes, node_idx, 0, |idx| idx == items_cnt)?;
