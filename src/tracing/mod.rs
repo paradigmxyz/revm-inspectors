@@ -416,6 +416,7 @@ impl TracingInspector {
             gas_remaining: interp.gas.remaining(),
             gas_refund_counter: interp.gas.refunded() as u64,
             gas_used,
+            decoded: None,
 
             // fields will be populated end of call
             gas_cost: 0,

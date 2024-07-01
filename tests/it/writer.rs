@@ -2,7 +2,10 @@ use crate::utils::{write_traces, TestEvm};
 use alloy_primitives::{bytes, Bytes, U256};
 use alloy_sol_types::{sol, SolCall};
 use expect_test::expect;
-use revm_inspectors::tracing::{types::DecodedCallData, TracingInspector, TracingInspectorConfig};
+use revm_inspectors::tracing::{
+    types::{DecodedCallData, DecodedInternalCall, DecodedTraceStep},
+    TracingInspector, TracingInspectorConfig,
+};
 
 #[test]
 fn test_basic_trace_printing() {
@@ -194,7 +197,7 @@ fn test_decoded_trace_printing() {
     let mut index = 0;
 
     let mut call = |data: Vec<u8>| -> String {
-        let mut tracer = TracingInspector::new(TracingInspectorConfig::all().disable_steps());
+        let mut tracer = TracingInspector::new(TracingInspectorConfig::all());
         let r = evm.call(address, data.into(), &mut tracer).unwrap();
         assert!(r.is_success());
 
@@ -244,17 +247,33 @@ fn test_decoded_trace_printing() {
     "#]]
     .assert_eq(&s);
 
+    let mut s = call(Counter::log2Call {}.abi_encode());
+    patch_output(&mut s);
+    expect![[r#"
+        . [4642] Counter::log2()
+            ├─ [sload] 0x0000000000000000000000000000000000000000000000000000000000000045
+            ├─ emit Log2(foo: 0x0000000000000000000000000000000000000000000000000000000000000045, bar: 0x000000000000000000000000000000000000000000000000000000000000007b)
+            └─ ← [Stop] 
+    "#]]
+    .assert_eq(&s);
+
     let mut s = call(Counter::nest1Call {}.abi_encode());
     patch_output(&mut s);
     expect![[r#"
         . [13556] Counter::nest1()
-            ├─ emit Log1(foo: 0x0000000000000000000000000000000000000000000000000000000000000045)
-            ├─ [8575] Counter::nest2()
-            │   ├─ [2337] Counter::nest3()
-            │   │   ├─ emit Log1(foo: 0x0000000000000000000000000000000000000000000000000000000000000046)
+            ├─ [13264] Counter::_nest1()
+            │   ├─ emit Log1(foo: 0x0000000000000000000000000000000000000000000000000000000000000045)
+            │   ├─ [8575] Counter::nest2()
+            │   │   ├─ [2337] Counter::nest3()
+            │   │   │   ├─ [2220] Counter::_nest3Internal(arg1, arg2, 3)
+            │   │   │   │   ├─ [mstore]
+            │   │   │   │   ├─ emit Log1(foo: 0x0000000000000000000000000000000000000000000000000000000000000046)
+            │   │   │   │   └─ ← ret1
+            │   │   │   ├─ [before_return]
+            │   │   │   └─ ← [Return] 
+            │   │   ├─ emit Log2(foo: 0x0000000000000000000000000000000000000000000000000000000000000046, bar: 0x000000000000000000000000000000000000000000000000000000000000007b)
             │   │   └─ ← [Return] 
-            │   ├─ emit Log2(foo: 0x0000000000000000000000000000000000000000000000000000000000000046, bar: 0x000000000000000000000000000000000000000000000000000000000000007b)
-            │   └─ ← [Return] 
+            │   └─ ← ret1, ret2
             └─ ← [Return] 
     "#]]
     .assert_eq(&s);
@@ -368,6 +387,37 @@ fn patch_traces(patch: usize, t: &mut TracingInspector) {
                 node.trace.decoded.return_data = Some("69".to_string())
             }
             4 => node.trace.decoded.return_data = Some("69".to_string()),
+            5 => {
+                node.trace.steps[0].decoded = Some(DecodedTraceStep::Line(
+                    "[sload] 0x0000000000000000000000000000000000000000000000000000000000000045"
+                        .to_string(),
+                ));
+            }
+            6 if node.trace.depth == 2 => {
+                node.trace.steps[30].decoded = Some(DecodedTraceStep::InternalCall(
+                    DecodedInternalCall {
+                        func_name: "Counter::_nest3Internal".to_string(),
+                        args: Some(vec!["arg1".to_string(), "arg2".to_string(), "3".to_string()]),
+                        return_data: Some(vec!["ret1".to_string()]),
+                    },
+                    89,
+                ));
+                node.trace.steps[87].decoded = Some(DecodedTraceStep::Line("[mstore]".to_string()));
+                node.trace.steps[90].decoded =
+                    Some(DecodedTraceStep::Line("[before_return]".to_string()));
+                println!("{:?}", node.ordering);
+            }
+            6 if node.trace.depth == 0 => {
+                node.trace.steps[10].decoded = Some(DecodedTraceStep::InternalCall(
+                    DecodedInternalCall {
+                        func_name: "Counter::_nest1".to_string(),
+                        args: Some(vec![]),
+                        return_data: Some(vec!["ret1".to_string(), "ret2".to_string()]),
+                    },
+                    150,
+                ));
+                println!("{:?}", node.ordering);
+            }
             _ => continue,
         }
     }

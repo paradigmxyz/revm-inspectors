@@ -541,6 +541,28 @@ pub enum TraceMemberOrder {
     Step(usize),
 }
 
+/// Represents a decoded internal function call.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DecodedInternalCall {
+    /// Name of the internal function.
+    pub func_name: String,
+    /// Input arguments of the internal function.
+    pub args: Option<Vec<String>>,
+    /// Optional decoded return data.
+    pub return_data: Option<Vec<String>>,
+}
+
+/// Represents a decoded trace step. Currently two formats are supported.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum DecodedTraceStep {
+    /// Decoded internal function call. Displayed similarly to external calls.
+    ///
+    /// Keeps decoded internal call data and an index of the end of the internal call execution.
+    InternalCall(DecodedInternalCall, usize),
+    /// Arbitrary line reperesenting the step. Might be used for displaying individual opcodes.
+    Line(String),
+}
+
 /// Represents a tracked call step during execution
 #[derive(Clone, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -580,6 +602,8 @@ pub struct CallTraceStep {
     ///
     /// This is set after the step was executed.
     pub status: InstructionResult,
+    /// Optional complementary decoded step data.
+    pub decoded: Option<DecodedTraceStep>,
 }
 
 // === impl CallTraceStep ===
