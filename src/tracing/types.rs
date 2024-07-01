@@ -557,7 +557,8 @@ pub struct DecodedInternalCall {
 pub enum DecodedTraceStep {
     /// Decoded internal function call. Displayed similarly to external calls.
     ///
-    /// Keeps decoded internal call data and an index of the end of the internal call execution.
+    /// Keeps decoded internal call data and an index of the step where the internal call execution
+    /// ends.
     InternalCall(DecodedInternalCall, usize),
     /// Arbitrary line reperesenting the step. Might be used for displaying individual opcodes.
     Line(String),
