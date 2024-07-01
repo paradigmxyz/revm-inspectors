@@ -543,6 +543,7 @@ pub enum TraceMemberOrder {
 
 /// Represents a decoded internal function call.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct DecodedInternalCall {
     /// Name of the internal function.
     pub func_name: String,
@@ -554,6 +555,7 @@ pub struct DecodedInternalCall {
 
 /// Represents a decoded trace step. Currently two formats are supported.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum DecodedTraceStep {
     /// Decoded internal function call. Displayed similarly to external calls.
     ///
