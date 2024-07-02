@@ -1,5 +1,8 @@
 use super::{
-    types::{CallKind, CallLog, CallTrace, CallTraceNode, DecodedCallData, TraceMemberOrder},
+    types::{
+        CallKind, CallLog, CallTrace, CallTraceNode, DecodedCallData, DecodedTraceStep,
+        TraceMemberOrder,
+    },
     CallTraceArena,
 };
 use alloy_primitives::{address, hex, Address};
@@ -86,6 +89,56 @@ impl<W: Write> TraceWriter<W> {
         self.writer.flush()
     }
 
+    /// Writes a single item of a single node to the writer. Returns the index of the next item to
+    /// be written.
+    ///
+    /// Note: this will return length of [CallTraceNode::ordering] when last item will get
+    /// processed.
+    fn write_item(
+        &mut self,
+        nodes: &[CallTraceNode],
+        node_idx: usize,
+        item_idx: usize,
+    ) -> io::Result<usize> {
+        let node = &nodes[node_idx];
+        match &node.ordering[item_idx] {
+            TraceMemberOrder::Log(index) => {
+                self.write_log(&node.logs[*index])?;
+                Ok(item_idx + 1)
+            }
+            TraceMemberOrder::Call(index) => {
+                self.write_node(nodes, node.children[*index])?;
+                Ok(item_idx + 1)
+            }
+            TraceMemberOrder::Step(index) => self.write_step(nodes, node_idx, item_idx, *index),
+        }
+    }
+
+    /// Writes items of a single node to the writer, starting from the given index, and until the
+    /// given predicate is false.
+    ///
+    /// Returns the index of the next item to be written.
+    fn write_items_until(
+        &mut self,
+        nodes: &[CallTraceNode],
+        node_idx: usize,
+        first_item_idx: usize,
+        f: impl Fn(usize) -> bool,
+    ) -> io::Result<usize> {
+        let mut item_idx = first_item_idx;
+        while !f(item_idx) {
+            item_idx = self.write_item(nodes, node_idx, item_idx)?;
+        }
+        Ok(item_idx)
+    }
+
+    /// Writes all items of a single node to the writer.
+    fn write_items(&mut self, nodes: &[CallTraceNode], node_idx: usize) -> io::Result<()> {
+        let items_cnt = nodes[node_idx].ordering.len();
+        self.write_items_until(nodes, node_idx, 0, |idx| idx == items_cnt)?;
+        Ok(())
+    }
+
     /// Writes a single node and its children to the writer.
     fn write_node(&mut self, nodes: &[CallTraceNode], idx: usize) -> io::Result<()> {
         let node = &nodes[idx];
@@ -97,13 +150,7 @@ impl<W: Write> TraceWriter<W> {
 
         // Write logs and subcalls.
         self.indentation_level += 1;
-        for child in &node.ordering {
-            match *child {
-                TraceMemberOrder::Log(index) => self.write_log(&node.logs[index]),
-                TraceMemberOrder::Call(index) => self.write_node(nodes, node.children[index]),
-                TraceMemberOrder::Step(_) => Ok(()),
-            }?;
-        }
+        self.write_items(nodes, idx)?;
 
         // Write return data.
         self.write_edge()?;
@@ -210,6 +257,64 @@ impl<W: Write> TraceWriter<W> {
         }
 
         Ok(())
+    }
+
+    /// Writes a single step of a single node to the writer. Returns the index of the next item to
+    /// be written.
+    fn write_step(
+        &mut self,
+        nodes: &[CallTraceNode],
+        node_idx: usize,
+        item_idx: usize,
+        step_idx: usize,
+    ) -> io::Result<usize> {
+        let node = &nodes[node_idx];
+        let step = &node.trace.steps[step_idx];
+
+        let Some(decoded) = &step.decoded else {
+            // We only write explicitly decoded steps to avoid bloating the output.
+            return Ok(item_idx + 1);
+        };
+
+        match decoded {
+            DecodedTraceStep::InternalCall(call, end_idx) => {
+                let gas_used = node.trace.steps[*end_idx].gas_used.saturating_sub(step.gas_used);
+                self.write_branch()?;
+                self.indentation_level += 1;
+
+                writeln!(
+                    self.writer,
+                    "[{}] {}{}",
+                    gas_used,
+                    call.func_name,
+                    call.args.as_ref().map(|v| format!("({})", v.join(", "))).unwrap_or_default()
+                )?;
+
+                let end_item_idx =
+                    self.write_items_until(nodes, node_idx, item_idx + 1, |item_idx: usize| {
+                        matches!(&node.ordering[item_idx], TraceMemberOrder::Step(idx) if *idx == *end_idx)
+                    })?;
+
+                self.write_edge()?;
+                write!(self.writer, "{RETURN}")?;
+
+                if let Some(outputs) = &call.return_data {
+                    write!(self.writer, "{}", outputs.join(", "))?;
+                }
+
+                writeln!(self.writer)?;
+
+                self.indentation_level -= 1;
+
+                Ok(end_item_idx + 1)
+            }
+            DecodedTraceStep::Line(line) => {
+                self.write_branch()?;
+                writeln!(self.writer, "{line}")?;
+
+                Ok(item_idx + 1)
+            }
+        }
     }
 
     /// Writes the footer of a call trace.
