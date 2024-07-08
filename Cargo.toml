@@ -33,7 +33,7 @@ clippy.lint_groups_priority = "allow"
 alloy-sol-types = "0.7"
 alloy-primitives = "0.7"
 alloy-rpc-types = { version = "0.1", features = ["eth", "trace"] }
-revm = { version = "10.0", default-features = false, features = ["std"] }
+revm = { version = "11.0", default-features = false, features = ["std"] }
 
 anstyle = "1.0"
 colorchoice = "1.0"
@@ -53,6 +53,3 @@ expect-test = "1.4"
 [features]
 serde = ["dep:serde", "revm/serde"]
 js-tracer = ["dep:boa_engine", "dep:boa_gc"]
-
-[patch.crates-io]
-revm = { git = "https://github.com/bluealloy/revm.git", rev = "3eb1b1a" }

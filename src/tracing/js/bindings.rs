@@ -955,7 +955,7 @@ where
         self.0.storage_ref(_address, _index).map_err(|e| e.to_string())
     }
 
-    fn block_hash_ref(&self, _number: U256) -> Result<B256, Self::Error> {
+    fn block_hash_ref(&self, _number: u64) -> Result<B256, Self::Error> {
         self.0.block_hash_ref(_number).map_err(|e| e.to_string())
     }
 }
