@@ -281,7 +281,10 @@ impl CallTraceNode {
             | CallKind::StaticCall
             | CallKind::CallCode
             | CallKind::DelegateCall
-            | CallKind::AuthCall => TraceOutput::Call(CallOutput {
+            | CallKind::AuthCall
+            | CallKind::ExtCall
+            | CallKind::ExtStaticCall
+            | CallKind::ExtDelegateCall => TraceOutput::Call(CallOutput {
                 gas_used: U64::from(self.trace.gas_used),
                 output: self.trace.output.clone(),
             }),
@@ -343,7 +346,10 @@ impl CallTraceNode {
             | CallKind::StaticCall
             | CallKind::CallCode
             | CallKind::DelegateCall
-            | CallKind::AuthCall => Action::Call(CallAction {
+            | CallKind::AuthCall
+            | CallKind::ExtCall
+            | CallKind::ExtStaticCall
+            | CallKind::ExtDelegateCall => Action::Call(CallAction {
                 from: self.trace.caller,
                 to: self.trace.address,
                 value: self.trace.value,
@@ -426,6 +432,12 @@ pub enum CallKind {
     Create,
     /// Represents a contract creation operation using the CREATE2 opcode.
     Create2,
+    /// `EXTCALL`
+    ExtCall,
+    /// `EXTSTATICCALL`
+    ExtStaticCall,
+    /// `EXTDELEGATECALL`
+    ExtDelegateCall,
 }
 
 impl CallKind {
@@ -439,6 +451,9 @@ impl CallKind {
             Self::AuthCall => "AUTHCALL",
             Self::Create => "CREATE",
             Self::Create2 => "CREATE2",
+            CallKind::ExtCall => "EXTCALL",
+            CallKind::ExtStaticCall => "EXTSTATICCALL",
+            CallKind::ExtDelegateCall => "EXTDELEGATECALL",
         }
     }
 
@@ -480,6 +495,9 @@ impl From<CallScheme> for CallKind {
             CallScheme::StaticCall => Self::StaticCall,
             CallScheme::CallCode => Self::CallCode,
             CallScheme::DelegateCall => Self::DelegateCall,
+            CallScheme::ExtCall => Self::ExtCall,
+            CallScheme::ExtStaticCall => Self::ExtStaticCall,
+            CallScheme::ExtDelegateCall => Self::ExtDelegateCall,
         }
     }
 }
@@ -500,7 +518,10 @@ impl From<CallKind> for ActionType {
             | CallKind::StaticCall
             | CallKind::DelegateCall
             | CallKind::CallCode
-            | CallKind::AuthCall => Self::Call,
+            | CallKind::AuthCall
+            | CallKind::ExtCall
+            | CallKind::ExtStaticCall
+            | CallKind::ExtDelegateCall => Self::Call,
             CallKind::Create => Self::Create,
             CallKind::Create2 => Self::Create,
         }
@@ -516,6 +537,10 @@ impl From<CallKind> for CallType {
             CallKind::DelegateCall => Self::DelegateCall,
             CallKind::Create | CallKind::Create2 => Self::None,
             CallKind::AuthCall => Self::AuthCall,
+
+            CallKind::ExtCall => Self::Call,
+            CallKind::ExtStaticCall => Self::StaticCall,
+            CallKind::ExtDelegateCall => Self::DelegateCall,
         }
     }
 }
