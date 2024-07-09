@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.4.0) - 2024-07-09
+
+### Features
+
+- [EOF] Enable inspector calls ([#156](https://github.com/paradigmxyz/revm-inspectors/issues/156))
+
+### Miscellaneous Tasks
+
+- Move CODEOWNERS
+
 ## [0.3.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.3.1) - 2024-07-02
 
 ### Features
@@ -13,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Miscellaneous Tasks
 
+- Release 0.3.1
 - Improve opcode filter ([#155](https://github.com/paradigmxyz/revm-inspectors/issues/155))
 
 ## [0.3.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.3.0) - 2024-06-29
