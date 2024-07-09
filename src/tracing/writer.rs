@@ -210,7 +210,7 @@ impl<W: Write> TraceWriter<W> {
                 CallKind::CallCode => Some(" [callcode]"),
                 CallKind::DelegateCall => Some(" [delegatecall]"),
                 CallKind::AuthCall => Some(" [authcall]"),
-                CallKind::Create | CallKind::Create2 => unreachable!(),
+                CallKind::Create | CallKind::Create2 | CallKind::EOFCreate => unreachable!(),
             };
             if let Some(action) = action {
                 write!(self.writer, "{trace_kind_style}{action}{trace_kind_style:#}")?;
