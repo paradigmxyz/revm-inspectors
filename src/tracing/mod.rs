@@ -590,16 +590,31 @@ where
         None
     }
 
+    fn create_end(
+        &mut self,
+        context: &mut EvmContext<DB>,
+        _inputs: &CreateInputs,
+        outcome: CreateOutcome,
+    ) -> CreateOutcome {
+        self.fill_trace_on_call_end(context, &outcome.result, outcome.address);
+        outcome
+    }
+
     fn eofcreate(
         &mut self,
         context: &mut EvmContext<DB>,
         inputs: &mut EOFCreateInputs,
     ) -> Option<CreateOutcome> {
-        let _ = context.load_account(inputs.caller);
-        let nonce = context.journaled_state.account(inputs.caller).info.nonce;
+        let address = if let Some(address) = inputs.kind.created_address() {
+            *address
+        } else {
+            let _ = context.load_account(inputs.caller);
+            let nonce = context.journaled_state.account(inputs.caller).info.nonce;
+            inputs.caller.create(nonce)
+        };
         self.start_trace_on_call(
             context,
-            inputs.kind.created_address().cloned().unwrap_or_else(|| inputs.caller.create(nonce)),
+            address,
             Bytes::new(),
             inputs.value,
             CallKind::EOFCreate,
@@ -615,16 +630,6 @@ where
         &mut self,
         context: &mut EvmContext<DB>,
         _inputs: &EOFCreateInputs,
-        outcome: CreateOutcome,
-    ) -> CreateOutcome {
-        self.fill_trace_on_call_end(context, &outcome.result, outcome.address);
-        outcome
-    }
-
-    fn create_end(
-        &mut self,
-        context: &mut EvmContext<DB>,
-        _inputs: &CreateInputs,
         outcome: CreateOutcome,
     ) -> CreateOutcome {
         self.fill_trace_on_call_end(context, &outcome.result, outcome.address);
