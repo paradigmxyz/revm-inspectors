@@ -48,7 +48,7 @@ boa_engine = { version = "0.18", optional = true }
 boa_gc = { version = "0.18", optional = true }
 
 [dev-dependencies]
-expect-test = "1.4"
+snapbox = "0.6"
 
 [features]
 serde = ["dep:serde", "revm/serde"]
