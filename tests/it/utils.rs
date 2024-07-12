@@ -4,8 +4,8 @@ use revm::{
     db::{CacheDB, EmptyDB},
     inspector_handle_register,
     primitives::{
-        BlockEnv, EVMError, Env, EnvWithHandlerCfg, ExecutionResult, HandlerCfg, Output,
-        ResultAndState, SpecId, TransactTo, TxEnv,
+        BlockEnv, EVMError, Env, EnvWithHandlerCfg, ExecutionResult, HandlerCfg, ResultAndState,
+        SpecId, TransactTo, TxEnv,
     },
     Database, DatabaseCommit, GetInspector,
 };
@@ -45,20 +45,28 @@ impl TestEvm {
         data: Bytes,
         inspector: I,
     ) -> Result<Address, EVMError<Infallible>> {
+        let (_, address) = self.try_deploy(data, inspector)?;
+        Ok(address.expect("failed to deploy contract"))
+    }
+
+    pub fn try_deploy<I: for<'a> GetInspector<&'a mut TestDb>>(
+        &mut self,
+        data: Bytes,
+        inspector: I,
+    ) -> Result<(ExecutionResult, Option<Address>), EVMError<Infallible>> {
         self.env.tx.data = data;
         self.env.tx.transact_to = TransactTo::Create;
 
         let (ResultAndState { result, state }, env) = self.inspect(inspector)?;
         self.db.commit(state);
-        let address = match result {
-            ExecutionResult::Success { output, .. } => match output {
-                Output::Create(_, address) => address.unwrap(),
-                _ => panic!("Create failed"),
-            },
-            _ => panic!("Execution failed"),
-        };
         self.env = env;
-        Ok(address)
+        match &result {
+            ExecutionResult::Success { output, .. } => {
+                let address = output.address().copied();
+                Ok((result, address))
+            }
+            _ => Ok((result, None)),
+        }
     }
 
     pub fn call<I: for<'a> GetInspector<&'a mut TestDb>>(

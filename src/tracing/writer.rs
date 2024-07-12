@@ -330,7 +330,7 @@ impl<W: Write> TraceWriter<W> {
             return self.writer.write_all(decoded.as_bytes());
         }
 
-        if trace.kind.is_any_create() {
+        if trace.kind.is_any_create() && trace.status.is_ok() {
             write!(self.writer, "{} bytes of code", trace.output.len())?;
         } else if !trace.output.is_empty() {
             write!(self.writer, "{}", trace.output)?;
