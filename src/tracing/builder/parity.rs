@@ -241,15 +241,17 @@ impl ParityTraceBuilder {
                     // the call trace and are added as additional `TransactionTrace` objects in the
                     // trace array
                     let addr = {
-                        let last = traces.last_mut().expect("exists");
-                        let mut addr = last.trace_address.clone();
-                        addr.push(last.subtraces);
+                        let parent = traces.last_mut().expect("exists");
+                        let mut addr = parent.trace_address.clone();
+                        // the address of the selfdestruct is the address of the parent call and the number of subtraces it has
+                        addr.push(parent.subtraces);
                         // need to account for the additional selfdestruct trace
-                        last.subtraces += 1;
+                        parent.subtraces += 1;
                         addr
                     };
 
                     if let Some(trace) = node.parity_selfdestruct_trace(addr) {
+                        // TODO selfdestructs should be appended after the call's subtraces
                         traces.push(trace);
                     }
                 }
