@@ -452,7 +452,7 @@ impl CallKind {
     /// Returns true if the call is a create
     #[inline]
     pub const fn is_any_create(&self) -> bool {
-        matches!(self, Self::Create | Self::Create2)
+        matches!(self, Self::Create | Self::Create2 | Self::EOFCreate)
     }
 
     /// Returns true if the call is a delegate of some sorts
