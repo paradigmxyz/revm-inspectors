@@ -277,7 +277,7 @@ fn test_parity_call_selfdestruct() {
         Action::Call(CallAction {
             from: caller,
             call_type: CallType::Call,
-            gas: U64::from(100000000),
+            gas: 100000000,
             input: input.into(),
             to,
             value: U256::ZERO,
