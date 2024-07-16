@@ -511,7 +511,7 @@ where
         }
     }
 
-    fn log(&mut self, _context: &mut EvmContext<DB>, log: &Log) {
+    fn log(&mut self, _interp: &mut Interpreter, _context: &mut EvmContext<DB>, log: &Log) {
         if self.config.record_logs {
             let trace = self.last_trace();
             trace.ordering.push(TraceMemberOrder::Log(trace.logs.len()));
