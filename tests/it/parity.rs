@@ -1,7 +1,7 @@
 //! Parity tests
 
 use crate::utils::{inspect, print_traces};
-use alloy_primitives::{address, hex, Address, U256, U64};
+use alloy_primitives::{address, hex, Address, U256};
 use alloy_rpc_types::{
     trace::parity::{Action, CallAction, CallType, SelfdestructAction, TraceType},
     TransactionInfo,
