@@ -91,9 +91,9 @@ where
     }
 
     #[inline]
-    fn log(&mut self, context: &mut EvmContext<DB>, log: &Log) {
+    fn log(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>, log: &Log) {
         for (_, inspector) in &mut self.0 {
-            inspector.log(context, log);
+            inspector.log(interp, context, log);
         }
     }
 
@@ -300,13 +300,18 @@ impl DelegatingInspector {
     }
 
     #[inline]
-    fn log<DB: Database>(&mut self, context: &mut EvmContext<DB>, log: &Log) {
+    fn log<DB: Database>(
+        &mut self,
+        interp: &mut Interpreter,
+        context: &mut EvmContext<DB>,
+        log: &Log,
+    ) {
         match self {
-            DelegatingInspector::FourByte(inspector) => inspector.log(context, log),
-            DelegatingInspector::Call(_, inspector) => inspector.log(context, log),
-            DelegatingInspector::Prestate(_, inspector) => inspector.log(context, log),
+            DelegatingInspector::FourByte(inspector) => inspector.log(interp, context, log),
+            DelegatingInspector::Call(_, inspector) => inspector.log(interp, context, log),
+            DelegatingInspector::Prestate(_, inspector) => inspector.log(interp, context, log),
             DelegatingInspector::Noop => {}
-            DelegatingInspector::Mux(inspector) => inspector.log(context, log),
+            DelegatingInspector::Mux(inspector) => inspector.log(interp, context, log),
         }
     }
 

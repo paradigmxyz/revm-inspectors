@@ -436,7 +436,7 @@ where
         }
     }
 
-    fn log(&mut self, _context: &mut EvmContext<DB>, _log: &Log) {}
+    fn log(&mut self, _interp: &mut Interpreter, _context: &mut EvmContext<DB>, _log: &Log) {}
 
     fn call(
         &mut self,

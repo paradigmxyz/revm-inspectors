@@ -2,7 +2,7 @@
 
 use crate::tracing::{config::TraceStyle, utils, utils::convert_memory};
 pub use alloy_primitives::Log;
-use alloy_primitives::{Address, Bytes, LogData, U256, U64};
+use alloy_primitives::{Address, Bytes, LogData, U256};
 use alloy_rpc_types::trace::{
     geth::{CallFrame, CallLogFrame, GethDefaultTracingOptions, StructLog},
     parity::{
@@ -282,12 +282,12 @@ impl CallTraceNode {
             | CallKind::CallCode
             | CallKind::DelegateCall
             | CallKind::AuthCall => TraceOutput::Call(CallOutput {
-                gas_used: U64::from(self.trace.gas_used),
+                gas_used: self.trace.gas_used,
                 output: self.trace.output.clone(),
             }),
             CallKind::Create | CallKind::Create2 | CallKind::EOFCreate => {
                 TraceOutput::Create(CreateOutput {
-                    gas_used: U64::from(self.trace.gas_used),
+                    gas_used: self.trace.gas_used,
                     code: self.trace.output.clone(),
                     address: self.trace.address,
                 })
@@ -349,7 +349,7 @@ impl CallTraceNode {
                 from: self.trace.caller,
                 to: self.trace.address,
                 value: self.trace.value,
-                gas: U64::from(self.trace.gas_limit),
+                gas: self.trace.gas_limit,
                 input: self.trace.data.clone(),
                 call_type: self.kind().into(),
             }),
@@ -357,7 +357,7 @@ impl CallTraceNode {
                 Action::Create(CreateAction {
                     from: self.trace.caller,
                     value: self.trace.value,
-                    gas: U64::from(self.trace.gas_limit),
+                    gas: self.trace.gas_limit,
                     init: self.trace.data.clone(),
                 })
             }

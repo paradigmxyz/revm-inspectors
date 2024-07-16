@@ -1,7 +1,7 @@
 //! Parity tests
 
 use crate::utils::{inspect, print_traces};
-use alloy_primitives::{address, hex, Address, U256, U64};
+use alloy_primitives::{address, hex, Address, U256};
 use alloy_rpc_types::{
     trace::parity::{Action, CallAction, CallType, SelfdestructAction, TraceType},
     TransactionInfo,
@@ -277,7 +277,7 @@ fn test_parity_call_selfdestruct() {
         Action::Call(CallAction {
             from: caller,
             call_type: CallType::Call,
-            gas: U64::from(100000000),
+            gas: 100000000,
             input: input.into(),
             to,
             value: U256::ZERO,
