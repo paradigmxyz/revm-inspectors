@@ -400,6 +400,15 @@ impl TracingInspector {
         let gas_used =
             gas_used(context.spec_id(), interp.gas.spent(), interp.gas.refunded() as u64);
 
+        let immediate_bytes = self.config.record_immediate_bytes.then(|| {
+            let pc = interp.program_counter();
+            interp
+                .bytecode
+                .get(pc + 1..pc + 1 + op.info().immediate_size() as usize)
+                .map(Bytes::copy_from_slice)
+                .unwrap_or_default()
+        });
+
         trace.trace.steps.push(CallTraceStep {
             depth: context.journaled_state.depth(),
             pc: interp.program_counter(),
@@ -413,6 +422,7 @@ impl TracingInspector {
             gas_refund_counter: interp.gas.refunded() as u64,
             gas_used,
             decoded: None,
+            immediate_bytes,
 
             // fields will be populated end of call
             gas_cost: 0,
