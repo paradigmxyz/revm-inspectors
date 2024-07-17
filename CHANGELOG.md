@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.5.1) - 2024-07-17
+
+### Dependencies
+
+- Bump revm 12.1 ([#167](https://github.com/paradigmxyz/revm-inspectors/issues/167))
+
 ## [0.5.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.5.0) - 2024-07-16
 
 ### Bug Fixes
@@ -16,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bump revm v12.0.0 ([#166](https://github.com/paradigmxyz/revm-inspectors/issues/166))
 - Bump boa 0.19 ([#165](https://github.com/paradigmxyz/revm-inspectors/issues/165))
+
+### Miscellaneous Tasks
+
+- Release 0.5.0
 
 ## [0.4.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.4.0) - 2024-07-09
 
