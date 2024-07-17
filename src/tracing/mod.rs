@@ -1,14 +1,10 @@
-use self::parity::stack_push_count;
-use crate::{
-    opcode::may_modify_memory,
-    tracing::{
-        arena::PushTraceKind,
-        types::{
-            CallKind, CallTraceNode, RecordedMemory, StorageChange, StorageChangeReason,
-            TraceMemberOrder,
-        },
-        utils::gas_used,
+use crate::tracing::{
+    arena::PushTraceKind,
+    types::{
+        CallKind, CallTraceNode, RecordedMemory, StorageChange, StorageChangeReason,
+        TraceMemberOrder,
     },
+    utils::gas_used,
 };
 use alloy_primitives::{Address, Bytes, Log, U256};
 use revm::{
@@ -380,7 +376,7 @@ impl TracingInspector {
         let memory = self.config.record_memory_snapshots.then(|| {
             if self.config.record_opcodes_filter.is_none() {
                 if let Some(prev) = trace.trace.steps.last() {
-                    if !may_modify_memory(prev.op) {
+                    if !prev.op.modifies_memory() {
                         if let Some(memory) = &prev.memory {
                             return memory.clone();
                         }
@@ -446,8 +442,7 @@ impl TracingInspector {
         let step = &mut self.traces.arena[trace_idx].trace.steps[step_idx];
 
         if self.config.record_stack_snapshots.is_pushes() {
-            let num_pushed = stack_push_count(step.op);
-            let start = interp.stack.len() - num_pushed;
+            let start = interp.stack.len() - step.op.outputs() as usize;
             step.push_stack = Some(interp.stack.data()[start..].to_vec());
         }
 

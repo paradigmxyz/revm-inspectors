@@ -8,7 +8,6 @@ use alloy_primitives::{Address, U64};
 use alloy_rpc_types::{trace::parity::*, TransactionInfo};
 use revm::{
     db::DatabaseRef,
-    interpreter::{opcode, OpCode},
     primitives::{Account, ExecutionResult, ResultAndState, SpecId, KECCAK_EMPTY},
 };
 use std::collections::{HashSet, VecDeque};
@@ -541,72 +540,4 @@ where
     }
 
     Ok(())
-}
-
-/// Returns the number of items pushed on the stack by a given opcode.
-/// This used to determine how many stack etries to put in the `push` element
-/// in a parity vmTrace.
-/// The value is obvious for most opcodes, but SWAP* and DUP* are a bit weird,
-/// and we handle those as they are handled in parity vmtraces.
-/// For reference: <https://github.com/ledgerwatch/erigon/blob/9b74cf0384385817459f88250d1d9c459a18eab1/turbo/jsonrpc/trace_adhoc.go#L451>
-pub(crate) const fn stack_push_count(step_op: OpCode) -> usize {
-    let step_op = step_op.get();
-    match step_op {
-        opcode::PUSH0..=opcode::PUSH32 => 1,
-        opcode::SWAP1..=opcode::SWAP16 => (step_op - opcode::SWAP1) as usize + 2,
-        opcode::DUP1..=opcode::DUP16 => (step_op - opcode::DUP1) as usize + 2,
-        opcode::CALLDATALOAD
-        | opcode::SLOAD
-        | opcode::MLOAD
-        | opcode::CALLDATASIZE
-        | opcode::LT
-        | opcode::GT
-        | opcode::DIV
-        | opcode::SDIV
-        | opcode::SAR
-        | opcode::AND
-        | opcode::EQ
-        | opcode::CALLVALUE
-        | opcode::ISZERO
-        | opcode::ADD
-        | opcode::EXP
-        | opcode::CALLER
-        | opcode::KECCAK256
-        | opcode::SUB
-        | opcode::ADDRESS
-        | opcode::GAS
-        | opcode::MUL
-        | opcode::RETURNDATASIZE
-        | opcode::NOT
-        | opcode::SHR
-        | opcode::SHL
-        | opcode::EXTCODESIZE
-        | opcode::SLT
-        | opcode::OR
-        | opcode::NUMBER
-        | opcode::PC
-        | opcode::TIMESTAMP
-        | opcode::BALANCE
-        | opcode::SELFBALANCE
-        | opcode::MULMOD
-        | opcode::ADDMOD
-        | opcode::BASEFEE
-        | opcode::BLOCKHASH
-        | opcode::BYTE
-        | opcode::XOR
-        | opcode::ORIGIN
-        | opcode::CODESIZE
-        | opcode::MOD
-        | opcode::SIGNEXTEND
-        | opcode::GASLIMIT
-        | opcode::DIFFICULTY
-        | opcode::SGT
-        | opcode::GASPRICE
-        | opcode::MSIZE
-        | opcode::EXTCODEHASH
-        | opcode::SMOD
-        | opcode::CHAINID
-        | opcode::COINBASE => 1,
-        _ => 0,
-    }
 }
