@@ -417,6 +417,7 @@ impl TracingInspector {
         trace.trace.steps.push(CallTraceStep {
             depth: context.journaled_state.depth(),
             pc: interp.program_counter(),
+            code_section_idx: interp.function_stack.current_code_idx,
             op,
             contract: interp.contract.target_address,
             stack,
