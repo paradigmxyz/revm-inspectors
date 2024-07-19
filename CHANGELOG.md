@@ -5,11 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.5.2) - 2024-07-19
+
+### Features
+
+- Add immediate bytes recording ([#169](https://github.com/paradigmxyz/revm-inspectors/issues/169))
+
+### Refactor
+
+- Prefer using revm helpers ([#168](https://github.com/paradigmxyz/revm-inspectors/issues/168))
+
 ## [0.5.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.5.1) - 2024-07-17
 
 ### Dependencies
 
 - Bump revm 12.1 ([#167](https://github.com/paradigmxyz/revm-inspectors/issues/167))
+
+### Miscellaneous Tasks
+
+- Release 0.5.1
 
 ## [0.5.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.5.0) - 2024-07-16
 
