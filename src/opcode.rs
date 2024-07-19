@@ -1,6 +1,9 @@
 use alloy_rpc_types::trace::opcode::OpcodeGas;
 use revm::{
-    interpreter::{opcode::OpCode, Interpreter},
+    interpreter::{
+        opcode::{self, OpCode},
+        Interpreter,
+    },
     Database, EvmContext, Inspector,
 };
 use std::collections::HashMap;
@@ -75,6 +78,22 @@ where
             let gas_cost = gas_remaining.saturating_sub(interp.gas().remaining());
             *self.opcode_gas.entry(opcode).or_default() += gas_cost;
         }
+    }
+}
+
+/// Accepts [OpCode] and a slice of bytecode immediately after it and returns the size of immediate
+/// value.
+///
+/// Primarily needed to handle a special case of RJUMPV opcode.
+pub fn immediate_size(op: OpCode, bytes_after: &[u8]) -> u8 {
+    match op.get() {
+        opcode::RJUMPV => {
+            if bytes_after.is_empty() {
+                return 0;
+            }
+            1 + (bytes_after[0] + 1) * 2
+        }
+        _ => op.info().immediate_size(),
     }
 }
 

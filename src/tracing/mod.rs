@@ -1,15 +1,19 @@
-use crate::tracing::{
-    arena::PushTraceKind,
-    types::{
-        CallKind, CallTraceNode, RecordedMemory, StorageChange, StorageChangeReason,
-        TraceMemberOrder,
+use crate::{
+    opcode::immediate_size,
+    tracing::{
+        arena::PushTraceKind,
+        types::{
+            CallKind, CallTraceNode, RecordedMemory, StorageChange, StorageChangeReason,
+            TraceMemberOrder,
+        },
+        utils::gas_used,
     },
-    utils::gas_used,
 };
 use alloy_primitives::{Address, Bytes, Log, U256};
 use revm::{
     interpreter::{
-        opcode, CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, EOFCreateInputs,
+        opcode::{self},
+        CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, EOFCreateInputs,
         InstructionResult, Interpreter, InterpreterResult, OpCode,
     },
     primitives::SpecId,
@@ -400,9 +404,20 @@ impl TracingInspector {
         let gas_used =
             gas_used(context.spec_id(), interp.gas.spent(), interp.gas.refunded() as u64);
 
+        let immediate_bytes = if self.config.record_immediate_bytes {
+            let pc = interp.program_counter();
+            let size = immediate_size(op, &interp.bytecode[pc + 1..]);
+            let start = pc + 1;
+            let end = pc + 1 + size as usize;
+            (size > 0 && end <= interp.bytecode.len()).then(|| interp.bytecode.slice(start..end))
+        } else {
+            None
+        };
+
         trace.trace.steps.push(CallTraceStep {
             depth: context.journaled_state.depth(),
             pc: interp.program_counter(),
+            code_section_idx: interp.function_stack.current_code_idx,
             op,
             contract: interp.contract.target_address,
             stack,
@@ -413,6 +428,7 @@ impl TracingInspector {
             gas_refund_counter: interp.gas.refunded() as u64,
             gas_used,
             decoded: None,
+            immediate_bytes,
 
             // fields will be populated end of call
             gas_cost: 0,

@@ -581,6 +581,8 @@ pub struct CallTraceStep {
     pub depth: u64,
     /// Program counter before step execution
     pub pc: usize,
+    /// Code section index before step execution
+    pub code_section_idx: usize,
     /// Opcode to be executed
     #[cfg_attr(feature = "serde", serde(with = "opcode_serde"))]
     pub op: OpCode,
@@ -611,6 +613,8 @@ pub struct CallTraceStep {
     ///
     /// This is set after the step was executed.
     pub status: InstructionResult,
+    /// Immediate bytes of the step
+    pub immediate_bytes: Option<Bytes>,
     /// Optional complementary decoded step data.
     pub decoded: Option<DecodedTraceStep>,
 }
