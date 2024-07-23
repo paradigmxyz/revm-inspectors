@@ -226,6 +226,8 @@ impl ParityTraceBuilder {
             if trace_types.contains(&TraceType::VmTrace) { Some(self.vm_trace()) } else { None };
 
         let mut traces = Vec::with_capacity(if with_traces { self.nodes.len() } else { 0 });
+        // Boolean marker to track if sorting for selfdestruct is needed
+        let mut sorting_selfdestruct = false;
 
         for node in self.iter_traceable_nodes() {
             let trace_address = self.trace_address(node.idx);
@@ -250,12 +252,16 @@ impl ParityTraceBuilder {
 
                     if let Some(trace) = node.parity_selfdestruct_trace(addr) {
                         traces.push(trace);
+                        sorting_selfdestruct = true;
                     }
                 }
             }
         }
 
-        traces.sort_by(|a, b| a.trace_address.cmp(&b.trace_address));
+        // Sort the traces only if a selfdestruct trace was encountered
+        if sorting_selfdestruct {
+            traces.sort_by(|a, b| a.trace_address.cmp(&b.trace_address));
+        }
 
         let traces = with_traces.then_some(traces);
         let diff = with_diff.then_some(StateDiff::default());
