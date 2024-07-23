@@ -255,6 +255,8 @@ impl ParityTraceBuilder {
             }
         }
 
+        traces.sort_by(|a, b| a.trace_address.cmp(&b.trace_address));
+
         let traces = with_traces.then_some(traces);
         let diff = with_diff.then_some(StateDiff::default());
 
