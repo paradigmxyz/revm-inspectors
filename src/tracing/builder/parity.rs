@@ -150,17 +150,19 @@ impl ParityTraceBuilder {
         res: &ExecutionResult,
         trace_types: &HashSet<TraceType>,
     ) -> TraceResults {
-        let gas_used = res.gas_used();
+        // let gas_used = res.gas_used();
         let output = res.output().cloned().unwrap_or_default();
 
         let (trace, vm_trace, state_diff) = self.into_trace_type_traces(trace_types);
 
-        let mut trace =
+        let trace =
             TraceResults { output, trace: trace.unwrap_or_default(), vm_trace, state_diff };
 
         // we're setting the gas used of the root trace explicitly to the gas used of the execution
         // result
-        trace.set_root_trace_gas_used(gas_used);
+        // println!("{:#?}", trace);
+        // trace.set_root_trace_gas_used(gas_used);
+        // println!("{:#?}", trace);
 
         trace
     }

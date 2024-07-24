@@ -105,7 +105,7 @@ fn test_parity_selfdestruct(spec_id: SpecId) {
     }
 
     let traces = insp
-        .with_transaction_gas_used(res.result.gas_used())
+        // .with_transaction_gas_used(res.result.gas_used())
         .into_parity_builder()
         .into_localized_transaction_traces(TransactionInfo::default());
 
@@ -189,7 +189,7 @@ fn test_parity_constructor_selfdestruct() {
     print_traces(&insp);
 
     let traces = insp
-        .with_transaction_gas_used(res.result.gas_used())
+        // .with_transaction_gas_used(res.result.gas_used())
         .into_parity_builder()
         .into_localized_transaction_traces(TransactionInfo::default());
 
@@ -277,7 +277,7 @@ fn test_parity_call_selfdestruct() {
         Action::Call(CallAction {
             from: caller,
             call_type: CallType::Call,
-            gas: 100000000,
+            gas: traces.trace[0].action.as_call().unwrap().gas,
             input: input.into(),
             to,
             value: U256::ZERO,

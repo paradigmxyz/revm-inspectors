@@ -173,11 +173,31 @@ impl TracingInspector {
         }
     }
 
+    /// Manually the gas limit of the debug root trace.
+    ///
+    /// This is useful if the debug root trace's gasUsed should mirror the actual gas used by the
+    /// transaction.
+    ///
+    /// This allows setting it manually by consuming the execution result's gas for example.
+    #[inline]
+    pub fn set_transaction_gas_limit(&mut self, gas_limit: u64) {
+        if let Some(node) = self.traces.arena.first_mut() {
+            node.trace.gas_limit = gas_limit;
+        }
+    }
+
     /// Convenience function for [ParityTraceBuilder::set_transaction_gas_used] that consumes the
     /// type.
     #[inline]
     pub fn with_transaction_gas_used(mut self, gas_used: u64) -> Self {
         self.set_transaction_gas_used(gas_used);
+        self
+    }
+
+    /// Work with [TracingInspector::set_transaction_gas_limit] function
+    #[inline]
+    pub fn with_transaction_gas_limit(mut self, gas_limit: u64) -> Self {
+        self.set_transaction_gas_limit(gas_limit);
         self
     }
 
@@ -268,7 +288,7 @@ impl TracingInspector {
         value: U256,
         kind: CallKind,
         caller: Address,
-        mut gas_limit: u64,
+        gas_limit: u64,
         maybe_precompile: Option<bool>,
     ) {
         // This will only be true if the inspector is configured to exclude precompiles and the call
@@ -280,17 +300,17 @@ impl TracingInspector {
             PushTraceKind::PushAndAttachToParent
         };
 
-        if self.trace_stack.is_empty() {
-            // this is the root call which should get the original gas limit of the transaction,
-            // because initialization costs are already subtracted from gas_limit
-            // For the root call this value should use the transaction's gas limit
-            // See <https://github.com/paradigmxyz/reth/issues/3678> and <https://github.com/ethereum/go-ethereum/pull/27029>
-            gas_limit = context.env.tx.gas_limit;
+        // if self.trace_stack.is_empty() {
+        //     // this is the root call which should get the original gas limit of the transaction,
+        //     // because initialization costs are already subtracted from gas_limit
+        //     // For the root call this value should use the transaction's gas limit
+        //     // See <https://github.com/paradigmxyz/reth/issues/3678> and <https://github.com/ethereum/go-ethereum/pull/27029>
+        //     gas_limit = context.env.tx.gas_limit;
 
-            // we set the spec id here because we only need to do this once and this condition is
-            // hit exactly once
-            self.spec_id = Some(context.spec_id());
-        }
+        //     // we set the spec id here because we only need to do this once and this condition is
+        //     // hit exactly once
+        //     self.spec_id = Some(context.spec_id());
+        // }
 
         self.trace_stack.push(self.traces.push_trace(
             0,
@@ -319,7 +339,7 @@ impl TracingInspector {
     /// This expects an existing trace [Self::start_trace_on_call]
     fn fill_trace_on_call_end<DB: Database>(
         &mut self,
-        context: &mut EvmContext<DB>,
+        _context: &mut EvmContext<DB>,
         result: &InterpreterResult,
         created_address: Option<Address>,
     ) {
@@ -328,13 +348,14 @@ impl TracingInspector {
         let trace_idx = self.pop_trace_idx();
         let trace = &mut self.traces.arena[trace_idx].trace;
 
-        if trace_idx == 0 {
-            // this is the root call which should get the gas used of the transaction
-            // refunds are applied after execution, which is when the root call ends
-            trace.gas_used = gas_used(context.spec_id(), gas.spent(), gas.refunded() as u64);
-        } else {
-            trace.gas_used = gas.spent();
-        }
+        // if trace_idx == 0 {
+        //     // this is the root call which should get the gas used of the transaction
+        //     // refunds are applied after execution, which is when the root call ends
+        //     trace.gas_used = gas_used(context.spec_id(), gas.spent(), gas.refunded() as u64);
+        // } else {
+        //     trace.gas_used = gas.spent();
+        // }
+        trace.gas_used = gas.spent();
 
         trace.status = result;
         trace.success = trace.status.is_ok();
