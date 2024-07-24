@@ -160,7 +160,7 @@ impl TracingInspector {
         self.traces
     }
 
-    /// Manually the gas used of the root trace.
+    /// Manually set the gas used of the root trace.
     ///
     /// This is useful if the root trace's gasUsed should mirror the actual gas used by the
     /// transaction.
@@ -173,7 +173,7 @@ impl TracingInspector {
         }
     }
 
-    /// Manually the gas limit of the debug root trace.
+    /// Manually set the gas limit of the debug root trace.
     ///
     /// This is useful if the debug root trace's gasUsed should mirror the actual gas used by the
     /// transaction.
@@ -300,18 +300,6 @@ impl TracingInspector {
             PushTraceKind::PushAndAttachToParent
         };
 
-        // if self.trace_stack.is_empty() {
-        //     // this is the root call which should get the original gas limit of the transaction,
-        //     // because initialization costs are already subtracted from gas_limit
-        //     // For the root call this value should use the transaction's gas limit
-        //     // See <https://github.com/paradigmxyz/reth/issues/3678> and <https://github.com/ethereum/go-ethereum/pull/27029>
-        //     gas_limit = context.env.tx.gas_limit;
-
-        //     // we set the spec id here because we only need to do this once and this condition is
-        //     // hit exactly once
-        //     self.spec_id = Some(context.spec_id());
-        // }
-
         self.trace_stack.push(self.traces.push_trace(
             0,
             push_kind,
@@ -348,13 +336,6 @@ impl TracingInspector {
         let trace_idx = self.pop_trace_idx();
         let trace = &mut self.traces.arena[trace_idx].trace;
 
-        // if trace_idx == 0 {
-        //     // this is the root call which should get the gas used of the transaction
-        //     // refunds are applied after execution, which is when the root call ends
-        //     trace.gas_used = gas_used(context.spec_id(), gas.spent(), gas.refunded() as u64);
-        // } else {
-        //     trace.gas_used = gas.spent();
-        // }
         trace.gas_used = gas.spent();
 
         trace.status = result;

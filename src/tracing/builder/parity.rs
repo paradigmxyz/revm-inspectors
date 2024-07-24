@@ -155,16 +155,7 @@ impl ParityTraceBuilder {
 
         let (trace, vm_trace, state_diff) = self.into_trace_type_traces(trace_types);
 
-        let trace =
-            TraceResults { output, trace: trace.unwrap_or_default(), vm_trace, state_diff };
-
-        // we're setting the gas used of the root trace explicitly to the gas used of the execution
-        // result
-        // println!("{:#?}", trace);
-        // trace.set_root_trace_gas_used(gas_used);
-        // println!("{:#?}", trace);
-
-        trace
+        TraceResults { output, trace: trace.unwrap_or_default(), vm_trace, state_diff }
     }
 
     /// Consumes the inspector and returns the trace results according to the configured trace
