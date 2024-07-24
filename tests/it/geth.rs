@@ -306,7 +306,17 @@ fn test_geth_inspector_reset() {
     // first run inspector
     let (res, env) = inspect(&mut db, env.clone(), &mut insp).unwrap();
     assert!(res.result.is_success());
-    assert_eq!(insp.clone().with_transaction_gas_limit(env.tx.gas_limit).traces().nodes().first().unwrap().trace.gas_limit, 1000000);
+    assert_eq!(
+        insp.clone()
+            .with_transaction_gas_limit(env.tx.gas_limit)
+            .traces()
+            .nodes()
+            .first()
+            .unwrap()
+            .trace
+            .gas_limit,
+        1000000
+    );
 
     // reset the inspector
     insp.fuse();
@@ -315,5 +325,14 @@ fn test_geth_inspector_reset() {
     // second run inspector after reset
     let (res, env) = inspect(&mut db, env, &mut insp).unwrap();
     assert!(res.result.is_success());
-    assert_eq!(insp.with_transaction_gas_limit(env.tx.gas_limit).traces().nodes().first().unwrap().trace.gas_limit, 1000000);
+    assert_eq!(
+        insp.with_transaction_gas_limit(env.tx.gas_limit)
+            .traces()
+            .nodes()
+            .first()
+            .unwrap()
+            .trace
+            .gas_limit,
+        1000000
+    );
 }

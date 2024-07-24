@@ -104,9 +104,8 @@ fn test_parity_selfdestruct(spec_id: SpecId) {
         assert_eq!(node.trace.selfdestruct_transferred_value, expected_value);
     }
 
-    let traces = insp
-        .into_parity_builder()
-        .into_localized_transaction_traces(TransactionInfo::default());
+    let traces =
+        insp.into_parity_builder().into_localized_transaction_traces(TransactionInfo::default());
 
     assert_eq!(traces.len(), 2);
     assert_eq!(
@@ -187,9 +186,8 @@ fn test_parity_constructor_selfdestruct() {
     assert!(res.result.is_success());
     print_traces(&insp);
 
-    let traces = insp
-        .into_parity_builder()
-        .into_localized_transaction_traces(TransactionInfo::default());
+    let traces =
+        insp.into_parity_builder().into_localized_transaction_traces(TransactionInfo::default());
 
     assert_eq!(traces.len(), 3);
     assert!(traces[1].trace.action.is_create());
