@@ -150,7 +150,6 @@ impl ParityTraceBuilder {
         res: &ExecutionResult,
         trace_types: &HashSet<TraceType>,
     ) -> TraceResults {
-        // let gas_used = res.gas_used();
         let output = res.output().cloned().unwrap_or_default();
 
         let (trace, vm_trace, state_diff) = self.into_trace_type_traces(trace_types);
