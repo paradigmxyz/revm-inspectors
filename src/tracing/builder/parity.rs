@@ -4,7 +4,7 @@ use crate::tracing::{
     utils::load_account_code,
     TracingInspectorConfig,
 };
-use alloy_primitives::{Address, U64};
+use alloy_primitives::{Address, U256, U64};
 use alloy_rpc_types::{trace::parity::*, TransactionInfo};
 use revm::{
     db::DatabaseRef,
@@ -483,9 +483,13 @@ where
         let addr = *addr;
         let entry = state_diff.entry(addr).or_default();
 
+        // we need to fetch the account from the db
+        let db_acc = db.basic_ref(addr)?.unwrap_or_default();
+
         // we check if this account was created during the transaction
-        if changed_acc.is_created() {
-            // This only applies to newly created accounts
+        // where the smart contract was not touched before being created (no balance)
+        if changed_acc.is_created() && db_acc.balance == U256::ZERO {
+            // This only applies to newly created accounts without balance
             // A non existing touched account (e.g. `to` that does not exist) is excluded here
             entry.balance = Delta::Added(changed_acc.info.balance);
             entry.nonce = Delta::Added(U64::from(changed_acc.info.nonce));
@@ -500,8 +504,14 @@ where
                 entry.storage.insert((*key).into(), Delta::Added(slot.present_value.into()));
             }
         } else {
-            // account may exist or not, we need to fetch the account from the db
-            let db_acc = db.basic_ref(addr)?.unwrap_or_default();
+            // we check if this account was created during the transaction
+            // where the smart contract was touched before being created (has balance)
+            if changed_acc.is_created() {
+                let original_account_code = load_account_code(&db, &db_acc).unwrap_or_default();
+                let present_account_code =
+                    load_account_code(&db, &changed_acc.info).unwrap_or_default();
+                entry.code = Delta::changed(original_account_code, present_account_code);
+            }
 
             // update _changed_ storage values
             for (key, slot) in changed_acc.storage.iter().filter(|(_, slot)| slot.is_changed()) {
