@@ -483,10 +483,13 @@ where
         let addr = *addr;
         let entry = state_diff.entry(addr).or_default();
 
-        // we check if this account was created during the transaction
+        // we need to fetch the account from the db
         let db_acc = db.basic_ref(addr)?.unwrap_or_default();
+
+        // we check if this account was created during the transaction
+        // where the smart contract was not touched before being created (no balance)
         if changed_acc.is_created() && db_acc.balance == U256::ZERO {
-            // This only applies to newly created accounts
+            // This only applies to newly created accounts without balance
             // A non existing touched account (e.g. `to` that does not exist) is excluded here
             entry.balance = Delta::Added(changed_acc.info.balance);
             entry.nonce = Delta::Added(U64::from(changed_acc.info.nonce));
@@ -501,8 +504,8 @@ where
                 entry.storage.insert((*key).into(), Delta::Added(slot.present_value.into()));
             }
         } else {
-            // account may exist or not, we need to fetch the account from the db
-
+            // we check if this account was created during the transaction
+            // where the smart contract was touched before being created (has balance)
             if changed_acc.is_created() {
                 let original_account_code = load_account_code(&db, &db_acc).unwrap_or_default();
                 let present_account_code =
