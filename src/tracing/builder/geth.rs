@@ -142,15 +142,16 @@ impl GethTraceBuilder {
         call_frames.push((0, root_call_frame));
 
         for (idx, trace) in self.nodes.iter().enumerate().skip(1) {
-            // selfdestructs are not recorded as individual call traces but are derived from
-            // the call trace and are added as additional `CallFrame` objects to the parent call
-            if let Some(selfdestruct) = trace.geth_selfdestruct_call_trace() {
-                call_frames.last_mut().expect("not empty").1.calls.push(selfdestruct);
-            }
-
             // include logs only if call and all its parents were successful
             let include_logs = include_logs && !self.call_or_parent_failed(trace);
             call_frames.push((idx, trace.geth_empty_call_frame(include_logs)));
+
+            // selfdestructs are not recorded as individual call traces but are derived from
+            // the call trace and are added as additional `CallFrame` objects
+            // becoming the first child of the derived call
+            if let Some(selfdestruct) = trace.geth_selfdestruct_call_trace() {
+                call_frames.last_mut().expect("not empty").1.calls.push(selfdestruct);
+            }
         }
 
         // pop the _children_ calls frame and move it to the parent
