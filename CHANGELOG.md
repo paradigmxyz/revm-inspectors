@@ -5,12 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.5](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.5.5) - 2024-08-01
+
+### Bug Fixes
+
+- Geth trace inconsistence with selfdestruct ([#173](https://github.com/paradigmxyz/revm-inspectors/issues/173))
+- Parity state diff when creating SC with balance ([#172](https://github.com/paradigmxyz/revm-inspectors/issues/172))
+
 ## [0.5.4](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.5.4) - 2024-07-25
 
 ### Bug Fixes
 
 - Gas and gasUsed in trace root only for ParityTrace ([#171](https://github.com/paradigmxyz/revm-inspectors/issues/171))
 - Fix Self-destruct Disorder ([#170](https://github.com/paradigmxyz/revm-inspectors/issues/170))
+
+### Miscellaneous Tasks
+
+- Release 0.5.4
 
 ## [0.5.3](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.5.3) - 2024-07-19
 
