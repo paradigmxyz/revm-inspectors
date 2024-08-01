@@ -313,7 +313,7 @@ impl CallTraceNode {
         if self.is_selfdestruct() {
             Some(CallFrame {
                 typ: "SELFDESTRUCT".to_string(),
-                from: self.trace.caller,
+                from: self.trace.address,
                 to: self.trace.selfdestruct_refund_target,
                 value: self.trace.selfdestruct_transferred_value,
                 ..Default::default()
