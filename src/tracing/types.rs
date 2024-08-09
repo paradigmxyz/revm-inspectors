@@ -2,7 +2,7 @@
 
 use crate::tracing::{config::TraceStyle, utils, utils::convert_memory};
 pub use alloy_primitives::Log;
-use alloy_primitives::{Address, Bytes, LogData, U256};
+use alloy_primitives::{Address, Bytes, FixedBytes, LogData, U256};
 use alloy_rpc_types::trace::{
     geth::{CallFrame, CallLogFrame, GethDefaultTracingOptions, StructLog},
     parity::{
@@ -251,6 +251,15 @@ impl CallTraceNode {
     #[inline]
     pub const fn status(&self) -> InstructionResult {
         self.trace.status
+    }
+
+    /// Returns the call context's 4 byte selector
+    pub fn selector(&self) -> Option<FixedBytes<4>> {
+        if self.trace.data.len() < 4 {
+            None
+        } else {
+            Some(FixedBytes::from_slice(&self.trace.data[..4]))
+        }
     }
 
     /// Returns `true` if this trace was a selfdestruct.
