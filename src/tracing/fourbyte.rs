@@ -63,15 +63,15 @@ where
     }
 }
 
-impl From<FourByteInspector> for FourByteFrame {
-    fn from(value: FourByteInspector) -> Self {
+impl From<&FourByteInspector> for FourByteFrame {
+    fn from(value: &FourByteInspector) -> Self {
         Self(
             value
                 .inner
-                .into_iter()
+                .iter()
                 .map(|((selector, calldata_size), count)| {
-                    let key = format!("0x{}-{}", hex::encode(&selector[..]), calldata_size);
-                    (key, count)
+                    let key = format!("0x{}-{}", hex::encode(selector), *calldata_size);
+                    (key, *count)
                 })
                 .collect(),
         )

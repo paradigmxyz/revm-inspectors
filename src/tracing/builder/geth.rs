@@ -11,20 +11,26 @@ use alloy_rpc_types::trace::geth::{
     GethDefaultTracingOptions, PreStateConfig, PreStateFrame, PreStateMode, StructLog,
 };
 use revm::{db::DatabaseRef, primitives::ResultAndState};
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, HashMap, VecDeque},
+};
 
 /// A type for creating geth style traces
 #[derive(Clone, Debug)]
-pub struct GethTraceBuilder {
+pub struct GethTraceBuilder<'a> {
     /// Recorded trace nodes.
-    nodes: Vec<CallTraceNode>,
+    nodes: Cow<'a, Vec<CallTraceNode>>,
     /// How the traces were recorded
     _config: TracingInspectorConfig,
 }
 
-impl GethTraceBuilder {
+impl<'a> GethTraceBuilder<'a> {
     /// Returns a new instance of the builder
-    pub fn new(nodes: Vec<CallTraceNode>, _config: TracingInspectorConfig) -> Self {
+    pub fn new(
+        nodes: Cow<'a, Vec<CallTraceNode>>,
+        _config: TracingInspectorConfig,
+    ) -> GethTraceBuilder<'a> {
         Self { nodes, _config }
     }
 
@@ -114,7 +120,7 @@ impl GethTraceBuilder {
     ///
     /// This expects the gas used and return value for the
     /// [ExecutionResult](revm::primitives::ExecutionResult) of the executed transaction.
-    pub fn geth_call_traces(&self, opts: CallConfig, gas_used: u64) -> CallFrame {
+    pub fn geth_call_traces(&self, opts: &CallConfig, gas_used: u64) -> CallFrame {
         if self.nodes.is_empty() {
             return Default::default();
         }
@@ -202,7 +208,7 @@ impl GethTraceBuilder {
     pub fn geth_prestate_traces<DB: DatabaseRef>(
         &self,
         ResultAndState { state, .. }: &ResultAndState,
-        prestate_config: PreStateConfig,
+        prestate_config: &PreStateConfig,
         db: DB,
     ) -> Result<PreStateFrame, DB::Error> {
         let account_diffs = state.iter().map(|(addr, acc)| (*addr, acc));

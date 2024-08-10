@@ -19,6 +19,7 @@ use revm::{
     primitives::SpecId,
     Database, EvmContext, Inspector, JournalEntry,
 };
+use std::borrow::Cow;
 
 mod arena;
 pub use arena::CallTraceArena;
@@ -209,8 +210,14 @@ impl TracingInspector {
 
     /// Consumes the Inspector and returns a [GethTraceBuilder].
     #[inline]
-    pub fn into_geth_builder(self) -> GethTraceBuilder {
-        GethTraceBuilder::new(self.traces.arena, self.config)
+    pub fn into_inner_geth_builder(self) -> GethTraceBuilder<'static> {
+        GethTraceBuilder::new(Cow::Owned(self.traces.arena), self.config)
+    }
+
+    /// Consumes the Inspector and returns a [GethTraceBuilder].
+    #[inline]
+    pub fn inner_geth_builder(&self) -> GethTraceBuilder<'_> {
+        GethTraceBuilder::new(Cow::Borrowed(&self.traces.arena), self.config)
     }
 
     /// Returns true if we're no longer in the context of the root call.
