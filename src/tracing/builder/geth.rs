@@ -20,18 +20,26 @@ use std::{
 #[derive(Clone, Debug)]
 pub struct GethTraceBuilder<'a> {
     /// Recorded trace nodes.
-    nodes: Cow<'a, Vec<CallTraceNode>>,
+    nodes: Cow<'a, [CallTraceNode]>,
     /// How the traces were recorded
     _config: TracingInspectorConfig,
 }
 
 impl<'a> GethTraceBuilder<'a> {
-    /// Returns a new instance of the builder
-    pub fn new(
-        nodes: Cow<'a, Vec<CallTraceNode>>,
+    /// Returns a new instance of the builder from [`Cow::Owned`]
+    pub fn new(nodes: Vec<CallTraceNode>, _config: TracingInspectorConfig) -> GethTraceBuilder<'a> {
+        Self { nodes: Cow::Owned(nodes), _config }
+    }
+    /// Returns a new instance of the builder from [`Cow::Borrowed`]
+    pub fn new_borrowed(
+        nodes: &'a Vec<CallTraceNode>,
         _config: TracingInspectorConfig,
     ) -> GethTraceBuilder<'a> {
-        Self { nodes, _config }
+        Self { nodes: Cow::Borrowed(nodes), _config }
+    }
+
+    pub fn into_inner(self) -> Cow<'a, [CallTraceNode]> {
+        self.nodes
     }
 
     /// Fill in the geth trace with all steps of the trace and its children traces in the order they
@@ -120,7 +128,7 @@ impl<'a> GethTraceBuilder<'a> {
     ///
     /// This expects the gas used and return value for the
     /// [ExecutionResult](revm::primitives::ExecutionResult) of the executed transaction.
-    pub fn geth_call_traces(&self, opts: &CallConfig, gas_used: u64) -> CallFrame {
+    pub fn geth_call_traces(&self, opts: CallConfig, gas_used: u64) -> CallFrame {
         if self.nodes.is_empty() {
             return Default::default();
         }
