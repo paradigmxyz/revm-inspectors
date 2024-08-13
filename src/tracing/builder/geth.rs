@@ -39,8 +39,8 @@ impl<'a> GethTraceBuilder<'a> {
     }
 
     /// Consumes the builder and returns the recorded trace nodes.
-    pub fn into_inner(self) -> Cow<'a, [CallTraceNode]> {
-        self.nodes
+    pub fn to_owned(self) -> Vec<CallTraceNode> {
+        self.nodes.into_owned()
     }
 
     /// Fill in the geth trace with all steps of the trace and its children traces in the order they

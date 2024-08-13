@@ -36,7 +36,6 @@ impl MuxInspector {
     }
 
     /// Try converting this [MuxInspector] into a [MuxFrame].
-    /// YSG XXXX
     pub fn try_into_mux_frame<DB: DatabaseRef>(
         &self,
         result: &ResultAndState,
