@@ -38,6 +38,7 @@ impl<'a> GethTraceBuilder<'a> {
         Self { nodes: Cow::Borrowed(nodes), _config }
     }
 
+    /// Consumes the builder and returns the recorded trace nodes.
     pub fn into_inner(self) -> Cow<'a, [CallTraceNode]> {
         self.nodes
     }
