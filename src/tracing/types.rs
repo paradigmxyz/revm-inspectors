@@ -2,7 +2,7 @@
 
 use crate::tracing::{config::TraceStyle, utils, utils::convert_memory};
 pub use alloy_primitives::Log;
-use alloy_primitives::{Address, Bytes, FixedBytes, LogData, U256};
+use alloy_primitives::{Address, Bytes, FixedBytes, LogData, U256, U64};
 use alloy_rpc_types::trace::{
     geth::{CallFrame, CallLogFrame, GethDefaultTracingOptions, StructLog},
     parity::{
@@ -164,12 +164,27 @@ pub struct CallLog {
     pub raw_log: LogData,
     /// Optional complementary decoded log data.
     pub decoded: DecodedCallLog,
+    /// The position of the log relative to subcalls within the same trace.
+    pub position: u64,
 }
 
 impl From<Log> for CallLog {
     /// Converts a [`Log`] into a [`CallLog`].
     fn from(log: Log) -> Self {
-        Self { raw_log: log.data, decoded: DecodedCallLog { name: None, params: None } }
+        Self {
+            position: Default::default(),
+            raw_log: log.data,
+            decoded: DecodedCallLog { name: None, params: None },
+        }
+    }
+}
+
+impl CallLog {
+    /// Sets the position of the log.
+    #[inline]
+    pub fn with_position(mut self, position: u64) -> Self {
+        self.position = position;
+        self
     }
 }
 
@@ -411,6 +426,7 @@ impl CallTraceNode {
                     address: Some(self.execution_address()),
                     topics: Some(log.raw_log.topics().to_vec()),
                     data: Some(log.raw_log.data.clone()),
+                    position: Some(U64::from(log.position)),
                 })
                 .collect();
         }
