@@ -2,7 +2,7 @@
 
 use crate::tracing::{config::TraceStyle, utils, utils::convert_memory};
 pub use alloy_primitives::Log;
-use alloy_primitives::{Address, Bytes, FixedBytes, LogData, U256, U64};
+use alloy_primitives::{Address, Bytes, FixedBytes, LogData, U256};
 use alloy_rpc_types::trace::{
     geth::{CallFrame, CallLogFrame, GethDefaultTracingOptions, StructLog},
     parity::{
@@ -426,7 +426,7 @@ impl CallTraceNode {
                     address: Some(self.execution_address()),
                     topics: Some(log.raw_log.topics().to_vec()),
                     data: Some(log.raw_log.data.clone()),
-                    position: Some(U64::from(log.position)),
+                    position: Some(log.position),
                 })
                 .collect();
         }
