@@ -221,11 +221,13 @@ impl<W: Write> TraceWriter<W> {
     }
 
     fn write_log(&mut self, log: &CallLog) -> io::Result<()> {
-        let log_style = self.log_style();
+        let log_name_style = self.log_name_style(log);
+        let log_param_style = self.log_param_style();
+
         self.write_branch()?;
 
         if let Some(name) = &log.decoded.name {
-            write!(self.writer, "emit {name}({log_style}")?;
+            write!(self.writer, "emit {log_name_style}{name}{log_name_style:#}({log_param_style}")?;
             if let Some(params) = &log.decoded.params {
                 for (i, (param_name, value)) in params.iter().enumerate() {
                     if i > 0 {
@@ -234,16 +236,17 @@ impl<W: Write> TraceWriter<W> {
                     write!(self.writer, "{param_name}: {value}")?;
                 }
             }
-            writeln!(self.writer, "{log_style:#})")?;
+            writeln!(self.writer, "{log_param_style:#})")?;
         } else {
             for (i, topic) in log.raw_log.topics().iter().enumerate() {
                 if i == 0 {
                     self.writer.write_all(b" emit topic 0")?;
+                    writeln!(self.writer, ": {log_name_style}{topic}{log_name_style:#}")?;
                 } else {
                     self.write_pipes()?;
                     write!(self.writer, "       topic {i}")?;
+                    writeln!(self.writer, ": {log_param_style}{topic}{log_param_style:#}")?;
                 }
-                writeln!(self.writer, ": {log_style}{topic}{log_style:#}")?;
             }
 
             if !log.raw_log.topics().is_empty() {
@@ -251,7 +254,7 @@ impl<W: Write> TraceWriter<W> {
             }
             writeln!(
                 self.writer,
-                "          data: {log_style}{data}{log_style:#}",
+                "          data: {log_name_style}{data}{log_name_style:#}",
                 data = log.raw_log.data
             )?;
         }
@@ -388,7 +391,17 @@ impl<W: Write> TraceWriter<W> {
         TRACE_KIND_STYLE
     }
 
-    fn log_style(&self) -> Style {
+    fn log_name_style(&self, log: &CallLog) -> Style {
+        if !self.use_colors {
+            return Style::default();
+        }
+        match log.unmatched {
+            true => AnsiColor::Red.on_default(),
+            false => LOG_STYLE,
+        }
+    }
+
+    fn log_param_style(&self) -> Style {
         if !self.use_colors {
             return Style::default();
         }

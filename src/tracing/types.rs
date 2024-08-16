@@ -164,12 +164,18 @@ pub struct CallLog {
     pub raw_log: LogData,
     /// Optional complementary decoded log data.
     pub decoded: DecodedCallLog,
+    /// A bool to render unmatched logs as errors from forge tests
+    pub unmatched: bool,
 }
 
 impl From<Log> for CallLog {
     /// Converts a [`Log`] into a [`CallLog`].
     fn from(log: Log) -> Self {
-        Self { raw_log: log.data, decoded: DecodedCallLog { name: None, params: None } }
+        Self {
+            raw_log: log.data,
+            decoded: DecodedCallLog { name: None, params: None },
+            unmatched: false,
+        }
     }
 }
 
