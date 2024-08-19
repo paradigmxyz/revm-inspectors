@@ -1,7 +1,6 @@
 use super::{
     types::{
-        CallKind, CallLog, CallTrace, CallTraceNode, DecodedCallData, DecodedTraceStep,
-        TraceMemberOrder,
+        CallKind, CallLog, CallTrace, CallTraceNode, DecodedCallData, DecodedTraceStep, LogStyle, TraceMemberOrder
     },
     CallTraceArena,
 };
@@ -395,9 +394,9 @@ impl<W: Write> TraceWriter<W> {
         if !self.use_colors {
             return Style::default();
         }
-        match log.unmatched {
-            true => AnsiColor::Red.on_default(),
-            false => LOG_STYLE,
+        match log.style {
+            LogStyle::Error => AnsiColor::Red.on_default(),
+            LogStyle::Default => Style::default(),
         }
     }
 

@@ -156,6 +156,17 @@ pub struct DecodedCallLog {
     pub params: Option<Vec<(String, String)>>,
 }
 
+/// portable representation of call Log Styling
+#[derive(Debug, Default, PartialEq, Eq, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub enum LogStyle {
+    /// The style when no special highlighting is needed
+    #[default]
+    Default,
+    /// The style when a log should be colored to denote an error
+    Error,
+}
+
 /// A log with optional decoded data.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -164,8 +175,9 @@ pub struct CallLog {
     pub raw_log: LogData,
     /// Optional complementary decoded log data.
     pub decoded: DecodedCallLog,
-    /// A bool to render unmatched logs as errors from forge tests
-    pub unmatched: bool,
+    /// A style config that allows for setting styles or error
+    /// state externally
+    pub style: LogStyle,
 }
 
 impl From<Log> for CallLog {
@@ -174,7 +186,7 @@ impl From<Log> for CallLog {
         Self {
             raw_log: log.data,
             decoded: DecodedCallLog { name: None, params: None },
-            unmatched: false,
+            style: LogStyle::default(),
         }
     }
 }
