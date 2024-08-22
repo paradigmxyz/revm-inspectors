@@ -572,43 +572,7 @@ where
     }
 }
 
-/// Contains some contextual infos for a transaction execution that is made available to the JS
-/// object.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct TransactionContext {
-    /// Hash of the block the tx is contained within.
-    ///
-    /// `None` if this is a call.
-    pub block_hash: Option<B256>,
-    /// Index of the transaction within a block.
-    ///
-    /// `None` if this is a call.
-    pub tx_index: Option<usize>,
-    /// Hash of the transaction being traced.
-    ///
-    /// `None` if this is a call.
-    pub tx_hash: Option<B256>,
-}
 
-impl TransactionContext {
-    /// Sets the block hash.
-    pub const fn with_block_hash(mut self, block_hash: B256) -> Self {
-        self.block_hash = Some(block_hash);
-        self
-    }
-
-    /// Sets the index of the transaction within a block.
-    pub const fn with_tx_index(mut self, tx_index: usize) -> Self {
-        self.tx_index = Some(tx_index);
-        self
-    }
-
-    /// Sets the hash of the transaction.
-    pub const fn with_tx_hash(mut self, tx_hash: B256) -> Self {
-        self.tx_hash = Some(tx_hash);
-        self
-    }
-}
 
 /// Represents an active call
 #[derive(Debug)]
