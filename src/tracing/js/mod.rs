@@ -8,8 +8,9 @@ use crate::tracing::{
         builtins::{register_builtins, to_serde_value, PrecompileList},
     },
     types::CallKind,
+    TransactionContext,
 };
-use alloy_primitives::{Address, Bytes, Log, B256, U256};
+use alloy_primitives::{Address, Bytes, Log, U256};
 pub use boa_engine::vm::RuntimeLimits;
 use boa_engine::{js_string, Context, JsError, JsObject, JsResult, JsValue, Source};
 use revm::{
@@ -569,44 +570,6 @@ where
             let frame_result = FrameResult { gas_used: 0, output: Bytes::new(), error: None };
             let _ = self.try_exit(frame_result);
         }
-    }
-}
-
-/// Contains some contextual infos for a transaction execution that is made available to the JS
-/// object.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct TransactionContext {
-    /// Hash of the block the tx is contained within.
-    ///
-    /// `None` if this is a call.
-    pub block_hash: Option<B256>,
-    /// Index of the transaction within a block.
-    ///
-    /// `None` if this is a call.
-    pub tx_index: Option<usize>,
-    /// Hash of the transaction being traced.
-    ///
-    /// `None` if this is a call.
-    pub tx_hash: Option<B256>,
-}
-
-impl TransactionContext {
-    /// Sets the block hash.
-    pub const fn with_block_hash(mut self, block_hash: B256) -> Self {
-        self.block_hash = Some(block_hash);
-        self
-    }
-
-    /// Sets the index of the transaction within a block.
-    pub const fn with_tx_index(mut self, tx_index: usize) -> Self {
-        self.tx_index = Some(tx_index);
-        self
-    }
-
-    /// Sets the hash of the transaction.
-    pub const fn with_tx_hash(mut self, tx_hash: B256) -> Self {
-        self.tx_hash = Some(tx_hash);
-        self
     }
 }
 
