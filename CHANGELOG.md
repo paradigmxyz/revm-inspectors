@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.7](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.5.7) - 2024-08-22
+
+### Features
+
+- Util method to get selector ([#177](https://github.com/paradigmxyz/revm-inspectors/issues/177))
+
+### Miscellaneous Tasks
+
+- Chore : update homepage ([#179](https://github.com/paradigmxyz/revm-inspectors/issues/179))
+
+### Other
+
+- Move TransactionContext from js to tracing ([#183](https://github.com/paradigmxyz/revm-inspectors/issues/183))
+
 ## [0.5.6](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.5.6) - 2024-08-08
 
 ### Dependencies
@@ -13,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Miscellaneous Tasks
 
+- Release 0.5.6
 - Update tests
 
 ## [0.5.5](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.5.5) - 2024-08-01
