@@ -1,14 +1,12 @@
 //! Type bindings for js tracing inspector
 
 use crate::tracing::{
-    js::{
-        builtins::{
-            address_to_byte_array, address_to_byte_array_value, bytes_to_address, bytes_to_hash,
-            from_buf_value, to_bigint, to_byte_array, to_byte_array_value,
-        },
-        TransactionContext,
+    js::builtins::{
+        address_to_byte_array, address_to_byte_array_value, bytes_to_address, bytes_to_hash,
+        from_buf_value, to_bigint, to_byte_array, to_byte_array_value,
     },
     types::CallKind,
+    TransactionContext,
 };
 use alloy_primitives::{Address, Bytes, B256, U256};
 use boa_engine::{

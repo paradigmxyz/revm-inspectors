@@ -9,7 +9,7 @@ use crate::{
         utils::gas_used,
     },
 };
-use alloy_primitives::{Address, B256, Bytes, Log, U256};
+use alloy_primitives::{Address, Bytes, Log, B256, U256};
 use revm::{
     interpreter::{
         opcode::{self},
@@ -678,7 +678,6 @@ struct StackStep {
     /// not appear in the steps list.
     step_idx: usize,
 }
-
 
 /// Contains some contextual infos for a transaction execution that is made available to the JS
 /// object.

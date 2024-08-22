@@ -8,8 +8,9 @@ use crate::tracing::{
         builtins::{register_builtins, to_serde_value, PrecompileList},
     },
     types::CallKind,
+    TransactionContext,
 };
-use alloy_primitives::{Address, Bytes, Log, B256, U256};
+use alloy_primitives::{Address, Bytes, Log, U256};
 pub use boa_engine::vm::RuntimeLimits;
 use boa_engine::{js_string, Context, JsError, JsObject, JsResult, JsValue, Source};
 use revm::{
@@ -571,8 +572,6 @@ where
         }
     }
 }
-
-
 
 /// Represents an active call
 #[derive(Debug)]
