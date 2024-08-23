@@ -146,8 +146,8 @@ impl GethTraceBuilder {
             // selfdestructs are not recorded as individual call traces but are derived from
             // the call trace and are added as additional `CallFrame` objects
             // becoming the first child of the derived call
-            if let Some(sefldestruct) = node.geth_selfdestruct_call_trace() {
-                call_frame.calls.push(sefldestruct);
+            if let Some(selfdestruct) = node.geth_selfdestruct_call_trace() {
+                call_frame.calls.push(selfdestruct);
             }
             match item {
                 TraceMemberOrder::Call(idx) if include_calls => {
