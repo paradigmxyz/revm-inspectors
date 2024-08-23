@@ -4,7 +4,7 @@ use crate::tracing::{config::TraceStyle, utils, utils::convert_memory};
 pub use alloy_primitives::Log;
 use alloy_primitives::{Address, Bytes, FixedBytes, LogData, U256};
 use alloy_rpc_types::trace::{
-    geth::{CallFrame, CallLogFrame, GethDefaultTracingOptions, StructLog},
+    geth::{CallFrame, GethDefaultTracingOptions, StructLog},
     parity::{
         Action, ActionType, CallAction, CallOutput, CallType, CreateAction, CreateOutput,
         SelfdestructAction, TraceOutput, TransactionTrace,
@@ -374,7 +374,7 @@ impl CallTraceNode {
     }
 
     /// Converts this call trace into an _empty_ geth [CallFrame]
-    pub fn geth_empty_call_frame(&self, include_logs: bool) -> CallFrame {
+    pub fn geth_empty_call_frame(&self) -> CallFrame {
         let mut call_frame = CallFrame {
             typ: self.trace.kind.to_string(),
             from: self.trace.caller,
@@ -401,18 +401,6 @@ impl CallTraceNode {
 
             // Note: the call tracer mimics parity's trace transaction and geth maps errors to parity style error messages, <https://github.com/ethereum/go-ethereum/blob/34d507215951fb3f4a5983b65e127577989a6db8/eth/tracers/native/call_flat.go#L39-L55>
             call_frame.error = self.trace.as_error_msg(TraceStyle::Parity);
-        }
-
-        if include_logs && !self.logs.is_empty() {
-            call_frame.logs = self
-                .logs
-                .iter()
-                .map(|log| CallLogFrame {
-                    address: Some(self.execution_address()),
-                    topics: Some(log.raw_log.topics().to_vec()),
-                    data: Some(log.raw_log.data.clone()),
-                })
-                .collect();
         }
 
         call_frame

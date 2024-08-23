@@ -1,13 +1,13 @@
 //! Geth trace builder
 
 use crate::tracing::{
-    types::{CallTraceNode, CallTraceStepStackItem},
+    types::{CallTraceNode, CallTraceStepStackItem, TraceMemberOrder},
     utils::load_account_code,
     TracingInspectorConfig,
 };
 use alloy_primitives::{Address, Bytes, B256, U256};
 use alloy_rpc_types::trace::geth::{
-    AccountChangeKind, AccountState, CallConfig, CallFrame, DefaultFrame, DiffMode,
+    AccountChangeKind, AccountState, CallConfig, CallFrame, CallLogFrame, DefaultFrame, DiffMode,
     GethDefaultTracingOptions, PreStateConfig, PreStateFrame, PreStateMode, StructLog,
 };
 use revm::{db::DatabaseRef, primitives::ResultAndState};
@@ -119,58 +119,58 @@ impl GethTraceBuilder {
             return Default::default();
         }
 
-        let include_logs = opts.with_log.unwrap_or_default();
-        // first fill up the root
-        let main_trace_node = &self.nodes[0];
-        let mut root_call_frame = main_trace_node.geth_empty_call_frame(include_logs);
-        root_call_frame.gas_used = U256::from(gas_used);
+        let mut call_frame = self.build_geth_trace(
+            0,
+            !opts.only_top_call.unwrap_or_default(),
+            opts.with_log.unwrap_or_default(),
+        );
+        call_frame.gas_used = U256::from(gas_used);
 
-        // selfdestructs are not recorded as individual call traces but are derived from
-        // the call trace and are added as additional `CallFrame` objects to the parent call
-        if let Some(selfdestruct) = main_trace_node.geth_selfdestruct_call_trace() {
-            root_call_frame.calls.push(selfdestruct);
-        }
+        call_frame
+    }
 
-        if opts.only_top_call.unwrap_or_default() {
-            return root_call_frame;
-        }
+    /// Converts a single trace node into a geth-style call frame.
+    fn build_geth_trace(
+        &self,
+        node_idx: usize,
+        include_calls: bool,
+        include_logs: bool,
+    ) -> CallFrame {
+        let node = &self.nodes[node_idx];
+        let mut call_frame = node.geth_empty_call_frame();
 
-        // fill all the call frames in the root call frame with the recorded traces.
-        // traces are identified by their index in the arena
-        // so we can populate the call frame tree by walking up the call tree
-        let mut call_frames = Vec::with_capacity(self.nodes.len());
-        call_frames.push((0, root_call_frame));
+        // include logs only if call and all its parents were successful
+        let include_logs = include_logs && !self.call_or_parent_failed(node);
 
-        for (idx, trace) in self.nodes.iter().enumerate().skip(1) {
-            // include logs only if call and all its parents were successful
-            let include_logs = include_logs && !self.call_or_parent_failed(trace);
-            call_frames.push((idx, trace.geth_empty_call_frame(include_logs)));
-
+        for item in node.ordering.iter().copied() {
             // selfdestructs are not recorded as individual call traces but are derived from
             // the call trace and are added as additional `CallFrame` objects
             // becoming the first child of the derived call
-            if let Some(selfdestruct) = trace.geth_selfdestruct_call_trace() {
-                call_frames.last_mut().expect("not empty").1.calls.push(selfdestruct);
+            if let Some(sefldestruct) = node.geth_selfdestruct_call_trace() {
+                call_frame.calls.push(sefldestruct);
+            }
+            match item {
+                TraceMemberOrder::Call(idx) if include_calls => {
+                    call_frame.calls.push(self.build_geth_trace(
+                        node.children[idx],
+                        true,
+                        include_logs,
+                    ));
+                }
+                TraceMemberOrder::Log(idx) if include_logs => {
+                    let log = &node.logs[idx];
+                    call_frame.logs.push(CallLogFrame {
+                        address: Some(node.execution_address()),
+                        topics: Some(log.raw_log.topics().to_vec()),
+                        data: Some(log.raw_log.data.clone()),
+                        position: Some(call_frame.calls.len() as u64),
+                    });
+                }
+                _ => {}
             }
         }
 
-        // pop the _children_ calls frame and move it to the parent
-        // this will roll up the child frames to their parent; this works because `child idx >
-        // parent idx`
-        loop {
-            let (idx, call) = call_frames.pop().expect("call frames not empty");
-            let node = &self.nodes[idx];
-            if let Some(parent) = node.parent {
-                let parent_frame = &mut call_frames[parent];
-                // we need to ensure that calls are in order they are called: the last child node is
-                // the last call, but since we walk up the tree, we need to always
-                // insert at position 0
-                parent_frame.1.calls.insert(0, call);
-            } else {
-                debug_assert!(call_frames.is_empty(), "only one root node has no parent");
-                return call;
-            }
-        }
+        call_frame
     }
 
     /// Returns true if the given trace or any of its parents failed.
