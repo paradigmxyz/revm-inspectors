@@ -142,13 +142,14 @@ impl GethTraceBuilder {
         // include logs only if call and all its parents were successful
         let include_logs = include_logs && !self.call_or_parent_failed(node);
 
+        // selfdestructs are not recorded as individual call traces but are derived from
+        // the call trace and are added as additional `CallFrame` objects
+        // becoming the first child of the derived call
+        if let Some(selfdestruct) = node.geth_selfdestruct_call_trace() {
+            call_frame.calls.push(selfdestruct);
+        }
+
         for item in node.ordering.iter().copied() {
-            // selfdestructs are not recorded as individual call traces but are derived from
-            // the call trace and are added as additional `CallFrame` objects
-            // becoming the first child of the derived call
-            if let Some(selfdestruct) = node.geth_selfdestruct_call_trace() {
-                call_frame.calls.push(selfdestruct);
-            }
             match item {
                 TraceMemberOrder::Call(idx) if include_calls => {
                     call_frame.calls.push(self.build_geth_trace(
