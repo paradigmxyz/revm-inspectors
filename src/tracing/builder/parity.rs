@@ -464,6 +464,8 @@ where
     Ok(())
 }
 
+/// Populates [StateDiff] given iterator over [Account]s and a [DatabaseRef].
+///
 /// Loops over all state accounts in the accounts diff that contains all accounts that are included
 /// in the [ExecutionResult] state map and compares the balance and nonce against what's in the
 /// `db`, which should point to the beginning of the transaction.
