@@ -164,12 +164,27 @@ pub struct CallLog {
     pub raw_log: LogData,
     /// Optional complementary decoded log data.
     pub decoded: DecodedCallLog,
+    /// The position of the log relative to subcalls within the same trace.
+    pub position: u64,
 }
 
 impl From<Log> for CallLog {
     /// Converts a [`Log`] into a [`CallLog`].
     fn from(log: Log) -> Self {
-        Self { raw_log: log.data, decoded: DecodedCallLog { name: None, params: None } }
+        Self {
+            position: Default::default(),
+            raw_log: log.data,
+            decoded: DecodedCallLog { name: None, params: None },
+        }
+    }
+}
+
+impl CallLog {
+    /// Sets the position of the log.
+    #[inline]
+    pub fn with_position(mut self, position: u64) -> Self {
+        self.position = position;
+        self
     }
 }
 
@@ -411,6 +426,7 @@ impl CallTraceNode {
                     address: Some(self.execution_address()),
                     topics: Some(log.raw_log.topics().to_vec()),
                     data: Some(log.raw_log.data.clone()),
+                    position: Some(log.position),
                 })
                 .collect();
         }
