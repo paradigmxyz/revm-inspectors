@@ -451,9 +451,14 @@ where
 
         let db_acc = db.basic_ref(addr)?.unwrap_or_default();
 
-        let code_hash = if db_acc.code_hash != KECCAK_EMPTY { db_acc.code_hash } else { continue };
+        curr_ref.code = if let Some(code) = db_acc.code {
+            code.original_bytes()
+        } else {
+            let code_hash =
+                if db_acc.code_hash != KECCAK_EMPTY { db_acc.code_hash } else { continue };
 
-        curr_ref.code = db.code_by_hash_ref(code_hash)?.original_bytes();
+            db.code_by_hash_ref(code_hash)?.original_bytes()
+        };
     }
 
     Ok(())
