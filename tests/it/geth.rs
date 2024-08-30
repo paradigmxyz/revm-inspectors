@@ -104,7 +104,7 @@ fn test_geth_calltracer_logs() {
 
     let call_frame = insp
         .with_transaction_gas_used(res.result.gas_used())
-        .into_geth_builder()
+        .geth_builder()
         .geth_call_traces(CallConfig::default().with_log(), res.result.gas_used());
 
     // three subcalls

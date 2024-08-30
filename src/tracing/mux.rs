@@ -37,20 +37,20 @@ impl MuxInspector {
 
     /// Try converting this [MuxInspector] into a [MuxFrame].
     pub fn try_into_mux_frame<DB: DatabaseRef>(
-        self,
+        &self,
         result: &ResultAndState,
         db: &DB,
     ) -> Result<MuxFrame, DB::Error> {
         let mut frame = HashMap::with_capacity(self.0.len());
-        for (tracer_type, inspector) in self.0 {
+        for (tracer_type, inspector) in &self.0 {
             let trace = match inspector {
                 DelegatingInspector::FourByte(inspector) => FourByteFrame::from(inspector).into(),
                 DelegatingInspector::Call(config, inspector) => inspector
-                    .into_geth_builder()
-                    .geth_call_traces(config, result.result.gas_used())
+                    .geth_builder()
+                    .geth_call_traces(*config, result.result.gas_used())
                     .into(),
                 DelegatingInspector::Prestate(config, inspector) => {
-                    inspector.into_geth_builder().geth_prestate_traces(result, config, db)?.into()
+                    inspector.geth_builder().geth_prestate_traces(result, config, db)?.into()
                 }
                 DelegatingInspector::Noop => NoopFrame::default().into(),
                 DelegatingInspector::Mux(inspector) => {
@@ -58,7 +58,7 @@ impl MuxInspector {
                 }
             };
 
-            frame.insert(tracer_type, trace);
+            frame.insert(*tracer_type, trace);
         }
 
         Ok(MuxFrame(frame))

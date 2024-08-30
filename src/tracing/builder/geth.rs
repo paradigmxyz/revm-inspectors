@@ -11,21 +11,42 @@ use alloy_rpc_types::trace::geth::{
     GethDefaultTracingOptions, PreStateConfig, PreStateFrame, PreStateMode, StructLog,
 };
 use revm::{db::DatabaseRef, primitives::ResultAndState};
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, HashMap, VecDeque},
+};
 
 /// A type for creating geth style traces
 #[derive(Clone, Debug)]
-pub struct GethTraceBuilder {
+pub struct GethTraceBuilder<'a> {
     /// Recorded trace nodes.
-    nodes: Vec<CallTraceNode>,
+    nodes: Cow<'a, [CallTraceNode]>,
     /// How the traces were recorded
     _config: TracingInspectorConfig,
 }
 
-impl GethTraceBuilder {
-    /// Returns a new instance of the builder
-    pub fn new(nodes: Vec<CallTraceNode>, _config: TracingInspectorConfig) -> Self {
-        Self { nodes, _config }
+impl GethTraceBuilder<'static> {
+    /// Returns a new instance of the builder from [`Cow::Owned`]
+    pub fn new(
+        nodes: Vec<CallTraceNode>,
+        _config: TracingInspectorConfig,
+    ) -> GethTraceBuilder<'static> {
+        Self { nodes: Cow::Owned(nodes), _config }
+    }
+}
+
+impl<'a> GethTraceBuilder<'a> {
+    /// Returns a new instance of the builder from [`Cow::Borrowed`]
+    pub fn new_borrowed(
+        nodes: &'a Vec<CallTraceNode>,
+        _config: TracingInspectorConfig,
+    ) -> GethTraceBuilder<'a> {
+        Self { nodes: Cow::Borrowed(nodes), _config }
+    }
+
+    /// Consumes the builder and returns the recorded trace nodes.
+    pub fn to_owned(self) -> Vec<CallTraceNode> {
+        self.nodes.into_owned()
     }
 
     /// Fill in the geth trace with all steps of the trace and its children traces in the order they
@@ -202,7 +223,7 @@ impl GethTraceBuilder {
     pub fn geth_prestate_traces<DB: DatabaseRef>(
         &self,
         ResultAndState { state, .. }: &ResultAndState,
-        prestate_config: PreStateConfig,
+        prestate_config: &PreStateConfig,
         db: DB,
     ) -> Result<PreStateFrame, DB::Error> {
         let account_diffs = state.iter().map(|(addr, acc)| (*addr, acc));
