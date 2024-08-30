@@ -46,11 +46,11 @@ impl MuxInspector {
             let trace = match inspector {
                 DelegatingInspector::FourByte(inspector) => FourByteFrame::from(inspector).into(),
                 DelegatingInspector::Call(config, inspector) => inspector
-                    .inner_geth_builder()
+                    .geth_builder()
                     .geth_call_traces(*config, result.result.gas_used())
                     .into(),
                 DelegatingInspector::Prestate(config, inspector) => {
-                    inspector.inner_geth_builder().geth_prestate_traces(result, config, db)?.into()
+                    inspector.geth_builder().geth_prestate_traces(result, config, db)?.into()
                 }
                 DelegatingInspector::Noop => NoopFrame::default().into(),
                 DelegatingInspector::Mux(inspector) => {

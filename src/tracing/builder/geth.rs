@@ -25,11 +25,17 @@ pub struct GethTraceBuilder<'a> {
     _config: TracingInspectorConfig,
 }
 
-impl<'a> GethTraceBuilder<'a> {
+impl GethTraceBuilder<'static> {
     /// Returns a new instance of the builder from [`Cow::Owned`]
-    pub fn new(nodes: Vec<CallTraceNode>, _config: TracingInspectorConfig) -> GethTraceBuilder<'a> {
+    pub fn new(
+        nodes: Vec<CallTraceNode>,
+        _config: TracingInspectorConfig,
+    ) -> GethTraceBuilder<'static> {
         Self { nodes: Cow::Owned(nodes), _config }
     }
+}
+
+impl<'a> GethTraceBuilder<'a> {
     /// Returns a new instance of the builder from [`Cow::Borrowed`]
     pub fn new_borrowed(
         nodes: &'a Vec<CallTraceNode>,

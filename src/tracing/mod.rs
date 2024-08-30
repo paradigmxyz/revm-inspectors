@@ -209,13 +209,17 @@ impl TracingInspector {
 
     /// Consumes the Inspector and returns a [GethTraceBuilder].
     #[inline]
-    pub fn into_inner_geth_builder(self) -> GethTraceBuilder<'static> {
+    pub fn into_geth_builder(self) -> GethTraceBuilder<'static> {
         GethTraceBuilder::new(self.traces.arena, self.config)
     }
 
-    /// Consumes the Inspector and returns a [GethTraceBuilder].
+    /// Returns the  [GethTraceBuilder] for the recorded traces without consuming the type.
+    ///
+    /// This can be useful for multiple transaction tracing (block) where this inspector can be
+    /// reused for each transaction but caller must ensure that the traces are cleared before
+    /// starting a new transaction: [`Self::fuse`]
     #[inline]
-    pub fn inner_geth_builder(&self) -> GethTraceBuilder<'_> {
+    pub fn geth_builder(&self) -> GethTraceBuilder<'_> {
         GethTraceBuilder::new_borrowed(&self.traces.arena, self.config)
     }
 
