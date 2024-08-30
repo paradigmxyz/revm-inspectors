@@ -1,5 +1,5 @@
 use alloy_primitives::{Address, B256};
-use alloy_rpc_types::{AccessList, AccessListItem};
+use alloy_rpc_types_eth::{AccessList, AccessListItem};
 use revm::{
     interpreter::{opcode, Interpreter},
     Database, EvmContext, Inspector,
