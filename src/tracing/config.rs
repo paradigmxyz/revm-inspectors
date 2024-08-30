@@ -1,5 +1,5 @@
 use alloy_primitives::U256;
-use alloy_rpc_types::trace::{
+use alloy_rpc_types_trace::{
     geth::{CallConfig, GethDefaultTracingOptions, PreStateConfig},
     parity::TraceType,
 };

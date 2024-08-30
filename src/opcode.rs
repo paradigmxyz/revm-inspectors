@@ -1,4 +1,4 @@
-use alloy_rpc_types::trace::opcode::OpcodeGas;
+use alloy_rpc_types_trace::opcode::OpcodeGas;
 use revm::{
     interpreter::{
         opcode::{self, OpCode},
