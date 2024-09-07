@@ -89,18 +89,13 @@ fn test_parity_selfdestruct(spec_id: SpecId) {
     let (res, _) = inspect(&mut db, env, &mut insp).unwrap();
     assert!(res.result.is_success(), "{res:#?}");
 
-    // TODO: Transfer still happens in Cancun, but this is not reflected in the trace.
-    let (expected_value, expected_target) =
-        if spec_id < SpecId::CANCUN { (Some(value), Some(deployer)) } else { (None, None) };
-
-    {
-        assert_eq!(insp.traces().nodes().len(), 1);
-        let node = &insp.traces().nodes()[0];
-        assert!(node.is_selfdestruct(), "{node:#?}");
-        assert_eq!(node.trace.address, contract_address);
-        assert_eq!(node.trace.selfdestruct_refund_target, expected_target);
-        assert_eq!(node.trace.selfdestruct_transferred_value, expected_value);
-    }
+    assert_eq!(insp.traces().nodes().len(), 1);
+    let node = &insp.traces().nodes()[0];
+    assert!(node.is_selfdestruct(), "{node:#?}");
+    assert_eq!(node.trace.address, contract_address);
+    assert_eq!(node.trace.selfdestruct_address, Some(contract_address));
+    assert_eq!(node.trace.selfdestruct_refund_target, Some(deployer));
+    assert_eq!(node.trace.selfdestruct_transferred_value, Some(value));
 
     let traces =
         insp.into_parity_builder().into_localized_transaction_traces(TransactionInfo::default());
@@ -110,8 +105,8 @@ fn test_parity_selfdestruct(spec_id: SpecId) {
         traces[1].trace.action,
         Action::Selfdestruct(SelfdestructAction {
             address: contract_address,
-            refund_address: expected_target.unwrap_or_default(),
-            balance: expected_value.unwrap_or_default(),
+            refund_address: deployer,
+            balance: value,
         })
     );
 }
