@@ -666,7 +666,7 @@ where
 
     fn selfdestruct(&mut self, contract: Address, target: Address, value: U256) {
         let node = self.last_trace();
-        node.trace.address = contract;
+        node.trace.selfdestruct_address = Some(contract);
         node.trace.selfdestruct_refund_target = Some(target);
         node.trace.selfdestruct_transferred_value = Some(value);
     }
