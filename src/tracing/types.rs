@@ -270,7 +270,7 @@ impl CallTraceNode {
 
     /// Returns the call context's 4 byte selector
     pub fn selector(&self) -> Option<FixedBytes<4>> {
-        (self.trace.data.len() >= 4).then_some(|| FixedBytes::from_slice(&self.trace.data[..4]))
+        (self.trace.data.len() >= 4).then(|| FixedBytes::from_slice(&self.trace.data[..4]))
     }
 
     /// Returns `true` if this trace was a selfdestruct.
