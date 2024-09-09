@@ -5,11 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.6.1) - 2024-09-09
+
+### Bug Fixes
+
+- [tracing/builder] Ensure the selfdestruct trace is at the ending of the same depth ([#192](https://github.com/paradigmxyz/revm-inspectors/issues/192))
+
+### Features
+
+- [tracing/builder] Optimize the trace builder ([#191](https://github.com/paradigmxyz/revm-inspectors/issues/191))
+
+### Miscellaneous Tasks
+
+- Pin intrusive collections ([#193](https://github.com/paradigmxyz/revm-inspectors/issues/193))
+- Flatten alloy-rpc-types ([#189](https://github.com/paradigmxyz/revm-inspectors/issues/189))
+- Use msrv 1.79 for clippy
+
+### Other
+
+- Use borrowed Arena in GethTraceBuilder ([#178](https://github.com/paradigmxyz/revm-inspectors/issues/178))
+
 ## [0.6.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.6.0) - 2024-08-29
 
 ### Features
 
 - Trace `position` field + bump deps ([#186](https://github.com/paradigmxyz/revm-inspectors/issues/186))
+
+### Miscellaneous Tasks
+
+- Release 0.6.0
 
 ### Other
 
