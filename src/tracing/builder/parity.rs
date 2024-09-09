@@ -223,6 +223,7 @@ impl ParityTraceBuilder {
 
         let traces = trace_types.contains(&TraceType::Trace).then(|| {
             let mut traces = Vec::with_capacity(self.nodes.len());
+            // Boolean marker to track if sorting for selfdestruct is needed
             let mut sorting_selfdestruct = false;
 
             for node in self.iter_traceable_nodes() {
