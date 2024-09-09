@@ -63,6 +63,12 @@ where
     }
 }
 
+impl From<FourByteInspector> for FourByteFrame {
+    fn from(value: FourByteInspector) -> Self {
+        Self::from(&value)
+    }
+}
+
 impl From<&FourByteInspector> for FourByteFrame {
     fn from(value: &FourByteInspector) -> Self {
         Self(
