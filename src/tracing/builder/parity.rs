@@ -252,7 +252,7 @@ impl ParityTraceBuilder {
 
             // Sort the traces only if a selfdestruct trace was encountered
             if sorting_selfdestruct {
-                traces.sort_by(|a, b| a.trace_address.cmp(&b.trace_address));
+                traces.sort_unstable_by(|a, b| a.trace_address.cmp(&b.trace_address));
             }
             traces
         });
