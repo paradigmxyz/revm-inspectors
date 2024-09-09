@@ -411,15 +411,15 @@ where
     type Item = TransactionTrace;
 
     fn next(&mut self) -> Option<Self::Item> {
+        // ensure the selfdestruct trace is emitted just at the ending of the same depth
         if let Some(selfdestruct) = &self.next_selfdestruct {
-            if let Some((next_trace, _)) = self.iter.peek() {
-                if selfdestruct.trace_address < next_trace.trace_address {
-                    return self.next_selfdestruct.take();
-                }
-            } else {
+            if self.iter.peek().map_or(true, |(next_trace, _)| {
+                selfdestruct.trace_address < next_trace.trace_address
+            }) {
                 return self.next_selfdestruct.take();
             }
         }
+
         let (mut trace, node) = self.iter.next()?;
         if node.is_selfdestruct() {
             // since selfdestructs are emitted as additional trace, increase the trace count
