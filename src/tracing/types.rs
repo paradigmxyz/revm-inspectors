@@ -317,16 +317,18 @@ impl CallTraceNode {
 
     /// If the trace is a selfdestruct, returns the `Action` for a parity trace.
     pub fn parity_selfdestruct_action(&self) -> Option<Action> {
-        self.is_selfdestruct().then_some(Action::Selfdestruct(SelfdestructAction {
-            address: self.trace.address,
-            refund_address: self.trace.selfdestruct_refund_target.unwrap_or_default(),
-            balance: self.trace.selfdestruct_transferred_value.unwrap_or_default(),
-        }))
+        self.is_selfdestruct().then(|| {
+            Action::Selfdestruct(SelfdestructAction {
+                address: self.trace.address,
+                refund_address: self.trace.selfdestruct_refund_target.unwrap_or_default(),
+                balance: self.trace.selfdestruct_transferred_value.unwrap_or_default(),
+            })
+        })
     }
 
     /// If the trace is a selfdestruct, returns the `CallFrame` for a geth call trace
     pub fn geth_selfdestruct_call_trace(&self) -> Option<CallFrame> {
-        self.is_selfdestruct().then_some(CallFrame {
+        self.is_selfdestruct().then(|| CallFrame {
             typ: "SELFDESTRUCT".to_string(),
             from: self.trace.address,
             to: self.trace.selfdestruct_refund_target,
