@@ -11,7 +11,10 @@ use revm::{
     db::DatabaseRef,
     primitives::{Account, ExecutionResult, ResultAndState, SpecId, KECCAK_EMPTY},
 };
-use std::collections::{HashSet, VecDeque};
+use std::{
+    collections::{HashSet, VecDeque},
+    iter::Peekable,
+};
 
 /// A type for creating parity style traces
 ///
@@ -272,7 +275,8 @@ impl ParityTraceBuilder {
                 .into_iter()
                 .zip(trace_addresses)
                 .filter(|(node, _)| !node.is_precompile())
-                .map(|(node, trace_address)| (node.parity_transaction_trace(trace_address), node)),
+                .map(|(node, trace_address)| (node.parity_transaction_trace(trace_address), node))
+                .peekable(),
         }
     }
 
@@ -395,8 +399,8 @@ impl ParityTraceBuilder {
 }
 
 /// An iterator for [TransactionTrace]s
-struct TransactionTraceIter<Iter> {
-    iter: Iter,
+struct TransactionTraceIter<Iter: Iterator> {
+    iter: Peekable<Iter>,
     next_selfdestruct: Option<TransactionTrace>,
 }
 
@@ -407,8 +411,14 @@ where
     type Item = TransactionTrace;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(selfdestruct) = self.next_selfdestruct.take() {
-            return Some(selfdestruct);
+        if let Some(selfdestruct) = &self.next_selfdestruct {
+            if let Some((next_trace, _)) = self.iter.peek() {
+                if selfdestruct.trace_address < next_trace.trace_address {
+                    return self.next_selfdestruct.take();
+                }
+            } else {
+                return self.next_selfdestruct.take();
+            }
         }
         let (mut trace, node) = self.iter.next()?;
         if node.is_selfdestruct() {
