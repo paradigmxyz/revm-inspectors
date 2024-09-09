@@ -46,10 +46,11 @@ serde_json = "1.0"
 # js-tracer
 boa_engine = { version = "0.19", optional = true }
 boa_gc = { version = "0.19", optional = true }
+intrusive-collections = { version = "=0.9.6", optional = true }
 
 [dev-dependencies]
 snapbox = "0.6"
 
 [features]
 serde = ["dep:serde", "revm/serde"]
-js-tracer = ["dep:boa_engine", "dep:boa_gc"]
+js-tracer = ["dep:boa_engine", "dep:boa_gc", "dep:intrusive-collections"]
