@@ -215,33 +215,34 @@ impl ParityTraceBuilder {
             return (None, None, None);
         }
 
-        let with_traces = trace_types.contains(&TraceType::Trace);
         let with_diff = trace_types.contains(&TraceType::StateDiff);
 
-        let vm_trace =
-            if trace_types.contains(&TraceType::VmTrace) { Some(self.vm_trace()) } else { None };
+        // early return for StateDiff-only case
+        if trace_types.len() == 1 && with_diff {
+            return (None, None, Some(StateDiff::default()));
+        }
 
-        let mut traces = Vec::with_capacity(if with_traces { self.nodes.len() } else { 0 });
-        // Boolean marker to track if sorting for selfdestruct is needed
-        let mut sorting_selfdestruct = false;
+        let vm_trace = trace_types.contains(&TraceType::VmTrace).then(|| self.vm_trace());
 
-        for node in self.iter_traceable_nodes() {
-            let trace_address = self.trace_address(node.idx);
+        let traces = trace_types.contains(&TraceType::Trace).then(|| {
+            let mut traces = Vec::with_capacity(self.nodes.len());
+            // Boolean marker to track if sorting for selfdestruct is needed
+            let mut sorting_selfdestruct = false;
 
-            if with_traces {
+            for node in self.iter_traceable_nodes() {
+                let trace_address = self.trace_address(node.idx);
                 let trace = node.parity_transaction_trace(trace_address);
                 traces.push(trace);
 
-                // check if the trace node is a selfdestruct
                 if node.is_selfdestruct() {
                     // selfdestructs are not recorded as individual call traces but are derived from
                     // the call trace and are added as additional `TransactionTrace` objects in the
                     // trace array
                     let addr = {
                         let last = traces.last_mut().expect("exists");
-                        let mut addr = last.trace_address.clone();
+                        let mut addr = Vec::with_capacity(last.trace_address.len() + 1);
+                        addr.extend_from_slice(&last.trace_address);
                         addr.push(last.subtraces);
-                        // need to account for the additional selfdestruct trace
                         last.subtraces += 1;
                         addr
                     };
@@ -252,15 +253,15 @@ impl ParityTraceBuilder {
                     }
                 }
             }
-        }
 
-        // Sort the traces only if a selfdestruct trace was encountered
-        if sorting_selfdestruct {
-            traces.sort_by(|a, b| a.trace_address.cmp(&b.trace_address));
-        }
+            // Sort the traces only if a selfdestruct trace was encountered
+            if sorting_selfdestruct {
+                traces.sort_unstable_by(|a, b| a.trace_address.cmp(&b.trace_address));
+            }
+            traces
+        });
 
-        let traces = with_traces.then_some(traces);
-        let diff = with_diff.then_some(StateDiff::default());
+        let diff = with_diff.then(StateDiff::default);
 
         (traces, vm_trace, diff)
     }

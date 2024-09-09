@@ -270,11 +270,7 @@ impl CallTraceNode {
 
     /// Returns the call context's 4 byte selector
     pub fn selector(&self) -> Option<FixedBytes<4>> {
-        if self.trace.data.len() < 4 {
-            None
-        } else {
-            Some(FixedBytes::from_slice(&self.trace.data[..4]))
-        }
+        (self.trace.data.len() >= 4).then(|| FixedBytes::from_slice(&self.trace.data[..4]))
     }
 
     /// Returns `true` if this trace was a selfdestruct.
@@ -321,30 +317,24 @@ impl CallTraceNode {
 
     /// If the trace is a selfdestruct, returns the `Action` for a parity trace.
     pub fn parity_selfdestruct_action(&self) -> Option<Action> {
-        if self.is_selfdestruct() {
-            Some(Action::Selfdestruct(SelfdestructAction {
+        self.is_selfdestruct().then(|| {
+            Action::Selfdestruct(SelfdestructAction {
                 address: self.trace.address,
                 refund_address: self.trace.selfdestruct_refund_target.unwrap_or_default(),
                 balance: self.trace.selfdestruct_transferred_value.unwrap_or_default(),
-            }))
-        } else {
-            None
-        }
+            })
+        })
     }
 
     /// If the trace is a selfdestruct, returns the `CallFrame` for a geth call trace
     pub fn geth_selfdestruct_call_trace(&self) -> Option<CallFrame> {
-        if self.is_selfdestruct() {
-            Some(CallFrame {
-                typ: "SELFDESTRUCT".to_string(),
-                from: self.trace.address,
-                to: self.trace.selfdestruct_refund_target,
-                value: self.trace.selfdestruct_transferred_value,
-                ..Default::default()
-            })
-        } else {
-            None
-        }
+        self.is_selfdestruct().then(|| CallFrame {
+            typ: "SELFDESTRUCT".to_string(),
+            from: self.trace.address,
+            to: self.trace.selfdestruct_refund_target,
+            value: self.trace.selfdestruct_transferred_value,
+            ..Default::default()
+        })
     }
 
     /// If the trace is a selfdestruct, returns the `TransactionTrace` for a parity trace.
