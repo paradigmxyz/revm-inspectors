@@ -585,4 +585,82 @@ mod tests {
         assert_eq!(traces[1].trace_address, vec![0]);
         assert!(traces[1].action.is_selfdestruct());
     }
+
+    #[test]
+    fn test_parity_suicide_with_subsequent_calls() {
+        /*
+        contract Foo {
+            function foo() public {}
+            function close(Foo f) public {
+                f.foo();
+                selfdestruct(payable(msg.sender));
+            }
+        }
+
+        contract Bar {
+            Foo foo1;
+            Foo foo2;
+
+            constructor() {
+                foo1 = new Foo();
+                foo2 = new Foo();
+            }
+
+            function close() public {
+                foo1.close(foo2);
+            }
+        }
+        */
+
+        let nodes = vec![
+            CallTraceNode {
+                parent: None,
+                children: vec![1],
+                idx: 0,
+                trace: CallTrace { depth: 0, ..Default::default() },
+                ..Default::default()
+            },
+            CallTraceNode {
+                parent: Some(0),
+                idx: 1,
+                children: vec![2],
+                trace: CallTrace {
+                    depth: 1,
+                    kind: CallKind::Call,
+                    selfdestruct_refund_target: Some(Address::ZERO),
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            CallTraceNode {
+                parent: Some(1),
+                idx: 2,
+                trace: CallTrace { depth: 2, ..Default::default() },
+                ..Default::default()
+            },
+        ];
+
+        let traces = ParityTraceBuilder::new(nodes, None, TracingInspectorConfig::default_parity())
+            .into_transaction_traces();
+
+        assert_eq!(traces.len(), 4);
+
+        // [] call
+        assert_eq!(traces[0].trace_address.len(), 0);
+        assert_eq!(traces[0].subtraces, 1);
+        assert!(traces[0].action.is_call());
+
+        // [0] call
+        assert_eq!(traces[1].trace_address, vec![0]);
+        assert_eq!(traces[1].subtraces, 2);
+        assert!(traces[1].action.is_call());
+
+        // [0, 0] call
+        assert_eq!(traces[2].trace_address, vec![0, 0]);
+        assert!(traces[2].action.is_call());
+
+        // [0, 1] suicide
+        assert_eq!(traces[3].trace_address, vec![0, 1]);
+        assert!(traces[3].action.is_selfdestruct());
+    }
 }
