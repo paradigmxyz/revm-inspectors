@@ -559,3 +559,30 @@ where
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tracing::types::{CallKind, CallTrace};
+
+    #[test]
+    fn test_parity_suicide_simple_call() {
+        let nodes = vec![CallTraceNode {
+            trace: CallTrace {
+                kind: CallKind::Call,
+                selfdestruct_refund_target: Some(Address::ZERO),
+                ..Default::default()
+            },
+            ..Default::default()
+        }];
+
+        let traces = ParityTraceBuilder::new(nodes, None, TracingInspectorConfig::default_parity())
+            .into_transaction_traces();
+
+        assert_eq!(traces.len(), 2);
+        assert_eq!(traces[0].trace_address.len(), 0);
+        assert!(traces[0].action.is_call());
+        assert_eq!(traces[1].trace_address, vec![0]);
+        assert!(traces[1].action.is_selfdestruct());
+    }
+}
