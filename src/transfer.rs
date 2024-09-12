@@ -141,16 +141,16 @@ where
         context: &mut EvmContext<DB>,
         inputs: &mut revm::interpreter::EOFCreateInputs,
     ) -> Option<CreateOutcome> {
-        let address =
-            match inputs.kind {
-                EOFCreateKind::Tx { .. } => {
-                    let nonce = context.env.tx.nonce.unwrap_or_else(|| {
+        let address = match inputs.kind {
+            EOFCreateKind::Tx { .. } => {
+                let nonce =
+                    context.env.tx.nonce.unwrap_or_else(|| {
                         context.journaled_state.account(inputs.caller).info.nonce
                     });
-                    inputs.caller.create(nonce)
-                }
-                EOFCreateKind::Opcode { created_address, .. } => created_address,
-            };
+                inputs.caller.create(nonce)
+            }
+            EOFCreateKind::Opcode { created_address, .. } => created_address,
+        };
 
         self.on_transfer(
             inputs.caller,
