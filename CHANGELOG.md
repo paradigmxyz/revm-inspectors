@@ -5,10 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.7.1) - 2024-09-13
+
+### Features
+
+- Add helper for eth_simulateV1 to `TransferInspector` ([#196](https://github.com/paradigmxyz/revm-inspectors/issues/196))
+
 ## [0.7.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.7.0) - 2024-09-11
 
 ### Miscellaneous Tasks
 
+- Release 0.7.0
 - Add back from owned conversion ([#194](https://github.com/paradigmxyz/revm-inspectors/issues/194))
 
 ## [0.6.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.6.1) - 2024-09-09
