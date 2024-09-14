@@ -406,7 +406,7 @@ impl CallTraceNode {
 
         // we need to populate error and revert reason
         if !self.trace.success {
-            if self.kind() == CallKind::Create || self.trace.kind == CallKind::Create2 {
+            if self.kind().is_any_create() {
                 call_frame.to = None;
             }
 
@@ -416,6 +416,8 @@ impl CallTraceNode {
             }
 
             call_frame.revert_reason = utils::maybe_revert_reason(self.trace.output.as_ref());
+
+            // Note: regular calltracer uses geth errors, only flatCallTracer uses parity errors: <https://github.com/ethereum/go-ethereum/blob/a9523b6428238a762e1a1e55e46ead47630c3a23/eth/tracers/native/call_flat.go#L226>
             call_frame.error = self.trace.as_error_msg(TraceStyle::Geth);
         }
 
