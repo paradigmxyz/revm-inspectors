@@ -140,6 +140,10 @@ impl CallTrace {
             InstructionResult::PrecompileError => {
                 if kind.is_parity() { "Built-in failed" } else { "precompiled failed" }.to_string()
             }
+            InstructionResult::InvalidFEOpcode => {
+                if kind.is_parity() { "Bad instruction" } else { "invalid opcode: INVALID" }
+                    .to_string()
+            }
             status => format!("{:?}", status),
         })
     }
@@ -402,10 +406,17 @@ impl CallTraceNode {
 
         // we need to populate error and revert reason
         if !self.trace.success {
-            call_frame.revert_reason = utils::maybe_revert_reason(self.trace.output.as_ref());
+            if self.kind() == CallKind::Create || self.trace.kind == CallKind::Create2 {
+                call_frame.to = None;
+            }
 
-            // Note: the call tracer mimics parity's trace transaction and geth maps errors to parity style error messages, <https://github.com/ethereum/go-ethereum/blob/34d507215951fb3f4a5983b65e127577989a6db8/eth/tracers/native/call_flat.go#L39-L55>
-            call_frame.error = self.trace.as_error_msg(TraceStyle::Parity);
+            if !self.status().is_revert() {
+                call_frame.gas_used = U256::from(self.trace.gas_limit);
+                call_frame.output = None;
+            }
+
+            call_frame.revert_reason = utils::maybe_revert_reason(self.trace.output.as_ref());
+            call_frame.error = self.trace.as_error_msg(TraceStyle::Geth);
         }
 
         if include_logs && !self.logs.is_empty() {
