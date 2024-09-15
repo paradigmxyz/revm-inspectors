@@ -5,11 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.7.2) - 2024-09-15
+
+### Bug Fixes
+
+- [tracing] Align trace output with geth ([#198](https://github.com/paradigmxyz/revm-inspectors/issues/198))
+
+### Miscellaneous Tasks
+
+- Rm intrusive collections
+- Make clippy happy ([#197](https://github.com/paradigmxyz/revm-inspectors/issues/197))
+
 ## [0.7.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.7.1) - 2024-09-13
 
 ### Features
 
 - Add helper for eth_simulateV1 to `TransferInspector` ([#196](https://github.com/paradigmxyz/revm-inspectors/issues/196))
+
+### Miscellaneous Tasks
+
+- Release 0.7.1
 
 ## [0.7.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.7.0) - 2024-09-11
 
