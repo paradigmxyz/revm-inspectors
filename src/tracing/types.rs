@@ -48,7 +48,6 @@ pub struct CallTrace {
     /// The target address of this call.
     ///
     /// This is:
-    /// - [`is_selfdestruct`](Self::is_selfdestruct): the address of the selfdestructed contract
     /// - [`CallKind::Call`] and alike: the callee, the address of the contract being called
     /// - [`CallKind::Create`] and alike: the address of the created contract
     pub address: Address,
@@ -56,6 +55,8 @@ pub struct CallTrace {
     ///
     /// Note: This is optional because not all tracers make use of this.
     pub maybe_precompile: Option<bool>,
+    /// The address of the selfdestructed contract.
+    pub selfdestruct_address: Option<Address>,
     /// Holds the target for the selfdestruct refund target.
     ///
     /// This is only `Some` if a selfdestruct was executed and the call is executed before the
@@ -323,7 +324,7 @@ impl CallTraceNode {
     pub fn parity_selfdestruct_action(&self) -> Option<Action> {
         self.is_selfdestruct().then(|| {
             Action::Selfdestruct(SelfdestructAction {
-                address: self.trace.address,
+                address: self.trace.selfdestruct_address.unwrap_or_default(),
                 refund_address: self.trace.selfdestruct_refund_target.unwrap_or_default(),
                 balance: self.trace.selfdestruct_transferred_value.unwrap_or_default(),
             })
@@ -334,7 +335,7 @@ impl CallTraceNode {
     pub fn geth_selfdestruct_call_trace(&self) -> Option<CallFrame> {
         self.is_selfdestruct().then(|| CallFrame {
             typ: "SELFDESTRUCT".to_string(),
-            from: self.trace.address,
+            from: self.trace.selfdestruct_address.unwrap_or_default(),
             to: self.trace.selfdestruct_refund_target,
             value: self.trace.selfdestruct_transferred_value,
             ..Default::default()
