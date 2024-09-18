@@ -229,6 +229,10 @@ impl DelegatingInspector {
 
                 Ok(DelegatingInspector::Call(call_config, inspector))
             }
+            GethDebugBuiltInTracerType::FlatCallTracer => {
+                // TODO support flat call tracer in mux
+                return Err(Error::UnexpectedConfig(tracer_type));
+            }
             GethDebugBuiltInTracerType::PreStateTracer => {
                 let prestate_config = tracer_config
                     .ok_or_else(|| Error::MissingConfig(tracer_type))?
