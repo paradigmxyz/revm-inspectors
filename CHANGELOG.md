@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.3](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.7.3) - 2024-09-18
+
+### Bug Fixes
+
+- [tracing] Don't overwrite selfdestruct_address ([#190](https://github.com/paradigmxyz/revm-inspectors/issues/190))
+
 ## [0.7.2](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.7.2) - 2024-09-15
 
 ### Bug Fixes
@@ -13,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Miscellaneous Tasks
 
+- Release 0.7.2
 - Rm intrusive collections
 - Make clippy happy ([#197](https://github.com/paradigmxyz/revm-inspectors/issues/197))
 
