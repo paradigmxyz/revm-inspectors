@@ -1,16 +1,33 @@
-use alloy_primitives::{Address, U256};
+use alloy_primitives::{address, b256, Address, Log, LogData, B256, U256};
+use alloy_sol_types::SolValue;
 use revm::{
-    interpreter::{CallInputs, CallOutcome, CreateInputs, CreateOutcome, CreateScheme},
-    Database, EvmContext, Inspector,
+    interpreter::{
+        CallInputs, CallOutcome, CreateInputs, CreateOutcome, CreateScheme, EOFCreateKind,
+    },
+    Database, EvmContext, Inspector, JournaledState,
 };
+
+/// Sender of ETH transfer log per `eth_simulateV1` spec.
+///
+/// <https://github.com/ethereum/execution-apis/pull/484>
+pub const TRANSFER_LOG_EMITTER: Address = address!("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+
+/// Topic of `Transfer(address,address,uint256)` event.
+pub const TRANSFER_EVENT_TOPIC: B256 =
+    b256!("ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef");
 
 /// An [Inspector] that collects internal ETH transfers.
 ///
-/// This can be used to construct via `ots_getInternalOperations`
+/// This can be used to construct `ots_getInternalOperations` or `eth_simulateV1` response.
 #[derive(Debug, Default)]
 pub struct TransferInspector {
     internal_only: bool,
     transfers: Vec<TransferOperation>,
+    /// If enabled, will insert ERC20-style transfer logs emitted by [TRANSFER_LOG_EMITTER] for
+    /// each ETH transfer.
+    ///
+    /// Can be used for [eth_simulateV1](https://github.com/ethereum/execution-apis/pull/484) execution.
+    insert_logs: bool,
 }
 
 impl TransferInspector {
@@ -19,7 +36,7 @@ impl TransferInspector {
     /// If `internal_only` is set to `true`, only internal transfers are collected, in other words,
     /// the top level call is ignored.
     pub fn new(internal_only: bool) -> Self {
-        Self { internal_only, transfers: Vec::new() }
+        Self { internal_only, transfers: Vec::new(), insert_logs: false }
     }
 
     /// Creates a new transfer inspector that only collects internal transfers.
@@ -32,6 +49,12 @@ impl TransferInspector {
         self.transfers
     }
 
+    /// Sets whether to insert ERC20-style transfer logs.
+    pub fn with_logs(mut self, insert_logs: bool) -> Self {
+        self.insert_logs = insert_logs;
+        self
+    }
+
     /// Returns a reference to the collected transfers.
     pub fn transfers(&self) -> &[TransferOperation] {
         &self.transfers
@@ -40,6 +63,36 @@ impl TransferInspector {
     /// Returns an iterator over the collected transfers.
     pub fn iter(&self) -> impl Iterator<Item = &TransferOperation> {
         self.transfers.iter()
+    }
+
+    fn on_transfer(
+        &mut self,
+        from: Address,
+        to: Address,
+        value: U256,
+        kind: TransferKind,
+        journaled_state: &mut JournaledState,
+    ) {
+        // skip top level transfers
+        if self.internal_only && journaled_state.depth() == 0 {
+            return;
+        }
+        // skip zero transfers
+        if value.is_zero() {
+            return;
+        }
+        self.transfers.push(TransferOperation { kind, from, to, value });
+
+        if self.insert_logs {
+            let from = B256::from_slice(&from.abi_encode());
+            let to = B256::from_slice(&to.abi_encode());
+            let data = value.abi_encode();
+
+            journaled_state.log(Log {
+                address: TRANSFER_LOG_EMITTER,
+                data: LogData::new_unchecked(vec![TRANSFER_EVENT_TOPIC, from, to], data.into()),
+            });
+        }
     }
 }
 
@@ -52,45 +105,62 @@ where
         context: &mut EvmContext<DB>,
         inputs: &mut CallInputs,
     ) -> Option<CallOutcome> {
-        if self.internal_only && context.journaled_state.depth() == 0 {
-            // skip top level call
-            return None;
-        }
-
-        if inputs.transfers_value() {
-            self.transfers.push(TransferOperation {
-                kind: TransferKind::Call,
-                from: inputs.caller,
-                to: inputs.target_address,
-                value: inputs.call_value(),
-            });
+        if let Some(value) = inputs.transfer_value() {
+            self.on_transfer(
+                inputs.transfer_from(),
+                inputs.transfer_to(),
+                value,
+                TransferKind::Call,
+                &mut context.journaled_state,
+            );
         }
 
         None
     }
 
-    fn create_end(
+    fn create(
         &mut self,
         context: &mut EvmContext<DB>,
-        inputs: &CreateInputs,
-        outcome: CreateOutcome,
-    ) -> CreateOutcome {
-        if self.internal_only && context.journaled_state.depth() == 0 {
-            return outcome;
-        }
-        if let Some(address) = outcome.address {
-            let kind = match inputs.scheme {
-                CreateScheme::Create => TransferKind::Create,
-                CreateScheme::Create2 { .. } => TransferKind::Create2,
-            };
-            self.transfers.push(TransferOperation {
-                kind,
-                from: inputs.caller,
-                to: address,
-                value: inputs.value,
-            });
-        }
-        outcome
+        inputs: &mut CreateInputs,
+    ) -> Option<CreateOutcome> {
+        let nonce = context.journaled_state.account(inputs.caller).info.nonce;
+        let address = inputs.created_address(nonce);
+
+        let kind = match inputs.scheme {
+            CreateScheme::Create => TransferKind::Create,
+            CreateScheme::Create2 { .. } => TransferKind::Create2,
+        };
+
+        self.on_transfer(inputs.caller, address, inputs.value, kind, &mut context.journaled_state);
+
+        None
+    }
+
+    fn eofcreate(
+        &mut self,
+        context: &mut EvmContext<DB>,
+        inputs: &mut revm::interpreter::EOFCreateInputs,
+    ) -> Option<CreateOutcome> {
+        let address = match inputs.kind {
+            EOFCreateKind::Tx { .. } => {
+                let nonce =
+                    context.env.tx.nonce.unwrap_or_else(|| {
+                        context.journaled_state.account(inputs.caller).info.nonce
+                    });
+                inputs.caller.create(nonce)
+            }
+            EOFCreateKind::Opcode { created_address, .. } => created_address,
+        };
+
+        self.on_transfer(
+            inputs.caller,
+            address,
+            inputs.value,
+            TransferKind::EofCreate,
+            &mut context.journaled_state,
+        );
+
+        None
     }
 
     fn selfdestruct(&mut self, contract: Address, target: Address, value: U256) {
@@ -127,4 +197,6 @@ pub enum TransferKind {
     Create2,
     /// A SELFDESTRUCT operation
     SelfDestruct,
+    /// A EOFCREATE operation
+    EofCreate,
 }

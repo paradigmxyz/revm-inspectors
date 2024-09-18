@@ -22,9 +22,6 @@ use revm::{
     ContextPrecompiles, Database, DatabaseRef, EvmContext, Inspector,
 };
 
-// TODO: remove pin once boa compiles with newer version
-use intrusive_collections as _;
-
 pub(crate) mod bindings;
 pub(crate) mod builtins;
 
