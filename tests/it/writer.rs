@@ -1,4 +1,4 @@
-use crate::utils::{write_traces, TestEvm};
+use crate::utils::{write_traces, write_traces_with_creation_codes, TestEvm};
 use alloy_primitives::{address, b256, bytes, hex, Address, Bytes, B256, U256};
 use alloy_sol_types::{sol, SolCall};
 use revm_inspectors::tracing::{
@@ -27,6 +27,16 @@ fn test_trace_printing() {
 
 "#]]
     );
+
+    let s = write_traces_with_creation_codes(&tracer);
+    let raw = r#"
+  [209257] → new <unknown>@0xBd770416a3345F91E4B34576cb804a576fa48EB1(<BYTECODE>)
+    └─ ← [Return] 1045 bytes of code
+"#
+    .strip_prefix("\n")
+    .unwrap()
+    .replace("<BYTECODE>", BYTECODE.to_string().strip_prefix("0x").unwrap());
+    assert_data_eq!(s, raw);
 
     let mut index = 0;
 
