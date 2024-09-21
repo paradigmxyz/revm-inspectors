@@ -67,7 +67,7 @@ impl<W: Write> TraceWriter<W> {
         self
     }
 
-    /// Sets the starting indentation level.
+    /// Sets whether contract creation codes should be written.
     #[inline]
     pub fn write_creation_codes(mut self, yes: bool) -> Self {
         self.write_creation_codes = yes;
