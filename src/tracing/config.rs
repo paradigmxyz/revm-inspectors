@@ -1,6 +1,6 @@
 use alloy_primitives::U256;
 use alloy_rpc_types_trace::{
-    geth::{CallConfig, GethDefaultTracingOptions, PreStateConfig},
+    geth::{CallConfig, FlatCallConfig, GethDefaultTracingOptions, PreStateConfig},
     parity::TraceType,
 };
 use revm::interpreter::OpCode;
@@ -186,6 +186,17 @@ impl TracingInspectorConfig {
         Self::none()
             // call tracer is similar parity tracer with optional support for logs
             .set_record_logs(config.with_log.unwrap_or_default())
+    }
+
+    /// Returns a config for geth's [FlatCallTracer](alloy_rpc_types_trace::geth::FlatCallFrame).
+    ///
+    /// This returns [Self::default_parity] and sets [TracingInspectorConfig::exclude_precompile_calls]
+    /// if configured in the given [FlatCallConfig]
+    #[inline]
+    pub fn from_flat_call_config(config: &FlatCallConfig) -> Self {
+        Self::default_parity()
+            // call tracer is similar parity tracer with optional support for logs
+            .set_exclude_precompile_calls(!config.include_precompiles.unwrap_or_default())
     }
 
     /// Returns a config for geth's [PrestateTracer](alloy_rpc_types_trace::geth::PreStateFrame).
