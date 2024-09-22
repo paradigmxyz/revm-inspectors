@@ -401,6 +401,7 @@ mod tests {
         assert!(!config.record_state_diff);
     }
 
+    #[test]
     fn test_flat_call_config() {
         let config = FlatCallConfig { include_precompiles: Some(true), ..Default::default() };
         let config = TracingInspectorConfig::from_flat_call_config(&config);
