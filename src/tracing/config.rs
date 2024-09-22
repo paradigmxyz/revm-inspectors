@@ -400,4 +400,14 @@ mod tests {
         // not required for StateDiff
         assert!(!config.record_state_diff);
     }
+
+    fn test_flat_call_config() {
+        let config = FlatCallConfig { include_precompiles: Some(true), ..Default::default() };
+        let config = TracingInspectorConfig::from_flat_call_config(&config);
+        assert!(!config.exclude_precompile_calls);
+
+        let config = FlatCallConfig { include_precompiles: Some(false), ..Default::default() };
+        let config = TracingInspectorConfig::from_flat_call_config(&config);
+        assert!(config.exclude_precompile_calls);
+    }
 }
