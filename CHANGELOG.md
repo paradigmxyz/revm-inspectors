@@ -5,10 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.6](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.7.6) - 2024-09-23
+
+### Features
+
+- Add creation code printing in traces ([#202](https://github.com/paradigmxyz/revm-inspectors/issues/202))
+
 ## [0.7.5](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.7.5) - 2024-09-23
 
 ### Miscellaneous Tasks
 
+- Release 0.7.5
 - Add `from_flat_call_config` ([#203](https://github.com/paradigmxyz/revm-inspectors/issues/203))
 
 ## [0.7.4](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.7.4) - 2024-09-18
