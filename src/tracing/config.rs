@@ -188,10 +188,12 @@ impl TracingInspectorConfig {
             .set_record_logs(config.with_log.unwrap_or_default())
     }
 
-    /// Returns a config for geth's [FlatCallTracer](alloy_rpc_types_trace::geth::call::FlatCallFrame).
+    /// Returns a config for geth's
+    /// [FlatCallTracer](alloy_rpc_types_trace::geth::call::FlatCallFrame).
     ///
-    /// This returns [Self::default_parity] and sets [TracingInspectorConfig::exclude_precompile_calls]
-    /// if configured in the given [FlatCallConfig]
+    /// This returns [Self::default_parity] and sets
+    /// [TracingInspectorConfig::exclude_precompile_calls] if configured in the given
+    /// [FlatCallConfig]
     #[inline]
     pub fn from_flat_call_config(config: &FlatCallConfig) -> Self {
         Self::default_parity()
