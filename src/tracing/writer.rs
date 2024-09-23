@@ -30,6 +30,7 @@ pub struct TraceWriter<W> {
     use_colors: bool,
     color_cheatcodes: bool,
     indentation_level: u16,
+    write_bytecodes: bool,
 }
 
 impl<W: Write> TraceWriter<W> {
@@ -41,6 +42,7 @@ impl<W: Write> TraceWriter<W> {
             use_colors: use_colors(ColorChoice::global()),
             color_cheatcodes: false,
             indentation_level: 0,
+            write_bytecodes: false,
         }
     }
 
@@ -62,6 +64,13 @@ impl<W: Write> TraceWriter<W> {
     #[inline]
     pub fn with_indentation_level(mut self, level: u16) -> Self {
         self.indentation_level = level;
+        self
+    }
+
+    /// Sets whether contract creation codes and deployed codes should be written.
+    #[inline]
+    pub fn write_bytecodes(mut self, yes: bool) -> Self {
+        self.write_bytecodes = yes;
         self
     }
 
@@ -175,6 +184,9 @@ impl<W: Write> TraceWriter<W> {
                 "{trace_kind_style}{CALL}new{trace_kind_style:#} {label}@{address}",
                 label = trace.decoded.label.as_deref().unwrap_or("<unknown>")
             )?;
+            if self.write_bytecodes {
+                write!(self.writer, "({})", hex::encode(&trace.data))?;
+            }
         } else {
             let (func_name, inputs) = match &trace.decoded.call_data {
                 Some(DecodedCallData { signature, args }) => {
@@ -332,6 +344,9 @@ impl<W: Write> TraceWriter<W> {
 
         if trace.kind.is_any_create() && trace.status.is_ok() {
             write!(self.writer, "{} bytes of code", trace.output.len())?;
+            if self.write_bytecodes {
+                write!(self.writer, " ({})", hex::encode(&trace.output))?;
+            }
         } else if !trace.output.is_empty() {
             write!(self.writer, "{}", trace.output)?;
         }
