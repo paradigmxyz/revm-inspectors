@@ -73,23 +73,28 @@ fn test_geth_calltracer_logs() {
         .geth_builder()
         .geth_call_traces(CallConfig::default().with_log(), res.result.gas_used());
 
-    // three subcalls
+    // top-level call succeeded, no log and three subcalls
     assert_eq!(call_frame.calls.len(), 3);
-
-    // top-level call emitted one log
     assert_eq!(call_frame.logs.len(), 1);
+    assert!(call_frame.error.is_none());
 
-    // first call failed, no logs
+    // first subcall failed, and no logs
     assert!(call_frame.calls[0].logs.is_empty());
+    assert!(call_frame.calls[0].error.is_some());
 
-    // second call failed, with a two nested subcalls that emitted logs, but none should be included
+    // second subcall failed, with a two nested subcalls that emitted logs, but none should be
+    // included
     assert_eq!(call_frame.calls[1].calls.len(), 1);
     assert!(call_frame.calls[1].logs.is_empty());
+    assert!(call_frame.calls[1].error.is_some());
     assert!(call_frame.calls[1].calls[0].logs.is_empty());
+    assert!(call_frame.calls[1].calls[0].error.is_none());
     assert!(call_frame.calls[1].calls[0].calls[0].logs.is_empty());
+    assert!(call_frame.calls[1].calls[0].calls[0].error.is_none());
 
-    // third call succeeded, one log
+    // third subcall succeeded, one log
     assert_eq!(call_frame.calls[2].logs.len(), 1);
+    assert!(call_frame.calls[2].error.is_none());
 }
 
 #[test]
