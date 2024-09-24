@@ -38,6 +38,8 @@ macro_rules! js_value_getter {
     };
 }
 
+pub(crate) use js_value_getter;
+
 /// A macro that creates a native function that returns a captured JsValue
 macro_rules! js_value_capture_getter {
     ($value:ident, $ctx:ident) => {

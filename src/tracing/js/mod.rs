@@ -3,7 +3,8 @@
 use crate::tracing::{
     js::{
         bindings::{
-            CallFrame, Contract, EvmDbRef, FrameResult, JsEvmContext, MemoryRef, StackRef, StepLog,
+            js_value_getter, CallFrame, Contract, EvmDbRef, FrameResult, JsEvmContext, MemoryRef,
+            StackRef, StepLog,
         },
         builtins::{register_builtins, to_serde_value, PrecompileList},
     },
@@ -12,7 +13,10 @@ use crate::tracing::{
 };
 use alloy_primitives::{Address, Bytes, Log, U256};
 pub use boa_engine::vm::RuntimeLimits;
-use boa_engine::{js_string, Context, JsError, JsObject, JsResult, JsValue, Source};
+use boa_engine::{
+    js_string, object::FunctionObjectBuilder, Context, JsError, JsObject, JsResult, JsValue,
+    NativeFunction, Source,
+};
 use revm::{
     interpreter::{
         return_revert, CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, Gas,
@@ -72,6 +76,10 @@ pub struct JsInspector {
     call_stack: Vec<CallStackItem>,
     /// Marker to track whether the precompiles have been registered.
     precompiles_registered: bool,
+    /// Represents the current step log that is being processed, initialized in the `step`
+    /// function, and be updated and used in the `step_end` function.
+    step: Option<JsObject>,
+    gas_remaining: u64,
 }
 
 impl JsInspector {
@@ -177,6 +185,8 @@ impl JsInspector {
             step_fn,
             call_stack: Default::default(),
             precompiles_registered: false,
+            step: None,
+            gas_remaining: 0,
         })
     }
 
@@ -297,11 +307,16 @@ impl JsInspector {
         Ok(())
     }
 
-    fn try_step(&mut self, step: StepLog, db: EvmDbRef) -> JsResult<()> {
+    fn try_step(&mut self, step: JsObject, cost: u64, refund: u64, db: EvmDbRef) -> JsResult<()> {
         if let Some(step_fn) = &self.step_fn {
-            let step = step.into_js_object(&mut self.ctx)?;
-            let db = db.into_js_object(&mut self.ctx)?;
-            step_fn.call(&(self.obj.clone().into()), &[step.into(), db.into()], &mut self.ctx)?;
+            let ctx = &mut self.ctx;
+            let get_cost = js_value_getter!(cost, ctx);
+            let get_refund = js_value_getter!(refund, ctx);
+            step.set(js_string!("getCost"), get_cost, false, ctx)?;
+            step.set(js_string!("getRefund"), get_refund, false, ctx)?;
+
+            let db = db.into_js_object(ctx)?;
+            step_fn.call(&(self.obj.clone().into()), &[step.into(), db.into()], ctx)?;
         }
         Ok(())
     }
@@ -395,26 +410,31 @@ where
             return;
         }
 
-        let (db, _db_guard) = EvmDbRef::new(&context.journaled_state.state, &context.db);
-
         let (stack, _stack_guard) = StackRef::new(&interp.stack);
         let (memory, _memory_guard) = MemoryRef::new(&interp.shared_memory);
+
+        // Create and store a new step log. The `cost` and `refund` values cannot be calculated yet,
+        // as they depend on the opcode execution. These values will be updated in `step_end`
+        // after the opcode has been executed, and then the `step` function will be invoked.
+        // Initialize `cost` and `refund` as placeholders for later updates.
         let step = StepLog {
             stack,
             op: interp.current_opcode().into(),
             memory,
             pc: interp.program_counter() as u64,
             gas_remaining: interp.gas.remaining(),
-            cost: interp.gas.spent(),
+            cost: 0,
             depth: context.journaled_state.depth(),
-            refund: interp.gas.refunded() as u64,
+            refund: 0,
             error: None,
             contract: self.active_call().contract.clone(),
         };
 
-        if self.try_step(step, db).is_err() {
-            interp.instruction_result = InstructionResult::Revert;
-        }
+        self.gas_remaining = interp.gas.remaining();
+        match step.into_js_object(&mut self.ctx) {
+            Ok(step) => self.step = Some(step),
+            Err(err) => interp.instruction_result = InstructionResult::Revert,
+        };
     }
 
     fn step_end(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
@@ -422,26 +442,37 @@ where
             return;
         }
 
-        if matches!(interp.instruction_result, return_revert!()) {
+        // Calculate the gas cost and refund after opcode execution
+        if let Some(step) = self.step.take() {
+            let cost = self.gas_remaining.saturating_sub(interp.gas.remaining());
+            let refund = interp.gas.refunded() as u64;
+
             let (db, _db_guard) = EvmDbRef::new(&context.journaled_state.state, &context.db);
+            if self.try_step(step, cost, refund, db).is_err() {
+                interp.instruction_result = InstructionResult::Revert;
+            }
 
-            let (stack, _stack_guard) = StackRef::new(&interp.stack);
-            let (memory, _memory_guard) = MemoryRef::new(&interp.shared_memory);
-            let step = StepLog {
-                stack,
-                op: interp.current_opcode().into(),
-                memory,
-                pc: interp.program_counter() as u64,
-                gas_remaining: interp.gas.remaining(),
-                cost: interp.gas.spent(),
-                depth: context.journaled_state.depth(),
-                refund: interp.gas.refunded() as u64,
-                error: Some(format!("{:?}", interp.instruction_result)),
-                contract: self.active_call().contract.clone(),
-            };
+            if matches!(interp.instruction_result, return_revert!()) {
+                let (db, _db_guard) = EvmDbRef::new(&context.journaled_state.state, &context.db);
 
-            let _ = self.try_fault(step, db);
-        }
+                let (stack, _stack_guard) = StackRef::new(&interp.stack);
+                let (memory, _memory_guard) = MemoryRef::new(&interp.shared_memory);
+                let step = StepLog {
+                    stack,
+                    op: interp.current_opcode().into(),
+                    memory,
+                    pc: interp.program_counter() as u64,
+                    gas_remaining: interp.gas.remaining(),
+                    cost,
+                    depth: context.journaled_state.depth(),
+                    refund,
+                    error: Some(format!("{:?}", interp.instruction_result)),
+                    contract: self.active_call().contract.clone(),
+                };
+
+                let _ = self.try_fault(step, db);
+            }
+        };
     }
 
     fn log(&mut self, _interp: &mut Interpreter, _context: &mut EvmContext<DB>, _log: &Log) {}
