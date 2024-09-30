@@ -1,5 +1,5 @@
 use crate::tracing::{FourByteInspector, TracingInspector, TracingInspectorConfig};
-use alloy_primitives::{Address, Log, U256};
+use alloy_primitives::{map::HashMap, Address, Log, U256};
 use alloy_rpc_types_trace::geth::{
     mux::{MuxConfig, MuxFrame},
     CallConfig, FourByteFrame, GethDebugBuiltInTracerType, GethDebugTracerConfig, GethTrace,
@@ -12,7 +12,6 @@ use revm::{
     primitives::ResultAndState,
     Database, DatabaseRef, EvmContext, Inspector,
 };
-use std::collections::HashMap;
 use thiserror::Error;
 
 /// Mux tracing inspector that runs and collects results of multiple inspectors at once.
@@ -41,7 +40,7 @@ impl MuxInspector {
         result: &ResultAndState,
         db: &DB,
     ) -> Result<MuxFrame, DB::Error> {
-        let mut frame = HashMap::with_capacity(self.0.len());
+        let mut frame = HashMap::with_capacity_and_hasher(self.0.len(), Default::default());
         for (tracer_type, inspector) in &self.0 {
             let trace = match inspector {
                 DelegatingInspector::FourByte(inspector) => FourByteFrame::from(inspector).into(),

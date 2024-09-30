@@ -1,7 +1,7 @@
 //! Geth tests
 
 use crate::utils::inspect;
-use alloy_primitives::{hex, Address, Bytes};
+use alloy_primitives::{hex, map::HashMap, Address, Bytes};
 use alloy_rpc_types_trace::geth::{
     mux::MuxConfig, CallConfig, GethDebugBuiltInTracerType, GethDebugTracerConfig, GethTrace,
     PreStateConfig,
@@ -15,7 +15,6 @@ use revm::{
     DatabaseCommit,
 };
 use revm_inspectors::tracing::{MuxInspector, TracingInspector, TracingInspectorConfig};
-use std::collections::HashMap;
 
 #[test]
 fn test_geth_calltracer_logs() {
@@ -184,12 +183,12 @@ fn test_geth_mux_tracer() {
     let prestate_config = PreStateConfig { diff_mode: Some(false) };
 
     let nested_call_config = CallConfig { only_top_call: Some(true), with_log: Some(false) };
-    let nested_mux_config = MuxConfig(HashMap::from([(
+    let nested_mux_config = MuxConfig(HashMap::from_iter([(
         GethDebugBuiltInTracerType::CallTracer,
         Some(GethDebugTracerConfig(serde_json::to_value(nested_call_config).unwrap())),
     )]));
 
-    let config = MuxConfig(HashMap::from([
+    let config = MuxConfig(HashMap::from_iter([
         (GethDebugBuiltInTracerType::FourByteTracer, None),
         (
             GethDebugBuiltInTracerType::CallTracer,
