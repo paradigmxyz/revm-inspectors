@@ -4,17 +4,14 @@ use crate::tracing::{
     utils::load_account_code,
     TracingInspectorConfig,
 };
-use alloy_primitives::{Address, U256, U64};
+use alloy_primitives::{map::HashSet, Address, U256, U64};
 use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::parity::*;
 use revm::{
     db::DatabaseRef,
     primitives::{Account, ExecutionResult, ResultAndState, SpecId, KECCAK_EMPTY},
 };
-use std::{
-    collections::{HashSet, VecDeque},
-    iter::Peekable,
-};
+use std::{collections::VecDeque, iter::Peekable};
 
 /// A type for creating parity style traces
 ///

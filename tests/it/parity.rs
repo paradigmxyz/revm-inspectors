@@ -1,7 +1,7 @@
 //! Parity tests
 
 use crate::utils::{inspect, print_traces};
-use alloy_primitives::{address, hex, Address, U256};
+use alloy_primitives::{address, hex, map::HashSet, Address, U256};
 use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::parity::{Action, CallAction, CallType, SelfdestructAction, TraceType};
 use revm::{
@@ -15,7 +15,6 @@ use revm::{
 use revm_inspectors::tracing::{
     parity::populate_state_diff, TracingInspector, TracingInspectorConfig,
 };
-use std::collections::HashSet;
 
 #[test]
 fn test_parity_selfdestruct_london() {
@@ -258,7 +257,7 @@ fn test_parity_call_selfdestruct() {
 
     let traces = insp
         .into_parity_builder()
-        .into_trace_results(&res.result, &HashSet::from([TraceType::Trace]));
+        .into_trace_results(&res.result, &HashSet::from_iter([TraceType::Trace]));
     assert_eq!(traces.trace.len(), 2);
 
     assert_eq!(
@@ -315,7 +314,7 @@ fn test_parity_statediff_blob_commit() {
         },
     );
 
-    let trace_types = HashSet::from([TraceType::StateDiff]);
+    let trace_types = HashSet::from_iter([TraceType::StateDiff]);
     let mut insp = TracingInspector::new(TracingInspectorConfig::from_parity_config(&trace_types));
     let (res, _) = inspect(&mut db, env, &mut insp).unwrap();
     let mut full_trace = insp.into_parity_builder().into_trace_results(&res.result, &trace_types);

@@ -1,10 +1,9 @@
-use alloy_primitives::U256;
+use alloy_primitives::{map::HashSet, U256};
 use alloy_rpc_types_trace::{
     geth::{CallConfig, FlatCallConfig, GethDefaultTracingOptions, PreStateConfig},
     parity::TraceType,
 };
 use revm::interpreter::OpCode;
-use std::collections::HashSet;
 
 /// 256 bits each marking whether an opcode should be included into steps trace or not.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -381,20 +380,20 @@ mod tests {
 
     #[test]
     fn test_parity_config() {
-        let mut s = HashSet::new();
+        let mut s = HashSet::default();
         s.insert(TraceType::StateDiff);
         let config = TracingInspectorConfig::from_parity_config(&s);
         // not required
         assert!(!config.record_steps);
         assert!(!config.record_state_diff);
 
-        let mut s = HashSet::new();
+        let mut s = HashSet::default();
         s.insert(TraceType::VmTrace);
         let config = TracingInspectorConfig::from_parity_config(&s);
         assert!(config.record_steps);
         assert!(!config.record_state_diff);
 
-        let mut s = HashSet::new();
+        let mut s = HashSet::default();
         s.insert(TraceType::VmTrace);
         s.insert(TraceType::StateDiff);
         let config = TracingInspectorConfig::from_parity_config(&s);
