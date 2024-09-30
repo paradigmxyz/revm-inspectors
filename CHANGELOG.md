@@ -5,11 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.8.1) - 2024-09-30
+
+### Bug Fixes
+
+- Use alloy maps ([#207](https://github.com/paradigmxyz/revm-inspectors/issues/207))
+
 ## [0.8.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.8.0) - 2024-09-30
 
 ### Dependencies
 
 - Bump alloy 0.4 ([#206](https://github.com/paradigmxyz/revm-inspectors/issues/206))
+
+### Miscellaneous Tasks
+
+- Release 0.8.0
 
 ## [0.7.7](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.7.7) - 2024-09-24
 
