@@ -38,7 +38,7 @@ impl GethTraceBuilder<'static> {
 impl<'a> GethTraceBuilder<'a> {
     /// Returns a new instance of the builder from [`Cow::Borrowed`]
     pub fn new_borrowed(
-        nodes: &'a Vec<CallTraceNode>,
+        nodes: &'a [CallTraceNode],
         _config: TracingInspectorConfig,
     ) -> GethTraceBuilder<'a> {
         Self { nodes: Cow::Borrowed(nodes), _config }
