@@ -145,7 +145,7 @@ pub(crate) struct GcGuard<'a, Val> {
     inner: Rc<RefCell<Option<Guarded<'a, Val>>>>,
 }
 
-impl<'a, Val> Drop for GcGuard<'a, Val> {
+impl<Val> Drop for GcGuard<'_, Val> {
     fn drop(&mut self) {
         self.inner.borrow_mut().take();
     }

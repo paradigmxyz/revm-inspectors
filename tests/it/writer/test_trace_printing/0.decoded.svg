@@ -3,6 +3,7 @@
     .fg { fill: #AAAAAA }
     .bg { background: #000000 }
     .fg-green { fill: #00AA00 }
+    .fg-yellow { fill: #AA5500 }
     .container {
       padding: 0 10px;
       line-height: 18px;
@@ -17,9 +18,9 @@
   <rect width="100%" height="100%" y="0" rx="4.5" class="bg" />
 
   <text xml:space="preserve" class="container fg">
-    <tspan x="10px" y="28px"><tspan>  [2348] </tspan><tspan class="fg-green">Counter</tspan><tspan>::</tspan><tspan class="fg-green">number</tspan><tspan>()</tspan>
+    <tspan x="10px" y="28px"><tspan>  [209257] </tspan><tspan class="fg-yellow">→ new</tspan><tspan> Counter@0xBd770416a3345F91E4B34576cb804a576fa48EB1</tspan>
 </tspan>
-    <tspan x="10px" y="46px"><tspan>    └─ </tspan><tspan class="fg-green">← [Return] </tspan><tspan>0</tspan>
+    <tspan x="10px" y="46px"><tspan>    └─ </tspan><tspan class="fg-green">← [Return] </tspan><tspan>1045 bytes of code</tspan>
 </tspan>
     <tspan x="10px" y="64px">
 </tspan>

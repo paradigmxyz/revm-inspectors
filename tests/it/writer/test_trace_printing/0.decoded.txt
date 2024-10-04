@@ -1,2 +1,2 @@
-  [2348] Counter::number()
-    └─ ← [Return] 0
+  [209257] → new Counter@0xBd770416a3345F91E4B34576cb804a576fa48EB1
+    └─ ← [Return] 1045 bytes of code
