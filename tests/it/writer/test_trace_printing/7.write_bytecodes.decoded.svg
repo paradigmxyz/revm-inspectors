@@ -1,0 +1,55 @@
+<svg width="1448px" height="308px" xmlns="http://www.w3.org/2000/svg">
+  <style>
+    .fg { fill: #AAAAAA }
+    .bg { background: #000000 }
+    .fg-cyan { fill: #00AAAA }
+    .fg-green { fill: #00AA00 }
+    .container {
+      padding: 0 10px;
+      line-height: 18px;
+    }
+    tspan {
+      font: 14px SFMono-Regular, Consolas, Liberation Mono, Menlo, monospace;
+      white-space: pre;
+      line-height: 18px;
+    }
+  </style>
+
+  <rect width="100%" height="100%" y="0" rx="4.5" class="bg" />
+
+  <text xml:space="preserve" class="container fg">
+    <tspan x="10px" y="28px"><tspan>  [13556] </tspan><tspan class="fg-green">Counter</tspan><tspan>::</tspan><tspan class="fg-green">nest1</tspan><tspan>()</tspan>
+</tspan>
+    <tspan x="10px" y="46px"><tspan>    ├─ [13264] Counter::_nest1()</tspan>
+</tspan>
+    <tspan x="10px" y="64px"><tspan>    │   ├─ emit Log1(</tspan><tspan class="fg-cyan">foo: 0x0000000000000000000000000000000000000000000000000000000000000045</tspan><tspan>)</tspan>
+</tspan>
+    <tspan x="10px" y="82px"><tspan>    │   ├─ [8575] </tspan><tspan class="fg-green">Counter</tspan><tspan>::</tspan><tspan class="fg-green">nest2</tspan><tspan>()</tspan>
+</tspan>
+    <tspan x="10px" y="100px"><tspan>    │   │   ├─ [2337] </tspan><tspan class="fg-green">Counter</tspan><tspan>::</tspan><tspan class="fg-green">nest3</tspan><tspan>()</tspan>
+</tspan>
+    <tspan x="10px" y="118px"><tspan>    │   │   │   ├─ [2220] Counter::_nest3Internal(arg1, arg2, 3)</tspan>
+</tspan>
+    <tspan x="10px" y="136px"><tspan>    │   │   │   │   ├─ [mstore]</tspan>
+</tspan>
+    <tspan x="10px" y="154px"><tspan>    │   │   │   │   ├─ emit Log1(</tspan><tspan class="fg-cyan">foo: 0x0000000000000000000000000000000000000000000000000000000000000046</tspan><tspan>)</tspan>
+</tspan>
+    <tspan x="10px" y="172px"><tspan>    │   │   │   │   └─ ← ret1</tspan>
+</tspan>
+    <tspan x="10px" y="190px"><tspan>    │   │   │   ├─ [before_return]</tspan>
+</tspan>
+    <tspan x="10px" y="208px"><tspan>    │   │   │   └─ </tspan><tspan class="fg-green">← [Return] </tspan>
+</tspan>
+    <tspan x="10px" y="226px"><tspan>    │   │   ├─ emit Log2(</tspan><tspan class="fg-cyan">foo: 0x0000000000000000000000000000000000000000000000000000000000000046, bar: 0x000000000000000000000000000000000000000000000000000000000000007b</tspan><tspan>)</tspan>
+</tspan>
+    <tspan x="10px" y="244px"><tspan>    │   │   └─ </tspan><tspan class="fg-green">← [Return] </tspan>
+</tspan>
+    <tspan x="10px" y="262px"><tspan>    │   └─ ← ret1, ret2</tspan>
+</tspan>
+    <tspan x="10px" y="280px"><tspan>    └─ </tspan><tspan class="fg-green">← [Return] </tspan>
+</tspan>
+    <tspan x="10px" y="298px">
+</tspan>
+  </text>
+
+</svg>

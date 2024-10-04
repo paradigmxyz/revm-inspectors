@@ -216,9 +216,10 @@ fn assert_traces(
         let file_kind = if color { DataFormat::TermSvg } else { DataFormat::Text };
         let extension = if color { "svg" } else { "txt" };
         let color_choice = if color { ColorChoice::Always } else { ColorChoice::Never };
+        let bytecodes_extra = if bytecodes { ".write_bytecodes" } else { "" };
 
         let s = write_traces_with(tracer, color_choice, bytecodes);
-        let path = base_path.join(format!("{name}{extra}.{extension}"));
+        let path = base_path.join(format!("{name}{bytecodes_extra}{extra}.{extension}"));
         let data = snapbox::Data::read_from(&path, Some(file_kind));
         assert_data_eq!(s, data);
     };
