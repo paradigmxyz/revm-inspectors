@@ -82,7 +82,7 @@ impl TracingInspectorConfig {
             record_steps: true,
             record_memory_snapshots: true,
             record_stack_snapshots: StackSnapshotType::Full,
-            record_state_diff: true,
+            record_state_diff: false,
             record_returndata_snapshots: true,
             record_opcodes_filter: None,
             exclude_precompile_calls: false,
@@ -91,7 +91,7 @@ impl TracingInspectorConfig {
         }
     }
 
-    /// Returns a config with everything disabled.
+    /// Returns a config with everything is disabled.
     pub const fn none() -> Self {
         Self {
             record_steps: false,
