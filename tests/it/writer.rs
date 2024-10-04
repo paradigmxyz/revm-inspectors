@@ -72,11 +72,13 @@ fn deploy_fail() {
     let mut tracer = TracingInspector::new(TracingInspectorConfig::all().disable_steps());
     let _ = evm.try_deploy(bytes!("604260005260206000fd"), &mut tracer).unwrap();
 
-    assert_traces(base_path, Some("deploy_fail"), None, true, &mut tracer);
+    assert_traces(base_path, Some("raw"), None, true, &mut tracer);
 
-    tracer.traces_mut().nodes_mut()[0].trace.decoded.return_data = Some("42".to_string());
+    let node = &mut tracer.traces_mut().nodes_mut()[0];
+    node.trace.decoded.label = Some("RevertingConstructor".to_string());
+    node.trace.decoded.return_data = Some("42".to_string());
 
-    assert_traces(base_path, Some("deploy_fail.decoded"), None, true, &mut tracer);
+    assert_traces(base_path, Some("decoded"), None, true, &mut tracer);
 }
 
 // (name, address)
