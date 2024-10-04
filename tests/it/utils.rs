@@ -9,7 +9,7 @@ use revm::{
     },
     Database, DatabaseCommit, GetInspector,
 };
-use revm_inspectors::tracing::TracingInspector;
+use revm_inspectors::tracing::{TraceWriter, TraceWriterConfig, TracingInspector};
 use std::convert::Infallible;
 
 type TestDb = CacheDB<EmptyDB>;
@@ -113,26 +113,16 @@ where
 }
 
 pub fn write_traces(tracer: &TracingInspector) -> String {
-    write_traces_with(tracer, ColorChoice::Never, false)
+    write_traces_with(tracer, TraceWriterConfig::new().color_choice(ColorChoice::Never))
 }
 
-pub fn write_traces_with_bytecodes(tracer: &TracingInspector) -> String {
-    write_traces_with(tracer, ColorChoice::Never, true)
-}
-
-pub fn write_traces_with(
-    tracer: &TracingInspector,
-    color: ColorChoice,
-    write_bytecodes: bool,
-) -> String {
-    let mut w = revm_inspectors::tracing::TraceWriter::new(Vec::<u8>::new())
-        .use_colors(color)
-        .write_bytecodes(write_bytecodes);
+pub fn write_traces_with(tracer: &TracingInspector, config: TraceWriterConfig) -> String {
+    let mut w = TraceWriter::with_config(Vec::<u8>::new(), config);
     w.write_arena(tracer.traces()).expect("failed to write traces to Vec<u8>");
     String::from_utf8(w.into_writer()).expect("trace writer wrote invalid UTF-8")
 }
 
 pub fn print_traces(tracer: &TracingInspector) {
     // Use `println!` so that the output is captured by the test runner.
-    println!("{}", write_traces_with(tracer, ColorChoice::Auto, false));
+    println!("{}", write_traces_with(tracer, TraceWriterConfig::new()));
 }

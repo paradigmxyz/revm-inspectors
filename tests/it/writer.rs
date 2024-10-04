@@ -4,7 +4,7 @@ use alloy_sol_types::{sol, SolCall};
 use colorchoice::ColorChoice;
 use revm_inspectors::tracing::{
     types::{DecodedCallData, DecodedInternalCall, DecodedTraceStep},
-    TracingInspector, TracingInspectorConfig,
+    TraceWriterConfig, TracingInspector, TracingInspectorConfig,
 };
 use snapbox::{assert_data_eq, data::DataFormat};
 use std::path::Path;
@@ -214,31 +214,36 @@ fn assert_traces(
     );
     let bytecodes = if write_bytecodes { &[false, true][..] } else { &[false][..] };
 
-    let do_assert = |color: bool, bytecodes: bool, extra: &str, tracer: &TracingInspector| {
+    let do_assert = |config: TraceWriterConfig, extra: &str, tracer: &TracingInspector| {
+        let color = config.get_use_colors();
+        let bytecodes = config.get_write_bytecodes();
+
         let file_kind = if color { DataFormat::TermSvg } else { DataFormat::Text };
         let extension = if color { "svg" } else { "txt" };
-        let color_choice = if color { ColorChoice::Always } else { ColorChoice::Never };
         let bytecodes_extra = if bytecodes { ".write_bytecodes" } else { "" };
 
-        let s = write_traces_with(tracer, color_choice, bytecodes);
+        let s = write_traces_with(tracer, config);
         let path = base_path.join(format!("{name}{bytecodes_extra}{extra}.{extension}"));
         let data = snapbox::Data::read_from(&path, Some(file_kind));
         assert_data_eq!(s, data);
     };
 
-    for color in [false, true] {
+    let mut configs = vec![];
+    for color in [ColorChoice::Never, ColorChoice::Always] {
         for &bytecodes in bytecodes {
-            do_assert(color, bytecodes, "", tracer);
+            configs.push(TraceWriterConfig::new().color_choice(color).write_bytecodes(bytecodes));
         }
+    }
+
+    for config in &configs {
+        do_assert(config.clone(), "", tracer);
     }
 
     if let Some(patch) = patch_index {
         patch_traces(patch, tracer);
 
-        for color in [false, true] {
-            for &bytecodes in bytecodes {
-                do_assert(color, bytecodes, ".decoded", tracer);
-            }
+        for config in &configs {
+            do_assert(config.clone(), ".decoded", tracer);
         }
     }
 }
