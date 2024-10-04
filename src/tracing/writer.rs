@@ -287,9 +287,6 @@ impl<W: Write> TraceWriter<W> {
     ) -> io::Result<usize> {
         let node = &nodes[node_idx];
         let step = &node.trace.steps[step_idx];
-        // if let Some(ref storage_change) = step.storage_change {
-        //     self.write_storage_change(storage_change)?;
-        // }
 
         let Some(decoded) = &step.decoded else {
             // We only write explicitly decoded steps to avoid bloating the output.
@@ -315,8 +312,6 @@ impl<W: Write> TraceWriter<W> {
                     self.write_items_until(nodes, node_idx, item_idx + 1, |item_idx: usize| {
                         matches!(&node.ordering[item_idx], TraceMemberOrder::Step(idx) if *idx == *end_idx)
                     })?;
-
-                // self.write_storage_changes(node, step_idx, *end_idx)?;
 
                 self.write_edge()?;
                 write!(self.writer, "{RETURN}")?;
@@ -424,6 +419,8 @@ impl<W: Write> TraceWriter<W> {
     fn write_storage_changes(&mut self, node: &CallTraceNode) -> io::Result<()> {
         let mut changes_map = HashMap::new();
 
+        // For each call trace, compact the results so we do not write the intermediate storage
+        // writes
         for step in &node.trace.steps {
             if let Some(ref change) = step.storage_change {
                 let entry =
