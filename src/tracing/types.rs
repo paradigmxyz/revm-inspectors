@@ -127,8 +127,20 @@ impl CallTrace {
             InstructionResult::Revert => {
                 if kind.is_parity() { "Reverted" } else { "execution reverted" }.to_string()
             }
-            InstructionResult::OutOfGas | InstructionResult::MemoryOOG => {
+            InstructionResult::OutOfGas | InstructionResult::PrecompileOOG => {
                 if kind.is_parity() { "Out of gas" } else { "out of gas" }.to_string()
+            }
+            InstructionResult::MemoryOOG => {
+                if kind.is_parity() { "Out of gas" } else { "out of gas: out of memory" }
+                    .to_string()
+            }
+            InstructionResult::MemoryLimitOOG => {
+                if kind.is_parity() { "Out of gas" } else { "out of gas: reach memory limit" }
+                    .to_string()
+            }
+            InstructionResult::InvalidOperandOOG => {
+                if kind.is_parity() { "Out of gas" } else { "out of gas: invalid operand" }
+                    .to_string()
             }
             InstructionResult::OpcodeNotFound => {
                 if kind.is_parity() { "Bad instruction" } else { "invalid opcode" }.to_string()
@@ -145,6 +157,13 @@ impl CallTrace {
                 if kind.is_parity() { "Bad instruction" } else { "invalid opcode: INVALID" }
                     .to_string()
             }
+            // TODO(mattsse): upcoming error
+            // InstructionResult::ReentrancySentryOOG => if kind.is_parity() {
+            //     "Out of gas"
+            // } else {
+            //     "out of gas: not enough gas for reentrancy sentry"
+            // }
+            // .to_string(),
             status => format!("{:?}", status),
         })
     }
