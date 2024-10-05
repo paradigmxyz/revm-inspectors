@@ -142,12 +142,6 @@ impl CallTrace {
                 if kind.is_parity() { "Out of gas" } else { "out of gas: invalid operand" }
                     .to_string()
             }
-            InstructionResult::ReentrancySentryOOG => if kind.is_parity() {
-                "Out of gas"
-            } else {
-                "out of gas: not enough gas for reentrancy sentry"
-            }
-            .to_string(),
             InstructionResult::OpcodeNotFound => {
                 if kind.is_parity() { "Bad instruction" } else { "invalid opcode" }.to_string()
             }
@@ -163,6 +157,13 @@ impl CallTrace {
                 if kind.is_parity() { "Bad instruction" } else { "invalid opcode: INVALID" }
                     .to_string()
             }
+            // TODO(mattsse): upcoming error
+            // InstructionResult::ReentrancySentryOOG => if kind.is_parity() {
+            //     "Out of gas"
+            // } else {
+            //     "out of gas: not enough gas for reentrancy sentry"
+            // }
+            // .to_string(),
             status => format!("{:?}", status),
         })
     }
