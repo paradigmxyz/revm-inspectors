@@ -21,7 +21,7 @@ fn test_trace_printing() {
 
     let mut evm = TestEvm::new();
 
-    let mut tracer = TracingInspector::new(TracingInspectorConfig::all().disable_steps());
+    let mut tracer = TracingInspector::new(TracingInspectorConfig::all());
     let address = evm.deploy(CREATION_CODE.parse().unwrap(), &mut tracer).unwrap();
 
     let mut index = 0;
@@ -69,7 +69,7 @@ fn deploy_fail() {
     let base_path = &Path::new(OUT_DIR).join("deploy_fail");
 
     let mut evm = TestEvm::new();
-    let mut tracer = TracingInspector::new(TracingInspectorConfig::all().disable_steps());
+    let mut tracer = TracingInspector::new(TracingInspectorConfig::all());
     let _ = evm.try_deploy(bytes!("604260005260206000fd"), &mut tracer).unwrap();
 
     assert_traces(base_path, Some("raw"), None, true, &mut tracer);

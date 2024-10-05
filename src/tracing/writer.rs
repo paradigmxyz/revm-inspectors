@@ -242,7 +242,7 @@ impl<W: Write> TraceWriter<W> {
                 label = trace.decoded.label.as_deref().unwrap_or("<unknown>")
             )?;
             if self.config.write_bytecodes {
-                write!(self.writer, "({})", hex::encode(&trace.data))?;
+                write!(self.writer, "({})", trace.data)?;
             }
         } else {
             let (func_name, inputs) = match &trace.decoded.call_data {
@@ -399,11 +399,8 @@ impl<W: Write> TraceWriter<W> {
             return self.writer.write_all(decoded.as_bytes());
         }
 
-        if trace.kind.is_any_create() && trace.status.is_ok() {
+        if !self.config.write_bytecodes && (trace.kind.is_any_create() && trace.status.is_ok()) {
             write!(self.writer, "{} bytes of code", trace.output.len())?;
-            if self.config.write_bytecodes {
-                write!(self.writer, " ({})", hex::encode(&trace.output))?;
-            }
         } else if !trace.output.is_empty() {
             write!(self.writer, "{}", trace.output)?;
         }
