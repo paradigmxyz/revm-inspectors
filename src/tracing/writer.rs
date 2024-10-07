@@ -85,14 +85,13 @@ impl TraceWriterConfig {
         self.write_bytecodes
     }
 
-    /// Writes the storage changes to the writer.
-    /// Default: false.
+    /// Sets whether to write storage changes.
     pub fn write_storage_changes(mut self, yes: bool) -> Self {
         self.write_storage_changes = yes;
         self
     }
 
-    /// Returns `true` if contract creation codes and deployed codes are written.
+    /// Returns `true` if storage changes are written to the writer.
     pub fn get_write_storage_changes(&self) -> bool {
         self.write_storage_changes
     }
@@ -145,6 +144,13 @@ impl<W: Write> TraceWriter<W> {
     #[inline]
     pub fn write_bytecodes(mut self, yes: bool) -> Self {
         self.config.write_bytecodes = yes;
+        self
+    }
+
+    /// Sets whether to write storage changes.
+    #[inline]
+    pub fn with_storage_changes(mut self, yes: bool) -> Self {
+        self.config.write_storage_changes = yes;
         self
     }
 
@@ -488,13 +494,13 @@ impl<W: Write> TraceWriter<W> {
 
     fn write_storage_changes(&mut self, node: &CallTraceNode) -> io::Result<()> {
         let mut changes_map = HashMap::new();
+        let contract = &node.trace.address;
 
         // For each call trace, compact the results so we do not write the intermediate storage
         // writes
         for step in &node.trace.steps {
             if let Some(ref change) = step.storage_change {
-                let entry =
-                    changes_map.entry((&step.contract, &change.key)).or_insert((None, None));
+                let entry = changes_map.entry(&change.key).or_insert((None, None));
                 if entry.0.is_none() {
                     entry.0 = Some(change);
                 }
@@ -502,7 +508,7 @@ impl<W: Write> TraceWriter<W> {
             }
         }
 
-        for ((contract, key), (first_change, last_change)) in changes_map {
+        for (key, (first_change, last_change)) in changes_map {
             if let (Some(first), Some(last)) = (first_change, last_change) {
                 let had_value = first.had_value;
                 let value = last.value;
