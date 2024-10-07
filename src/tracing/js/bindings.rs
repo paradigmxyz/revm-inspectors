@@ -429,20 +429,22 @@ impl StackRef {
     fn peek(&self, idx: usize, ctx: &mut Context) -> JsResult<JsValue> {
         self.0
             .with_inner(|stack| {
-                let value = stack.peek(idx).map_err(|_| {
-                    JsError::from_native(JsNativeError::typ().with_message(format!(
-                        "tracer accessed out of bound stack: size {}, index {}",
-                        stack.len(),
-                        idx
-                    )))
-                })?;
-                to_bigint(value, ctx)
+                stack
+                    .peek(idx)
+                    .map_err(|_| {
+                        JsError::from_native(JsNativeError::typ().with_message(format!(
+                            "tracer accessed out of bound stack: size {}, index {}",
+                            stack.len(),
+                            idx
+                        )))
+                    })
+                    .and_then(|value| to_bigint(value, ctx))
             })
             .ok_or_else(|| {
-                JsError::from_native(JsNativeError::typ().with_message(format!(
-                    "tracer accessed out of bound stack: size 0, index {}",
-                    idx
-                )))
+                JsError::from_native(
+                    JsNativeError::typ()
+                        .with_message("tracer accessed stack after it was dropped".to_string()),
+                )
             })?
     }
 
@@ -465,9 +467,7 @@ impl StackRef {
                     let idx = idx_f64 as usize;
                     if len <= idx || idx_f64 < 0. {
                         return Err(JsError::from_native(JsNativeError::typ().with_message(
-                            format!(
-                                "tracer accessed out of bound stack: size {len}, index {idx_f64}"
-                            ),
+                            format!("tracer accessed out of bound stack: size {len}, index {idx}"),
                         )));
                     }
                     stack.peek(idx, ctx)
