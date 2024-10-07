@@ -31,6 +31,7 @@ pub struct TraceWriterConfig {
     use_colors: bool,
     color_cheatcodes: bool,
     write_bytecodes: bool,
+    write_storage_changes: bool,
 }
 
 impl Default for TraceWriterConfig {
@@ -46,6 +47,7 @@ impl TraceWriterConfig {
             use_colors: use_colors(ColorChoice::Auto),
             color_cheatcodes: false,
             write_bytecodes: false,
+            write_storage_changes: false,
         }
     }
 
@@ -81,6 +83,18 @@ impl TraceWriterConfig {
     /// Returns `true` if contract creation codes and deployed codes are written.
     pub fn get_write_bytecodes(&self) -> bool {
         self.write_bytecodes
+    }
+
+    /// Writes the storage changes to the writer.
+    /// Default: false.
+    pub fn write_storage_changes(mut self, yes: bool) -> Self {
+        self.write_storage_changes = yes;
+        self
+    }
+
+    /// Returns `true` if contract creation codes and deployed codes are written.
+    pub fn get_write_storage_changes(&self) -> bool {
+        self.write_storage_changes
     }
 }
 
@@ -221,7 +235,9 @@ impl<W: Write> TraceWriter<W> {
         self.indentation_level += 1;
         self.write_items(nodes, idx)?;
 
-        self.write_storage_changes(node)?;
+        if self.config.write_storage_changes {
+            self.write_storage_changes(node)?;
+        }
 
         // Write return data.
         self.write_edge()?;

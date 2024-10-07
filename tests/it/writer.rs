@@ -26,7 +26,7 @@ fn test_trace_printing() {
 
     let mut index = 0;
 
-    assert_traces(base_path, None, Some(index), true, &mut tracer);
+    assert_traces(base_path, None, Some(index), true, true, &mut tracer);
     index += 1;
 
     let mut call = |data: Vec<u8>| {
@@ -34,7 +34,7 @@ fn test_trace_printing() {
         let r = evm.call(address, data.into(), &mut tracer).unwrap();
         assert!(r.is_success(), "evm.call reverted: {r:#?}");
 
-        assert_traces(base_path, None, Some(index), true, &mut tracer);
+        assert_traces(base_path, None, Some(index), true, true, &mut tracer);
 
         index += 1;
     };
@@ -72,13 +72,13 @@ fn deploy_fail() {
     let mut tracer = TracingInspector::new(TracingInspectorConfig::all());
     let _ = evm.try_deploy(bytes!("604260005260206000fd"), &mut tracer).unwrap();
 
-    assert_traces(base_path, Some("raw"), None, true, &mut tracer);
+    assert_traces(base_path, Some("raw"), None, true, true, &mut tracer);
 
     let node = &mut tracer.traces_mut().nodes_mut()[0];
     node.trace.decoded.label = Some("RevertingConstructor".to_string());
     node.trace.decoded.return_data = Some("42".to_string());
 
-    assert_traces(base_path, Some("decoded"), None, true, &mut tracer);
+    assert_traces(base_path, Some("decoded"), None, true, true, &mut tracer);
 }
 
 // (name, address)
@@ -206,6 +206,7 @@ fn assert_traces(
     name: Option<&str>,
     patch_index: Option<usize>,
     write_bytecodes: bool,
+    write_storage_changes: bool,
     tracer: &mut TracingInspector,
 ) {
     let name = name.map_or_else(
@@ -213,6 +214,8 @@ fn assert_traces(
         ToString::to_string,
     );
     let bytecodes = if write_bytecodes { &[false, true][..] } else { &[false][..] };
+    let write_storage_changes =
+        if write_storage_changes { &[false, true][..] } else { &[false][..] };
 
     let do_assert = |config: TraceWriterConfig, extra: &str, tracer: &TracingInspector| {
         let color = config.get_use_colors();
@@ -231,7 +234,14 @@ fn assert_traces(
     let mut configs = vec![];
     for color in [ColorChoice::Never, ColorChoice::Always] {
         for &bytecodes in bytecodes {
-            configs.push(TraceWriterConfig::new().color_choice(color).write_bytecodes(bytecodes));
+            for &write_storage_changes in write_storage_changes {
+                configs.push(
+                    TraceWriterConfig::new()
+                        .color_choice(color)
+                        .write_bytecodes(bytecodes)
+                        .write_storage_changes(write_storage_changes),
+                );
+            }
         }
     }
 

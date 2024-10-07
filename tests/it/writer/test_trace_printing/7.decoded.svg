@@ -1,4 +1,4 @@
-<svg width="1448px" height="308px" xmlns="http://www.w3.org/2000/svg">
+<svg width="1448px" height="380px" xmlns="http://www.w3.org/2000/svg">
   <style>
     .fg { fill: #AAAAAA }
     .bg { background: #000000 }
@@ -42,13 +42,21 @@
 </tspan>
     <tspan x="10px" y="226px"><tspan>    │   │   ├─ emit Log2(</tspan><tspan class="fg-cyan">foo: 0x0000000000000000000000000000000000000000000000000000000000000046, bar: 0x000000000000000000000000000000000000000000000000000000000000007b</tspan><tspan>)</tspan>
 </tspan>
-    <tspan x="10px" y="244px"><tspan>    │   │   └─ </tspan><tspan class="fg-green">← [Return] </tspan>
+    <tspan x="10px" y="244px"><tspan>    │   │   ├─  storage write 0xBd770416a3345F91E4B34576cb804a576fa48EB1 [0x0000000000000000000000000000000000000000000000000000000000000000]:</tspan>
 </tspan>
-    <tspan x="10px" y="262px"><tspan>    │   └─ ← ret1, ret2</tspan>
+    <tspan x="10px" y="262px"><tspan>    │   │   │                 0x0000000000000000000000000000000000000000000000000000000000000045 → 0x0000000000000000000000000000000000000000000000000000000000000046</tspan>
 </tspan>
-    <tspan x="10px" y="280px"><tspan>    └─ </tspan><tspan class="fg-green">← [Return] </tspan>
+    <tspan x="10px" y="280px"><tspan>    │   │   └─ </tspan><tspan class="fg-green">← [Return] </tspan>
 </tspan>
-    <tspan x="10px" y="298px">
+    <tspan x="10px" y="298px"><tspan>    │   └─ ← ret1, ret2</tspan>
+</tspan>
+    <tspan x="10px" y="316px"><tspan>    ├─  storage write 0xBd770416a3345F91E4B34576cb804a576fa48EB1 [0x0000000000000000000000000000000000000000000000000000000000000000]:</tspan>
+</tspan>
+    <tspan x="10px" y="334px"><tspan>    │                 0x0000000000000000000000000000000000000000000000000000000000000046 → 0x0000000000000000000000000000000000000000000000000000000000000047</tspan>
+</tspan>
+    <tspan x="10px" y="352px"><tspan>    └─ </tspan><tspan class="fg-green">← [Return] </tspan>
+</tspan>
+    <tspan x="10px" y="370px">
 </tspan>
   </text>
 
