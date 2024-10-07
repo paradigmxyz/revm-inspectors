@@ -218,9 +218,8 @@ impl DelegatingInspector {
                 Ok(DelegatingInspector::FourByte(FourByteInspector::default()))
             }
             GethDebugBuiltInTracerType::CallTracer => {
-                let call_config = tracer_config
-                    .ok_or_else(|| Error::MissingConfig(tracer_type))?
-                    .into_call_config()?;
+                let call_config =
+                    tracer_config.ok_or(Error::MissingConfig(tracer_type))?.into_call_config()?;
 
                 let inspector = TracingInspector::new(
                     TracingInspectorConfig::from_geth_call_config(&call_config),
@@ -234,7 +233,7 @@ impl DelegatingInspector {
             }
             GethDebugBuiltInTracerType::PreStateTracer => {
                 let prestate_config = tracer_config
-                    .ok_or_else(|| Error::MissingConfig(tracer_type))?
+                    .ok_or(Error::MissingConfig(tracer_type))?
                     .into_pre_state_config()?;
 
                 let inspector = TracingInspector::new(
@@ -250,9 +249,8 @@ impl DelegatingInspector {
                 Ok(DelegatingInspector::Noop)
             }
             GethDebugBuiltInTracerType::MuxTracer => {
-                let config = tracer_config
-                    .ok_or_else(|| Error::MissingConfig(tracer_type))?
-                    .into_mux_config()?;
+                let config =
+                    tracer_config.ok_or(Error::MissingConfig(tracer_type))?.into_mux_config()?;
 
                 Ok(DelegatingInspector::Mux(MuxInspector::try_from_config(config)?))
             }

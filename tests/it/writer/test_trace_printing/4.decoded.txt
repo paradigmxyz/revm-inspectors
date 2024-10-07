@@ -1,0 +1,2 @@
+  [5189] Counter::setNumber(69)
+    └─ ← [Return] 1
