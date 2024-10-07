@@ -220,13 +220,17 @@ fn assert_traces(
     let do_assert = |config: TraceWriterConfig, extra: &str, tracer: &TracingInspector| {
         let color = config.get_use_colors();
         let bytecodes = config.get_write_bytecodes();
+        let write_storage_changes = config.get_write_storage_changes();
 
         let file_kind = if color { DataFormat::TermSvg } else { DataFormat::Text };
         let extension = if color { "svg" } else { "txt" };
         let bytecodes_extra = if bytecodes { ".write_bytecodes" } else { "" };
+        let storage_changes_extra =
+            if write_storage_changes { ".write_storage_changes" } else { "" };
 
         let s = write_traces_with(tracer, config);
-        let path = base_path.join(format!("{name}{bytecodes_extra}{extra}.{extension}"));
+        let path = base_path
+            .join(format!("{name}{bytecodes_extra}{storage_changes_extra}{extra}.{extension}"));
         let data = snapbox::Data::read_from(&path, Some(file_kind));
         assert_data_eq!(s, data);
     };
