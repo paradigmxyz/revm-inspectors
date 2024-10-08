@@ -8,7 +8,10 @@ use super::{
 use alloy_primitives::{address, hex, Address};
 use anstyle::{AnsiColor, Color, Style};
 use colorchoice::ColorChoice;
-use std::io::{self, Write};
+use std::{
+    collections::HashMap,
+    io::{self, Write},
+};
 
 const CHEATCODE_ADDRESS: Address = address!("7109709ECfa91a80626fF3989D68f67F5b1DD12D");
 
@@ -28,6 +31,7 @@ pub struct TraceWriterConfig {
     use_colors: bool,
     color_cheatcodes: bool,
     write_bytecodes: bool,
+    write_storage_changes: bool,
 }
 
 impl Default for TraceWriterConfig {
@@ -43,6 +47,7 @@ impl TraceWriterConfig {
             use_colors: use_colors(ColorChoice::Auto),
             color_cheatcodes: false,
             write_bytecodes: false,
+            write_storage_changes: false,
         }
     }
 
@@ -78,6 +83,17 @@ impl TraceWriterConfig {
     /// Returns `true` if contract creation codes and deployed codes are written.
     pub fn get_write_bytecodes(&self) -> bool {
         self.write_bytecodes
+    }
+
+    /// Sets whether to write storage changes.
+    pub fn write_storage_changes(mut self, yes: bool) -> Self {
+        self.write_storage_changes = yes;
+        self
+    }
+
+    /// Returns `true` if storage changes are written to the writer.
+    pub fn get_write_storage_changes(&self) -> bool {
+        self.write_storage_changes
     }
 }
 
@@ -128,6 +144,13 @@ impl<W: Write> TraceWriter<W> {
     #[inline]
     pub fn write_bytecodes(mut self, yes: bool) -> Self {
         self.config.write_bytecodes = yes;
+        self
+    }
+
+    /// Sets whether to write storage changes.
+    #[inline]
+    pub fn with_storage_changes(mut self, yes: bool) -> Self {
+        self.config.write_storage_changes = yes;
         self
     }
 
@@ -217,6 +240,10 @@ impl<W: Write> TraceWriter<W> {
         // Write logs and subcalls.
         self.indentation_level += 1;
         self.write_items(nodes, idx)?;
+
+        if self.config.write_storage_changes {
+            self.write_storage_changes(node)?;
+        }
 
         // Write return data.
         self.write_edge()?;
@@ -348,6 +375,7 @@ impl<W: Write> TraceWriter<W> {
         match decoded {
             DecodedTraceStep::InternalCall(call, end_idx) => {
                 let gas_used = node.trace.steps[*end_idx].gas_used.saturating_sub(step.gas_used);
+
                 self.write_branch()?;
                 self.indentation_level += 1;
 
@@ -462,6 +490,47 @@ impl<W: Write> TraceWriter<W> {
             return Style::default();
         }
         LOG_STYLE
+    }
+
+    fn write_storage_changes(&mut self, node: &CallTraceNode) -> io::Result<()> {
+        let mut changes_map = HashMap::new();
+        let contract = &node.trace.address;
+
+        // For each call trace, compact the results so we do not write the intermediate storage
+        // writes
+        for step in &node.trace.steps {
+            if let Some(ref change) = step.storage_change {
+                let entry = changes_map.entry(&change.key).or_insert((None, None));
+                if entry.0.is_none() {
+                    entry.0 = Some(change);
+                }
+                entry.1 = Some(change);
+            }
+        }
+
+        for (key, (first_change, last_change)) in changes_map {
+            if let (Some(first), Some(last)) = (first_change, last_change) {
+                let had_value = first.had_value;
+                let value = last.value;
+
+                self.write_branch()?;
+                writeln!(
+                    self.writer,
+                    " storage write {} [0x{}]:",
+                    contract.to_checksum_buffer(None).as_str(),
+                    hex::encode(key.to_be_bytes_vec())
+                )?;
+                self.write_pipes()?;
+                writeln!(
+                    self.writer,
+                    "                0x{:>64} → 0x{:>64}",
+                    had_value.map_or("".into(), |v| hex::encode(v.to_be_bytes_vec())),
+                    hex::encode(value.to_be_bytes_vec())
+                )?;
+            }
+        }
+
+        Ok(())
     }
 }
 
