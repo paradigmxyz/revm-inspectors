@@ -29,6 +29,7 @@ allow = [
     "Unicode-DFS-2016",
     "Unicode-3.0",
     "Unlicense",
+    "Zlib",
     # https://github.com/briansmith/ring/issues/902
     "LicenseRef-ring",
     # https://github.com/briansmith/webpki/issues/148
