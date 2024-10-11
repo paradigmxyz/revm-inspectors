@@ -3,8 +3,8 @@
 use crate::tracing::{
     js::{
         bindings::{
-            js_value_getter, CallFrame, Contract, EvmDbRef, FrameResult, JsEvmContext, MemoryRef,
-            StackRef, StepLog,
+            js_value_getter, CallFrame, Contract, EvmDbRef, FrameResult, GcGuard, JsEvmContext,
+            MemoryRef, StackRef, StepLog,
         },
         builtins::{register_builtins, to_serde_value, PrecompileList},
     },
@@ -20,7 +20,7 @@ use boa_engine::{
 use revm::{
     interpreter::{
         return_revert, CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, Gas,
-        InstructionResult, Interpreter, InterpreterResult,
+        InstructionResult, Interpreter, InterpreterResult, SharedMemory, Stack,
     },
     primitives::{Env, ExecutionResult, Output, ResultAndState, TransactTo},
     ContextPrecompiles, Database, DatabaseRef, EvmContext, Inspector,
@@ -78,7 +78,8 @@ pub struct JsInspector {
     precompiles_registered: bool,
     /// Represents the current step log that is being processed, initialized in the `step`
     /// function, and be updated and used in the `step_end` function.
-    step: Option<JsObject>,
+    step: Option<(JsObject, GcGuard<'static, Stack>, GcGuard<'static, SharedMemory>)>,
+    /// The gas remaining before the opcode execution.
     gas_remaining: u64,
 }
 
@@ -410,13 +411,16 @@ where
             return;
         }
 
-        let (stack, _stack_guard) = StackRef::new(&interp.stack);
-        let (memory, _memory_guard) = MemoryRef::new(&interp.shared_memory);
+        // Update the gas remaining before the opcode execution
+        self.gas_remaining = interp.gas.remaining();
 
         // Create and store a new step log. The `cost` and `refund` values cannot be calculated yet,
         // as they depend on the opcode execution. These values will be updated in `step_end`
         // after the opcode has been executed, and then the `step` function will be invoked.
         // Initialize `cost` and `refund` as placeholders for later updates.
+        let (stack, stack_guard) = StackRef::new_owned(interp.stack.clone());
+        let (memory, memory_guard) = MemoryRef::new_owned(interp.shared_memory.clone());
+
         let step = StepLog {
             stack,
             op: interp.current_opcode().into(),
@@ -430,11 +434,10 @@ where
             contract: self.active_call().contract.clone(),
         };
 
-        self.gas_remaining = interp.gas.remaining();
         match step.into_js_object(&mut self.ctx) {
-            Ok(step) => self.step = Some(step),
-            Err(err) => interp.instruction_result = InstructionResult::Revert,
-        };
+            Ok(step) => self.step = Some((step, stack_guard, memory_guard)),
+            Err(_) => interp.instruction_result = InstructionResult::Revert,
+        }
     }
 
     fn step_end(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
@@ -443,7 +446,7 @@ where
         }
 
         // Calculate the gas cost and refund after opcode execution
-        if let Some(step) = self.step.take() {
+        if let Some((step, _stack_guard, _memory_guard)) = self.step.take() {
             let cost = self.gas_remaining.saturating_sub(interp.gas.remaining());
             let refund = interp.gas.refunded() as u64;
 
