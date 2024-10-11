@@ -675,6 +675,8 @@ pub(crate) struct JsEvmContext {
     /// Number, block number
     pub(crate) time: String,
     pub(crate) transaction_ctx: TransactionContext,
+    /// returns information about the error if one occurred, otherwise returns undefined
+    pub(crate) error: Option<String>,
 }
 
 impl JsEvmContext {
@@ -693,6 +695,7 @@ impl JsEvmContext {
             output,
             time,
             transaction_ctx,
+            error,
         } = self;
         let obj = JsObject::default();
 
@@ -723,6 +726,9 @@ impl JsEvmContext {
         }
         if let Some(tx_hash) = transaction_ctx.tx_hash {
             obj.set(js_string!("txHash"), to_byte_array(tx_hash.0, ctx)?, false, ctx)?;
+        }
+        if let Some(error) = error {
+            obj.set(js_string!("error"), js_string!(error), false, ctx)?;
         }
 
         Ok(obj)
