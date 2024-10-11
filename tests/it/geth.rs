@@ -14,9 +14,10 @@ use revm::{
     },
     DatabaseCommit,
 };
-use revm_inspectors::tracing::{
-    js::JsInspector, MuxInspector, TracingInspector, TracingInspectorConfig,
-};
+use revm_inspectors::tracing::{MuxInspector, TracingInspector, TracingInspectorConfig};
+
+#[cfg(feature = "js-tracer")]
+use revm_inspectors::tracing::js::JsInspector;
 
 #[test]
 fn test_geth_calltracer_logs() {
@@ -339,6 +340,7 @@ fn test_geth_inspector_reset() {
 }
 
 #[test]
+#[cfg(feature = "js-tracer")]
 fn test_geth_jstracer_revert() {
     /*
     pragma solidity ^0.8.13;
