@@ -252,7 +252,7 @@ impl JsInspector {
                 output_bytes = Some(output);
             }
             ExecutionResult::Halt { reason, .. } => {
-                error = Some(format!("execution halted: {}", reason));
+                error = Some(format!("execution halted: {:?}", reason));
             }
         };
 
