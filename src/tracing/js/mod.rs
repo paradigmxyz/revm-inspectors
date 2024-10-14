@@ -136,7 +136,7 @@ impl JsInspector {
             .as_object()
             .cloned()
             .ok_or(JsInspectorError::FaultFunctionMissing)?;
-        if !result_fn.is_callable() {
+        if !fault_fn.is_callable() {
             return Err(JsInspectorError::FaultFunctionMissing);
         }
 
@@ -647,5 +647,18 @@ mod tests {
         ",
         ));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_fault_fn_not_callable() {
+        let code = r#"
+            {
+                result: function() {},
+                fault: {},
+            }
+        "#;
+        let config = serde_json::Value::Null;
+        let result = JsInspector::new(code.to_string(), config);
+        assert!(matches!(result, Err(JsInspectorError::FaultFunctionMissing)));
     }
 }
