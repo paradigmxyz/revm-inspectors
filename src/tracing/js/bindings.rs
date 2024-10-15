@@ -672,7 +672,7 @@ pub(crate) struct JsEvmContext {
     /// Number, block number
     pub(crate) block: u64,
     pub(crate) output: Bytes,
-    /// Number, block number
+    /// Number, block timestamp
     pub(crate) time: String,
     pub(crate) transaction_ctx: TransactionContext,
     /// returns information about the error if one occurred, otherwise returns undefined
