@@ -236,6 +236,7 @@ impl JsInspector {
         let gas_used = result.gas_used();
         let mut to = None;
         let mut output_bytes = None;
+        let mut error = None;
         match result {
             ExecutionResult::Success { output, .. } => match output {
                 Output::Call(out) => {
@@ -247,17 +248,21 @@ impl JsInspector {
                 }
             },
             ExecutionResult::Revert { output, .. } => {
+                error = Some("execution reverted".to_string());
                 output_bytes = Some(output);
             }
-            ExecutionResult::Halt { .. } => {}
+            ExecutionResult::Halt { reason, .. } => {
+                error = Some(format!("execution halted: {:?}", reason));
+            }
         };
+
+        if let TransactTo::Call(target) = env.tx.transact_to {
+            to = Some(target);
+        }
 
         let ctx = JsEvmContext {
             r#type: match env.tx.transact_to {
-                TransactTo::Call(target) => {
-                    to = Some(target);
-                    "CALL"
-                }
+                TransactTo::Call(_) => "CALL",
                 TransactTo::Create => "CREATE",
             }
             .to_string(),
@@ -273,6 +278,7 @@ impl JsInspector {
             time: env.block.timestamp.to_string(),
             intrinsic_gas: 0,
             transaction_ctx: self.transaction_context,
+            error,
         };
         let ctx = ctx.into_js_object(&mut self.ctx)?;
         let db = db.into_js_object(&mut self.ctx)?;
