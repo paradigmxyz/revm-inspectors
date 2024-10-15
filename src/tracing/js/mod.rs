@@ -274,6 +274,7 @@ impl JsInspector {
             gas_price: env.tx.gas_price.try_into().unwrap_or(u64::MAX),
             value: env.tx.value,
             block: env.block.number.try_into().unwrap_or(u64::MAX),
+            coinbase: env.block.coinbase,
             output: output_bytes.unwrap_or_default(),
             time: env.block.timestamp.to_string(),
             intrinsic_gas: 0,

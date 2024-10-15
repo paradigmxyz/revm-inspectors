@@ -705,10 +705,6 @@ pub struct TransactionContext {
     ///
     /// `None` if this is a call.
     pub tx_hash: Option<B256>,
-    /// Address of the miner of the block.
-    ///
-    /// `None` if this is a call.
-    pub coinbase: Option<Address>,
 }
 
 impl TransactionContext {
@@ -729,12 +725,6 @@ impl TransactionContext {
         self.tx_hash = Some(tx_hash);
         self
     }
-
-    /// Sets the coinbase of the transaction.
-    pub const fn with_coinbase(mut self, coinbase: Address) -> Self {
-        self.coinbase = Some(coinbase);
-        self
-    }
 }
 
 impl From<alloy_rpc_types_eth::TransactionInfo> for TransactionContext {
@@ -743,7 +733,6 @@ impl From<alloy_rpc_types_eth::TransactionInfo> for TransactionContext {
             block_hash: tx_info.block_hash,
             tx_index: tx_info.index.map(|idx| idx as usize),
             tx_hash: tx_info.hash,
-            coinbase: None,
         }
     }
 }
