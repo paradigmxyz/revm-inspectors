@@ -259,14 +259,13 @@ impl JsInspector {
         if let TransactTo::Call(target) = env.tx.transact_to {
             to = Some(target);
         }
-        let r#type = match env.tx.transact_to {
-            TransactTo::Call(_) => "CALL",
-            TransactTo::Create => "CREATE",
-        }
-        .to_string();
 
         let ctx = JsEvmContext {
-            r#type,
+            r#type: match env.tx.transact_to {
+                TransactTo::Call(_) => "CALL",
+                TransactTo::Create => "CREATE",
+            }
+            .to_string(),
             from: env.tx.caller,
             to,
             input: env.tx.data.clone(),
