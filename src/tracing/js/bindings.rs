@@ -671,6 +671,8 @@ pub(crate) struct JsEvmContext {
     pub(crate) value: U256,
     /// Number, block number
     pub(crate) block: u64,
+    /// Address, miner of the block
+    pub(crate) coinbase: Address,
     pub(crate) output: Bytes,
     /// Number, block timestamp
     pub(crate) time: String,
@@ -692,6 +694,7 @@ impl JsEvmContext {
             intrinsic_gas,
             value,
             block,
+            coinbase,
             output,
             time,
             transaction_ctx,
@@ -716,6 +719,7 @@ impl JsEvmContext {
         obj.set(js_string!("intrinsicGas"), intrinsic_gas, false, ctx)?;
         obj.set(js_string!("value"), to_bigint(value, ctx)?, false, ctx)?;
         obj.set(js_string!("block"), block, false, ctx)?;
+        obj.set(js_string!("coinbase"), address_to_byte_array(coinbase, ctx)?, false, ctx)?;
         obj.set(js_string!("output"), to_byte_array(output, ctx)?, false, ctx)?;
         obj.set(js_string!("time"), js_string!(time), false, ctx)?;
         if let Some(block_hash) = transaction_ctx.block_hash {
