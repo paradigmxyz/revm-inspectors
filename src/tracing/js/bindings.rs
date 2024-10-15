@@ -727,6 +727,9 @@ impl JsEvmContext {
         if let Some(tx_hash) = transaction_ctx.tx_hash {
             obj.set(js_string!("txHash"), to_byte_array(tx_hash.0, ctx)?, false, ctx)?;
         }
+        if let Some(coinbase) = transaction_ctx.coinbase {
+            obj.set(js_string!("coinbase"), address_to_byte_array(coinbase, ctx)?, false, ctx)?;
+        }
         if let Some(error) = error {
             obj.set(js_string!("error"), js_string!(error), false, ctx)?;
         }
