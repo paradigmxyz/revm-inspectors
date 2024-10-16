@@ -26,7 +26,7 @@ fn test_trace_printing() {
 
     let mut index = 0;
 
-    assert_traces(base_path, None, Some(index), true, &mut tracer);
+    assert_traces(base_path, None, Some(index), &mut tracer);
     index += 1;
 
     let mut call = |data: Vec<u8>| {
@@ -34,7 +34,7 @@ fn test_trace_printing() {
         let r = evm.call(address, data.into(), &mut tracer).unwrap();
         assert!(r.is_success(), "evm.call reverted: {r:#?}");
 
-        assert_traces(base_path, None, Some(index), true, &mut tracer);
+        assert_traces(base_path, None, Some(index), &mut tracer);
 
         index += 1;
     };
@@ -72,13 +72,13 @@ fn deploy_fail() {
     let mut tracer = TracingInspector::new(TracingInspectorConfig::all());
     let _ = evm.try_deploy(bytes!("604260005260206000fd"), &mut tracer).unwrap();
 
-    assert_traces(base_path, Some("raw"), None, true, &mut tracer);
+    assert_traces(base_path, Some("raw"), None, &mut tracer);
 
     let node = &mut tracer.traces_mut().nodes_mut()[0];
     node.trace.decoded.label = Some("RevertingConstructor".to_string());
     node.trace.decoded.return_data = Some("42".to_string());
 
-    assert_traces(base_path, Some("decoded"), None, true, &mut tracer);
+    assert_traces(base_path, Some("decoded"), None, &mut tracer);
 }
 
 // (name, address)
@@ -205,33 +205,41 @@ fn assert_traces(
     base_path: &Path,
     name: Option<&str>,
     patch_index: Option<usize>,
-    write_bytecodes: bool,
     tracer: &mut TracingInspector,
 ) {
     let name = name.map_or_else(
         || patch_index.expect("at least one of name or patch_index must be provided").to_string(),
         ToString::to_string,
     );
-    let bytecodes = if write_bytecodes { &[false, true][..] } else { &[false][..] };
 
     let do_assert = |config: TraceWriterConfig, extra: &str, tracer: &TracingInspector| {
         let color = config.get_use_colors();
         let bytecodes = config.get_write_bytecodes();
+        let write_storage_changes = config.get_write_storage_changes();
 
         let file_kind = if color { DataFormat::TermSvg } else { DataFormat::Text };
         let extension = if color { "svg" } else { "txt" };
-        let bytecodes_extra = if bytecodes { ".write_bytecodes" } else { "" };
+        let bytecodes_extra = if bytecodes { ".bytecodes" } else { "" };
+        let storage_changes_extra = if write_storage_changes { ".storage" } else { "" };
 
         let s = write_traces_with(tracer, config);
-        let path = base_path.join(format!("{name}{bytecodes_extra}{extra}.{extension}"));
+        let path = base_path
+            .join(format!("{name}{bytecodes_extra}{storage_changes_extra}{extra}.{extension}"));
         let data = snapbox::Data::read_from(&path, Some(file_kind));
         assert_data_eq!(s, data);
     };
 
     let mut configs = vec![];
     for color in [ColorChoice::Never, ColorChoice::Always] {
-        for &bytecodes in bytecodes {
-            configs.push(TraceWriterConfig::new().color_choice(color).write_bytecodes(bytecodes));
+        for bytecodes in [false, true] {
+            for write_storage_changes in [false, true] {
+                configs.push(
+                    TraceWriterConfig::new()
+                        .color_choice(color)
+                        .write_bytecodes(bytecodes)
+                        .write_storage_changes(write_storage_changes),
+                );
+            }
         }
     }
 

@@ -1,0 +1,4 @@
+  [5189] Counter::setNumber(69)
+    ├─  storage changes:
+    │   @ 0: 1 → 69
+    └─ ← [Return] 1

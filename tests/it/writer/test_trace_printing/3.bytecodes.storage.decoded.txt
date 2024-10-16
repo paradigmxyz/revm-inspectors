@@ -1,0 +1,2 @@
+  [2348] Counter::number()
+    └─ ← [Return] 1

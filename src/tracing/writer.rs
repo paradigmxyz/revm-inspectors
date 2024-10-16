@@ -5,10 +5,13 @@ use super::{
     },
     CallTraceArena,
 };
-use alloy_primitives::{address, hex, Address};
+use alloy_primitives::{address, hex, Address, B256, U256};
 use anstyle::{AnsiColor, Color, Style};
 use colorchoice::ColorChoice;
-use std::io::{self, Write};
+use std::{
+    collections::HashMap,
+    io::{self, Write},
+};
 
 const CHEATCODE_ADDRESS: Address = address!("7109709ECfa91a80626fF3989D68f67F5b1DD12D");
 
@@ -28,6 +31,7 @@ pub struct TraceWriterConfig {
     use_colors: bool,
     color_cheatcodes: bool,
     write_bytecodes: bool,
+    write_storage_changes: bool,
 }
 
 impl Default for TraceWriterConfig {
@@ -43,6 +47,7 @@ impl TraceWriterConfig {
             use_colors: use_colors(ColorChoice::Auto),
             color_cheatcodes: false,
             write_bytecodes: false,
+            write_storage_changes: false,
         }
     }
 
@@ -78,6 +83,17 @@ impl TraceWriterConfig {
     /// Returns `true` if contract creation codes and deployed codes are written.
     pub fn get_write_bytecodes(&self) -> bool {
         self.write_bytecodes
+    }
+
+    /// Sets whether to write storage changes.
+    pub fn write_storage_changes(mut self, yes: bool) -> Self {
+        self.write_storage_changes = yes;
+        self
+    }
+
+    /// Returns `true` if storage changes are written to the writer.
+    pub fn get_write_storage_changes(&self) -> bool {
+        self.write_storage_changes
     }
 }
 
@@ -128,6 +144,13 @@ impl<W: Write> TraceWriter<W> {
     #[inline]
     pub fn write_bytecodes(mut self, yes: bool) -> Self {
         self.config.write_bytecodes = yes;
+        self
+    }
+
+    /// Sets whether to write storage changes.
+    #[inline]
+    pub fn with_storage_changes(mut self, yes: bool) -> Self {
+        self.config.write_storage_changes = yes;
         self
     }
 
@@ -217,6 +240,10 @@ impl<W: Write> TraceWriter<W> {
         // Write logs and subcalls.
         self.indentation_level += 1;
         self.write_items(nodes, idx)?;
+
+        if self.config.write_storage_changes {
+            self.write_storage_changes(node)?;
+        }
 
         // Write return data.
         self.write_edge()?;
@@ -348,6 +375,7 @@ impl<W: Write> TraceWriter<W> {
         match decoded {
             DecodedTraceStep::InternalCall(call, end_idx) => {
                 let gas_used = node.trace.steps[*end_idx].gas_used.saturating_sub(step.gas_used);
+
                 self.write_branch()?;
                 self.indentation_level += 1;
 
@@ -463,6 +491,48 @@ impl<W: Write> TraceWriter<W> {
         }
         LOG_STYLE
     }
+
+    fn write_storage_changes(&mut self, node: &CallTraceNode) -> io::Result<()> {
+        let mut changes_map = HashMap::new();
+
+        // For each call trace, compact the results so we do not write the intermediate storage
+        // writes
+        for step in &node.trace.steps {
+            if let Some(change) = &step.storage_change {
+                let (_first, last) = changes_map.entry(&change.key).or_insert((change, change));
+                *last = change;
+            }
+        }
+
+        let changes = changes_map
+            .iter()
+            .filter_map(|(&&key, &(first, last))| {
+                let value_before = first.had_value.unwrap_or_default();
+                let value_after = last.value;
+                if value_before == value_after {
+                    return None;
+                }
+                Some((key, value_before, value_after))
+            })
+            .collect::<Vec<_>>();
+
+        if !changes.is_empty() {
+            self.write_branch()?;
+            writeln!(self.writer, " storage changes:")?;
+            for (key, value_before, value_after) in changes {
+                self.write_pipes()?;
+                writeln!(
+                    self.writer,
+                    "  @ {key}: {value_before} → {value_after}",
+                    key = num_or_hex(key),
+                    value_before = num_or_hex(value_before),
+                    value_after = num_or_hex(value_after),
+                )?;
+            }
+        }
+
+        Ok(())
+    }
 }
 
 fn use_colors(choice: ColorChoice) -> bool {
@@ -471,5 +541,15 @@ fn use_colors(choice: ColorChoice) -> bool {
         ColorChoice::Auto => io::stdout().is_terminal(),
         ColorChoice::AlwaysAnsi | ColorChoice::Always => true,
         ColorChoice::Never => false,
+    }
+}
+
+/// Formats the given U256 as a decimal number if it is short, otherwise as a hexadecimal
+/// byte-array.
+fn num_or_hex(x: U256) -> String {
+    if x < U256::from(1e6 as u128) {
+        x.to_string()
+    } else {
+        B256::from(x).to_string()
     }
 }
