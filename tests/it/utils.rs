@@ -42,6 +42,10 @@ impl TestEvm {
         Self { db, env }
     }
 
+    pub fn cfg(&self) -> EnvWithHandlerCfg {
+        self.env.clone()
+    }
+
     pub fn deploy<I: for<'a> GetInspector<&'a mut TestDb>>(
         &mut self,
         data: Bytes,
@@ -130,15 +134,17 @@ pub fn print_traces(tracer: &TracingInspector) {
 }
 
 /// Deploys a contract with the given code and deployer address.
-pub fn deploy_contract(
-    code: Bytes,
-    deployer: Address,
-    spec_id: SpecId,
-) -> (Address, CacheDB<EmptyDB>, CfgEnvWithHandlerCfg) {
-    let mut db = CacheDB::new(EmptyDB::default());
+pub fn deploy_contract(code: Bytes, deployer: Address, spec_id: SpecId) -> (Address, TestEvm) {
+    let mut evm = TestEvm::new();
 
-    let (addr, cfg) = deploy_contract_with_db(&mut db, code, deployer, spec_id, U256::ZERO);
-    (addr, db, cfg)
+    evm.env.tx.caller = deployer;
+    evm.env.handler_cfg = HandlerCfg::new(spec_id);
+
+    let address = evm
+        .deploy(code, TracingInspector::new(TracingInspectorConfig::default_geth()))
+        .expect("Contract deployment should succeed");
+
+    (address, evm)
 }
 
 pub fn deploy_contract_with_db(
