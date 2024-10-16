@@ -136,6 +136,18 @@ pub fn deploy_contract(
     spec_id: SpecId,
 ) -> (Address, CacheDB<EmptyDB>, CfgEnvWithHandlerCfg) {
     let mut db = CacheDB::new(EmptyDB::default());
+
+    let (addr, cfg) = deploy_contract_with_db(&mut db, code, deployer, spec_id, U256::ZERO);
+    (addr, db, cfg)
+}
+
+pub fn deploy_contract_with_db(
+    db: &mut CacheDB<EmptyDB>,
+    code: Bytes,
+    deployer: Address,
+    spec_id: SpecId,
+    value: U256,
+) -> (Address, CfgEnvWithHandlerCfg) {
     let insp = TracingInspector::new(TracingInspectorConfig::default_geth());
     let cfg = CfgEnvWithHandlerCfg::new(CfgEnv::default(), HandlerCfg::new(spec_id));
 
@@ -147,11 +159,12 @@ pub fn deploy_contract(
             gas_limit: 1000000,
             transact_to: TransactTo::Create,
             data: code,
+            value,
             ..Default::default()
         },
     );
 
-    let (res, _) = inspect(&mut db, env, insp).unwrap();
+    let (res, _) = inspect(&mut *db, env, insp).unwrap();
     let addr = match res.result {
         ExecutionResult::Success { output, .. } => match output {
             Output::Create(_, addr) => addr.unwrap(),
@@ -161,5 +174,5 @@ pub fn deploy_contract(
     };
     db.commit(res.state);
 
-    (addr, db, cfg)
+    (addr, cfg)
 }

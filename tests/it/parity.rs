@@ -1,6 +1,6 @@
 //! Parity tests
 
-use crate::utils::{inspect, print_traces};
+use crate::utils::{deploy_contract_with_db, inspect, print_traces};
 use alloy_primitives::{address, hex, map::HashSet, Address, U256};
 use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::parity::{Action, CallAction, CallType, SelfdestructAction, TraceType};
@@ -45,31 +45,7 @@ fn test_parity_selfdestruct(spec_id: SpecId) {
     let mut db = CacheDB::new(EmptyDB::default());
     db.insert_account_info(deployer, AccountInfo { balance: value, ..Default::default() });
 
-    let cfg = CfgEnvWithHandlerCfg::new(CfgEnv::default(), HandlerCfg::new(spec_id));
-    let env = EnvWithHandlerCfg::new_with_cfg_env(
-        cfg.clone(),
-        BlockEnv::default(),
-        TxEnv {
-            caller: deployer,
-            gas_limit: 1000000,
-            transact_to: TransactTo::Create,
-            data: code.into(),
-            value,
-            ..Default::default()
-        },
-    );
-
-    let mut insp = TracingInspector::new(TracingInspectorConfig::default_parity());
-
-    let (res, _) = inspect(&mut db, env, &mut insp).unwrap();
-    let contract_address = match res.result {
-        ExecutionResult::Success { output, .. } => match output {
-            Output::Create(_, addr) => addr.unwrap(),
-            _ => panic!("Create failed"),
-        },
-        _ => panic!("Execution failed"),
-    };
-    db.commit(res.state);
+    let (addr, cfg) = deploy_contract_with_db(&mut db, code.into(), deployer, spec_id, value);
 
     let mut insp = TracingInspector::new(TracingInspectorConfig::default_parity());
 
@@ -79,7 +55,7 @@ fn test_parity_selfdestruct(spec_id: SpecId) {
         TxEnv {
             caller: deployer,
             gas_limit: 1000000,
-            transact_to: TransactTo::Call(contract_address),
+            transact_to: TransactTo::Call(addr),
             data: hex!("43d726d6").into(),
             ..Default::default()
         },
@@ -91,8 +67,8 @@ fn test_parity_selfdestruct(spec_id: SpecId) {
     assert_eq!(insp.traces().nodes().len(), 1);
     let node = &insp.traces().nodes()[0];
     assert!(node.is_selfdestruct(), "{node:#?}");
-    assert_eq!(node.trace.address, contract_address);
-    assert_eq!(node.trace.selfdestruct_address, Some(contract_address));
+    assert_eq!(node.trace.address, addr);
+    assert_eq!(node.trace.selfdestruct_address, Some(addr));
     assert_eq!(node.trace.selfdestruct_refund_target, Some(deployer));
     assert_eq!(node.trace.selfdestruct_transferred_value, Some(value));
 
@@ -103,7 +79,7 @@ fn test_parity_selfdestruct(spec_id: SpecId) {
     assert_eq!(
         traces[1].trace.action,
         Action::Selfdestruct(SelfdestructAction {
-            address: contract_address,
+            address: addr,
             refund_address: deployer,
             balance: value,
         })
