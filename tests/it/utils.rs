@@ -4,8 +4,8 @@ use revm::{
     db::{CacheDB, EmptyDB},
     inspector_handle_register,
     primitives::{
-        BlockEnv, CfgEnv, CfgEnvWithHandlerCfg, EVMError, Env, EnvWithHandlerCfg, ExecutionResult,
-        HandlerCfg, Output, ResultAndState, SpecId, TransactTo, TxEnv,
+        BlockEnv, EVMError, Env, EnvWithHandlerCfg, ExecutionResult, HandlerCfg, ResultAndState,
+        SpecId, TransactTo, TxEnv,
     },
     Database, DatabaseCommit, GetInspector,
 };
@@ -46,6 +46,11 @@ impl TestEvm {
         let mut env = self.env.clone();
         env.tx = tx_env;
         env
+    }
+
+    pub fn simple_deploy(&mut self, data: Bytes) -> Address {
+        self.deploy(data, TracingInspector::new(TracingInspectorConfig::default_geth()))
+            .expect("failed to deploy contract")
     }
 
     pub fn deploy<I: for<'a> GetInspector<&'a mut TestDb>>(
@@ -142,45 +147,5 @@ pub fn deploy_contract(code: Bytes, deployer: Address, spec_id: SpecId) -> (Addr
     evm.env.tx.caller = deployer;
     evm.env.handler_cfg = HandlerCfg::new(spec_id);
 
-    let address = evm
-        .deploy(code, TracingInspector::new(TracingInspectorConfig::default_geth()))
-        .expect("Contract deployment should succeed");
-
-    (address, evm)
-}
-
-pub fn deploy_contract_with_db(
-    db: &mut CacheDB<EmptyDB>,
-    code: Bytes,
-    deployer: Address,
-    spec_id: SpecId,
-    value: U256,
-) -> (Address, CfgEnvWithHandlerCfg) {
-    let insp = TracingInspector::new(TracingInspectorConfig::default_geth());
-    let cfg = CfgEnvWithHandlerCfg::new(CfgEnv::default(), HandlerCfg::new(spec_id));
-
-    let env = EnvWithHandlerCfg::new_with_cfg_env(
-        cfg.clone(),
-        BlockEnv::default(),
-        TxEnv {
-            caller: deployer,
-            gas_limit: 1000000,
-            transact_to: TransactTo::Create,
-            data: code,
-            value,
-            ..Default::default()
-        },
-    );
-
-    let (res, _) = inspect(&mut *db, env, insp).unwrap();
-    let addr = match res.result {
-        ExecutionResult::Success { output, .. } => match output {
-            Output::Create(_, addr) => addr.unwrap(),
-            _ => panic!("Create failed: {:?}", output),
-        },
-        _ => panic!("Execution failed: {:?}", res.result),
-    };
-    db.commit(res.state);
-
-    (addr, cfg)
+    (evm.simple_deploy(code), evm)
 }

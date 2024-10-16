@@ -1,6 +1,6 @@
 //! Parity tests
 
-use crate::utils::{deploy_contract_with_db, inspect, print_traces};
+use crate::utils::{inspect, print_traces, TestEvm};
 use alloy_primitives::{address, hex, map::HashSet, Address, U256};
 use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::parity::{Action, CallAction, CallType, SelfdestructAction, TraceType};
@@ -42,26 +42,25 @@ fn test_parity_selfdestruct(spec_id: SpecId) {
     let deployer = address!("341348115259a8bf69f1f50101c227fced83bac6");
     let value = U256::from(69);
 
-    let mut db = CacheDB::new(EmptyDB::default());
-    db.insert_account_info(deployer, AccountInfo { balance: value, ..Default::default() });
+    let mut evm = TestEvm::new();
+    evm.db.insert_account_info(deployer, AccountInfo { balance: value, ..Default::default() });
+    evm.env.tx.caller = deployer;
+    evm.env.handler_cfg = HandlerCfg::new(spec_id);
+    evm.env.tx.value = value;
 
-    let (addr, cfg) = deploy_contract_with_db(&mut db, code.into(), deployer, spec_id, value);
+    let addr = evm.simple_deploy(code.into());
 
     let mut insp = TracingInspector::new(TracingInspectorConfig::default_parity());
 
-    let env = EnvWithHandlerCfg::new_with_cfg_env(
-        cfg,
-        BlockEnv::default(),
-        TxEnv {
-            caller: deployer,
-            gas_limit: 1000000,
-            transact_to: TransactTo::Call(addr),
-            data: hex!("43d726d6").into(),
-            ..Default::default()
-        },
-    );
+    let env = evm.env_with_tx(TxEnv {
+        caller: deployer,
+        gas_limit: 1000000,
+        transact_to: TransactTo::Call(addr),
+        data: hex!("43d726d6").into(),
+        ..Default::default()
+    });
 
-    let (res, _) = inspect(&mut db, env, &mut insp).unwrap();
+    let (res, _) = inspect(&mut evm.db, env, &mut insp).unwrap();
     assert!(res.result.is_success(), "{res:#?}");
 
     assert_eq!(insp.traces().nodes().len(), 1);
@@ -327,20 +326,13 @@ fn test_parity_delegatecall_selfdestruct() {
 
     let deployer = address!("341348115259a8bf69f1f50101c227fced83bac6");
 
-    let mut db = CacheDB::new(EmptyDB::default());
+    let mut evm = TestEvm::new();
 
     // Deploy DelegateCall contract
-    let (delegate_addr, _) = deploy_contract_with_db(
-        &mut db,
-        delegate_code.into(),
-        deployer,
-        SpecId::CANCUN,
-        U256::ZERO,
-    );
+    let delegate_addr = evm.simple_deploy(delegate_code.into());
 
     // Deploy SelfDestructTarget contract
-    let (target_addr, cfg) =
-        deploy_contract_with_db(&mut db, target_code.into(), deployer, SpecId::CANCUN, U256::ZERO);
+    let target_addr = evm.simple_deploy(target_code.into());
 
     // Prepare the input data for the close(address) function call
     let mut input_data = hex!("c74073a1").to_vec(); // keccak256("close(address)")[:4]
@@ -349,19 +341,15 @@ fn test_parity_delegatecall_selfdestruct() {
 
     // Call DelegateCall contract with SelfDestructTarget address
     let mut insp = TracingInspector::new(TracingInspectorConfig::default_parity());
-    let env = EnvWithHandlerCfg::new_with_cfg_env(
-        cfg,
-        BlockEnv::default(),
-        TxEnv {
-            caller: deployer,
-            gas_limit: 1000000,
-            transact_to: TransactTo::Call(delegate_addr),
-            data: input_data.into(),
-            ..Default::default()
-        },
-    );
+    let env = evm.env_with_tx(TxEnv {
+        caller: deployer,
+        gas_limit: 1000000,
+        transact_to: TransactTo::Call(delegate_addr),
+        data: input_data.into(),
+        ..Default::default()
+    });
 
-    let (res, _) = inspect(&mut db, env, &mut insp).unwrap();
+    let (res, _) = inspect(&mut evm.db, env, &mut insp).unwrap();
     assert!(res.result.is_success());
 
     let traces =
