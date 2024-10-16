@@ -4,12 +4,14 @@ use revm::{
     db::{CacheDB, EmptyDB},
     inspector_handle_register,
     primitives::{
-        BlockEnv, EVMError, Env, EnvWithHandlerCfg, ExecutionResult, HandlerCfg, ResultAndState,
-        SpecId, TransactTo, TxEnv,
+        BlockEnv, CfgEnv, CfgEnvWithHandlerCfg, EVMError, Env, EnvWithHandlerCfg, ExecutionResult,
+        HandlerCfg, Output, ResultAndState, SpecId, TransactTo, TxEnv,
     },
     Database, DatabaseCommit, GetInspector,
 };
-use revm_inspectors::tracing::{TraceWriter, TraceWriterConfig, TracingInspector};
+use revm_inspectors::tracing::{
+    TraceWriter, TraceWriterConfig, TracingInspector, TracingInspectorConfig,
+};
 use std::convert::Infallible;
 
 type TestDb = CacheDB<EmptyDB>;
@@ -125,4 +127,39 @@ pub fn write_traces_with(tracer: &TracingInspector, config: TraceWriterConfig) -
 pub fn print_traces(tracer: &TracingInspector) {
     // Use `println!` so that the output is captured by the test runner.
     println!("{}", write_traces_with(tracer, TraceWriterConfig::new()));
+}
+
+/// Deploys a contract with the given code and deployer address.
+pub fn deploy_contract(
+    code: Bytes,
+    deployer: Address,
+    spec_id: SpecId,
+) -> (Address, CacheDB<EmptyDB>, CfgEnvWithHandlerCfg) {
+    let mut db = CacheDB::new(EmptyDB::default());
+    let insp = TracingInspector::new(TracingInspectorConfig::default_geth());
+    let cfg = CfgEnvWithHandlerCfg::new(CfgEnv::default(), HandlerCfg::new(spec_id));
+
+    let env = EnvWithHandlerCfg::new_with_cfg_env(
+        cfg.clone(),
+        BlockEnv::default(),
+        TxEnv {
+            caller: deployer,
+            gas_limit: 1000000,
+            transact_to: TransactTo::Create,
+            data: code,
+            ..Default::default()
+        },
+    );
+
+    let (res, _) = inspect(&mut db, env, insp).unwrap();
+    let addr = match res.result {
+        ExecutionResult::Success { output, .. } => match output {
+            Output::Create(_, addr) => addr.unwrap(),
+            _ => panic!("Create failed: {:?}", output),
+        },
+        _ => panic!("Execution failed: {:?}", res.result),
+    };
+    db.commit(res.state);
+
+    (addr, db, cfg)
 }
