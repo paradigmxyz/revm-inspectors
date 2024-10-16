@@ -9,7 +9,9 @@ use revm::{
     },
     Database, DatabaseCommit, GetInspector,
 };
-use revm_inspectors::tracing::{TraceWriter, TraceWriterConfig, TracingInspector};
+use revm_inspectors::tracing::{
+    TraceWriter, TraceWriterConfig, TracingInspector, TracingInspectorConfig,
+};
 use std::convert::Infallible;
 
 type TestDb = CacheDB<EmptyDB>;
@@ -38,6 +40,23 @@ impl TestEvm {
             HandlerCfg::new(SpecId::CANCUN),
         );
         Self { db, env }
+    }
+
+    pub fn new_with_spec_id(spec_id: SpecId) -> Self {
+        let mut evm = Self::new();
+        evm.env.handler_cfg.spec_id = spec_id;
+        evm
+    }
+
+    pub fn env_with_tx(&self, tx_env: TxEnv) -> EnvWithHandlerCfg {
+        let mut env = self.env.clone();
+        env.tx = tx_env;
+        env
+    }
+
+    pub fn simple_deploy(&mut self, data: Bytes) -> Address {
+        self.deploy(data, TracingInspector::new(TracingInspectorConfig::default_geth()))
+            .expect("failed to deploy contract")
     }
 
     pub fn deploy<I: for<'a> GetInspector<&'a mut TestDb>>(
@@ -125,4 +144,14 @@ pub fn write_traces_with(tracer: &TracingInspector, config: TraceWriterConfig) -
 pub fn print_traces(tracer: &TracingInspector) {
     // Use `println!` so that the output is captured by the test runner.
     println!("{}", write_traces_with(tracer, TraceWriterConfig::new()));
+}
+
+/// Deploys a contract with the given code and deployer address.
+pub fn deploy_contract(code: Bytes, deployer: Address, spec_id: SpecId) -> (Address, TestEvm) {
+    let mut evm = TestEvm::new();
+
+    evm.env.tx.caller = deployer;
+    evm.env.handler_cfg = HandlerCfg::new(spec_id);
+
+    (evm.simple_deploy(code), evm)
 }
