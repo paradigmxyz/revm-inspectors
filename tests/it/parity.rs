@@ -326,57 +326,21 @@ fn test_parity_delegatecall_selfdestruct() {
     let target_code = hex!("6080604052348015600e575f80fd5b50608180601a5f395ff3fe6080604052348015600e575f80fd5b50600436106026575f3560e01c806343d726d614602a575b5f80fd5b60306032565b005b3373ffffffffffffffffffffffffffffffffffffffff16fffea26469706673582212202ecd1d2f481d093cc2831fe0350ce1fe0bc42bc5cf34eb0a9e40a83b564eb59464736f6c634300081a0033");
 
     let deployer = address!("341348115259a8bf69f1f50101c227fced83bac6");
+
     let mut db = CacheDB::new(EmptyDB::default());
 
-    let cfg = CfgEnvWithHandlerCfg::new(CfgEnv::default(), HandlerCfg::new(SpecId::CANCUN));
-
     // Deploy DelegateCall contract
-    let env = EnvWithHandlerCfg::new_with_cfg_env(
-        cfg.clone(),
-        BlockEnv::default(),
-        TxEnv {
-            caller: deployer,
-            gas_limit: 1000000,
-            transact_to: TransactTo::Create,
-            data: delegate_code.into(),
-            ..Default::default()
-        },
+    let (delegate_addr, _) = deploy_contract_with_db(
+        &mut db,
+        delegate_code.into(),
+        deployer,
+        SpecId::CANCUN,
+        U256::ZERO,
     );
-
-    let mut insp = TracingInspector::new(TracingInspectorConfig::default_parity());
-    let (res, _) = inspect(&mut db, env, &mut insp).unwrap();
-    let delegate_addr = match res.result {
-        ExecutionResult::Success { output, .. } => match output {
-            Output::Create(_, addr) => addr.unwrap(),
-            _ => panic!("Create failed"),
-        },
-        _ => panic!("Execution failed"),
-    };
-    db.commit(res.state);
 
     // Deploy SelfDestructTarget contract
-    let env = EnvWithHandlerCfg::new_with_cfg_env(
-        cfg.clone(),
-        BlockEnv::default(),
-        TxEnv {
-            caller: deployer,
-            gas_limit: 1000000,
-            transact_to: TransactTo::Create,
-            data: target_code.into(),
-            ..Default::default()
-        },
-    );
-
-    let mut insp = TracingInspector::new(TracingInspectorConfig::default_parity());
-    let (res, _) = inspect(&mut db, env, &mut insp).unwrap();
-    let target_addr = match res.result {
-        ExecutionResult::Success { output, .. } => match output {
-            Output::Create(_, addr) => addr.unwrap(),
-            _ => panic!("Create failed"),
-        },
-        _ => panic!("Execution failed"),
-    };
-    db.commit(res.state);
+    let (target_addr, cfg) =
+        deploy_contract_with_db(&mut db, target_code.into(), deployer, SpecId::CANCUN, U256::ZERO);
 
     // Prepare the input data for the close(address) function call
     let mut input_data = hex!("c74073a1").to_vec(); // keccak256("close(address)")[:4]
