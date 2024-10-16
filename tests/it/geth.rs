@@ -57,14 +57,13 @@ fn test_geth_calltracer_logs() {
     let mut insp =
         TracingInspector::new(TracingInspectorConfig::default_geth().set_record_logs(true));
 
-    let mut env = evm.cfg();
-    env.tx = TxEnv {
+    let env = evm.env_with_tx(TxEnv {
         caller: deployer,
         gas_limit: 1000000,
         transact_to: TransactTo::Call(addr),
         data: Bytes::default(), // call fallback
         ..Default::default()
-    };
+    });
 
     let (res, _) = inspect(&mut evm.db, env, &mut insp).unwrap();
     assert!(res.result.is_success());
@@ -159,14 +158,13 @@ fn test_geth_mux_tracer() {
 
     let mut insp = MuxInspector::try_from_config(config.clone()).unwrap();
 
-    let mut env = evm.cfg();
-    env.tx = TxEnv {
+    let env = evm.env_with_tx(TxEnv {
         caller: deployer,
         gas_limit: 1000000,
         transact_to: TransactTo::Call(addr),
         data: Bytes::default(), // call fallback
         ..Default::default()
-    };
+    });
 
     let (res, _) = inspect(&mut evm.db, env, &mut insp).unwrap();
     assert!(res.result.is_success());

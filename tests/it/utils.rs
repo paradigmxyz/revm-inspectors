@@ -42,8 +42,10 @@ impl TestEvm {
         Self { db, env }
     }
 
-    pub fn cfg(&self) -> EnvWithHandlerCfg {
-        self.env.clone()
+    pub fn env_with_tx(&self, tx_env: TxEnv) -> EnvWithHandlerCfg {
+        let mut env = self.env.clone();
+        env.tx = tx_env;
+        env
     }
 
     pub fn deploy<I: for<'a> GetInspector<&'a mut TestDb>>(

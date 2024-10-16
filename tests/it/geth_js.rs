@@ -36,14 +36,13 @@ fn test_geth_jstracer_revert() {
 }"#;
 
     // test with normal operation
-    let mut env = evm.cfg();
-    env.tx = TxEnv {
+    let mut env = evm.env_with_tx(TxEnv {
         caller: deployer,
         gas_limit: 1000000,
         transact_to: TransactTo::Call(addr),
         data: hex!("c2985578").into(), // call foo
         ..Default::default()
-    };
+    });
 
     let mut insp = JsInspector::new(code.to_string(), serde_json::Value::Null).unwrap();
     let (res, _) = inspect(&mut evm.db, env.clone(), &mut insp).unwrap();
