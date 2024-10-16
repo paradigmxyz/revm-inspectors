@@ -1,0 +1,4 @@
+  [22452] Counter::increment()
+    ├─  storage changes:
+    │   @ 0: 0 → 1
+    └─ ← [Return] 

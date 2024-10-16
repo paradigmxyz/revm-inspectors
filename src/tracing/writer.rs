@@ -5,7 +5,7 @@ use super::{
     },
     CallTraceArena,
 };
-use alloy_primitives::{address, hex, Address};
+use alloy_primitives::{address, hex, Address, B256, U256};
 use anstyle::{AnsiColor, Color, Style};
 use colorchoice::ColorChoice;
 use std::{
@@ -494,38 +494,39 @@ impl<W: Write> TraceWriter<W> {
 
     fn write_storage_changes(&mut self, node: &CallTraceNode) -> io::Result<()> {
         let mut changes_map = HashMap::new();
-        let contract = &node.trace.address;
 
         // For each call trace, compact the results so we do not write the intermediate storage
         // writes
         for step in &node.trace.steps {
-            if let Some(ref change) = step.storage_change {
-                let entry = changes_map.entry(&change.key).or_insert((None, None));
-                if entry.0.is_none() {
-                    entry.0 = Some(change);
-                }
-                entry.1 = Some(change);
+            if let Some(change) = &step.storage_change {
+                let (_first, last) = changes_map.entry(&change.key).or_insert((change, change));
+                *last = change;
             }
         }
 
-        for (key, (first_change, last_change)) in changes_map {
-            if let (Some(first), Some(last)) = (first_change, last_change) {
-                let had_value = first.had_value;
-                let value = last.value;
+        let changes = changes_map
+            .iter()
+            .filter_map(|(&&key, &(first, last))| {
+                let value_before = first.had_value.unwrap_or_default();
+                let value_after = last.value;
+                if value_before == value_after {
+                    return None;
+                }
+                Some((key, value_before, value_after))
+            })
+            .collect::<Vec<_>>();
 
-                self.write_branch()?;
-                writeln!(
-                    self.writer,
-                    " storage write {} [0x{}]:",
-                    contract.to_checksum_buffer(None).as_str(),
-                    hex::encode(key.to_be_bytes_vec())
-                )?;
+        if !changes.is_empty() {
+            self.write_branch()?;
+            writeln!(self.writer, " storage changes:")?;
+            for (key, value_before, value_after) in changes {
                 self.write_pipes()?;
                 writeln!(
                     self.writer,
-                    "                0x{:>64} → 0x{:>64}",
-                    had_value.map_or("".into(), |v| hex::encode(v.to_be_bytes_vec())),
-                    hex::encode(value.to_be_bytes_vec())
+                    "  @ {key}: {value_before} → {value_after}",
+                    key = num_or_hex(key),
+                    value_before = num_or_hex(value_before),
+                    value_after = num_or_hex(value_after),
                 )?;
             }
         }
@@ -540,5 +541,15 @@ fn use_colors(choice: ColorChoice) -> bool {
         ColorChoice::Auto => io::stdout().is_terminal(),
         ColorChoice::AlwaysAnsi | ColorChoice::Always => true,
         ColorChoice::Never => false,
+    }
+}
+
+/// Formats the given U256 as a decimal number if it is short, otherwise as a hexadecimal
+/// byte-array.
+fn num_or_hex(x: U256) -> String {
+    if x < U256::from(1e6 as u128) {
+        x.to_string()
+    } else {
+        B256::from(x).to_string()
     }
 }
