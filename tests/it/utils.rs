@@ -42,6 +42,12 @@ impl TestEvm {
         Self { db, env }
     }
 
+    pub fn new_with_spec_id(spec_id: SpecId) -> Self {
+        let mut evm = Self::new();
+        evm.env.handler_cfg.spec_id = spec_id;
+        evm
+    }
+
     pub fn env_with_tx(&self, tx_env: TxEnv) -> EnvWithHandlerCfg {
         let mut env = self.env.clone();
         env.tx = tx_env;

@@ -42,10 +42,9 @@ fn test_parity_selfdestruct(spec_id: SpecId) {
     let deployer = address!("341348115259a8bf69f1f50101c227fced83bac6");
     let value = U256::from(69);
 
-    let mut evm = TestEvm::new();
+    let mut evm = TestEvm::new_with_spec_id(spec_id);
     evm.db.insert_account_info(deployer, AccountInfo { balance: value, ..Default::default() });
     evm.env.tx.caller = deployer;
-    evm.env.handler_cfg = HandlerCfg::new(spec_id);
     evm.env.tx.value = value;
 
     let addr = evm.simple_deploy(code.into());
@@ -107,49 +106,24 @@ fn test_parity_constructor_selfdestruct() {
 
     let deployer = Address::ZERO;
 
-    let mut db = CacheDB::new(EmptyDB::default());
-
-    let cfg = CfgEnvWithHandlerCfg::new(CfgEnv::default(), HandlerCfg::new(SpecId::LONDON));
-
-    let env = EnvWithHandlerCfg::new_with_cfg_env(
-        cfg.clone(),
-        BlockEnv::default(),
-        TxEnv {
-            caller: deployer,
-            gas_limit: 1000000,
-            transact_to: TransactTo::Create,
-            data: code.into(),
-            ..Default::default()
-        },
-    );
+    let mut evm = TestEvm::new_with_spec_id(SpecId::LONDON);
+    evm.env.tx.caller = deployer;
 
     let mut insp = TracingInspector::new(TracingInspectorConfig::default_parity());
-    let (res, _) = inspect(&mut db, env, &mut insp).unwrap();
-    let addr = match res.result {
-        ExecutionResult::Success { output, .. } => match output {
-            Output::Create(_, addr) => addr.unwrap(),
-            _ => panic!("Create failed"),
-        },
-        _ => panic!("Execution failed"),
-    };
-    db.commit(res.state);
+    let addr = evm.deploy(code.into(), &mut insp).expect("failed to deploy contract");
     print_traces(&insp);
 
     let mut insp = TracingInspector::new(TracingInspectorConfig::default_parity());
 
-    let env = EnvWithHandlerCfg::new_with_cfg_env(
-        cfg,
-        BlockEnv::default(),
-        TxEnv {
-            caller: deployer,
-            gas_limit: 1000000,
-            transact_to: TransactTo::Call(addr),
-            data: hex!("43d726d6").into(),
-            ..Default::default()
-        },
-    );
+    let env = evm.env_with_tx(TxEnv {
+        caller: deployer,
+        gas_limit: 1000000,
+        transact_to: TransactTo::Call(addr),
+        data: hex!("43d726d6").into(),
+        ..Default::default()
+    });
 
-    let (res, _) = inspect(&mut db, env, &mut insp).unwrap();
+    let (res, _) = inspect(&mut evm.db, env, &mut insp).unwrap();
     assert!(res.result.is_success());
     print_traces(&insp);
 
@@ -177,50 +151,28 @@ fn test_parity_call_selfdestruct() {
     let deployer = address!("341348115259a8bf69f1f50101c227fced83bac6");
     let value = U256::from(69);
 
-    let mut db = CacheDB::new(EmptyDB::default());
-    db.insert_account_info(deployer, AccountInfo { balance: value, ..Default::default() });
+    let mut evm = TestEvm::new_with_spec_id(SpecId::LONDON);
+    evm.db.insert_account_info(deployer, AccountInfo { balance: value, ..Default::default() });
+    evm.env.tx.caller = deployer;
+    evm.env.tx.value = value;
 
-    let cfg = CfgEnvWithHandlerCfg::new(CfgEnv::default(), HandlerCfg::new(SpecId::LONDON));
-    let env = EnvWithHandlerCfg::new_with_cfg_env(
-        cfg.clone(),
-        BlockEnv::default(),
-        TxEnv {
-            caller: deployer,
-            gas_limit: 1000000,
-            transact_to: TransactTo::Create,
-            data: code.into(),
-            value,
-            ..Default::default()
-        },
-    );
+    let to = evm.simple_deploy(code.into());
 
-    let mut insp = TracingInspector::new(TracingInspectorConfig::default_parity());
-    let (res, _) = inspect(&mut db, env, &mut insp).unwrap();
-    let to = match res.result {
-        ExecutionResult::Success { output, .. } => match output {
-            Output::Create(_, addr) => addr.unwrap(),
-            _ => panic!("Create failed"),
-        },
-        _ => panic!("Execution failed"),
-    };
-    db.commit(res.state);
+    evm.db.accounts.get_mut(&to).unwrap().info.balance = balance;
 
-    db.accounts.get_mut(&to).unwrap().info.balance = balance;
-
-    let env = EnvWithHandlerCfg::new_with_cfg_env(
-        cfg,
-        BlockEnv::default(),
-        TxEnv {
-            caller,
-            gas_limit: 100000000,
-            transact_to: TransactTo::Call(to),
-            data: input.to_vec().into(),
-            ..Default::default()
-        },
-    );
+    let env = evm.env_with_tx(TxEnv {
+        caller,
+        gas_limit: 100000000,
+        transact_to: TransactTo::Call(to),
+        data: input.to_vec().into(),
+        ..Default::default()
+    });
 
     let mut insp = TracingInspector::new(TracingInspectorConfig::default_parity());
-    let (res, _) = inspect(&mut db, env, &mut insp).unwrap();
+    // evm.env.tx.caller = caller;
+    // let res = evm.call(to, input.to_vec().into(), &mut insp).unwrap();
+
+    let (res, _) = inspect(&mut evm.db, env, &mut insp).unwrap();
     match &res.result {
         ExecutionResult::Success { output, .. } => match output {
             Output::Call(_) => {}
@@ -228,7 +180,7 @@ fn test_parity_call_selfdestruct() {
         },
         err => panic!("Execution failed: {err:?}"),
     }
-    db.commit(res.state);
+    evm.db.commit(res.state);
 
     let traces = insp
         .into_parity_builder()
