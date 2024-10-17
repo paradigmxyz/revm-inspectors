@@ -208,10 +208,15 @@ pub(crate) fn to_bigint(value: U256, ctx: &mut Context) -> JsResult<JsValue> {
         ctx,
     )
 }
-/// Takes three arguments: a JavaScript value that represents the sender's address, a string salt
-/// value, and the initcode for the contract. Compute the address of a contract created by the
-/// sender with the given salt and code hash, then converts the resulting address back into a byte
-/// buffer for output.
+
+/// Compute the address of a contract created using CREATE2.
+///
+/// Arguments:
+/// 1. creator: The address of the contract creator
+/// 2. salt: A 32-byte salt value
+/// 3. initcode: The contract's initialization code
+///
+/// Returns: The computed contract address as an ArrayBuffer
 pub(crate) fn to_contract2(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     // Extract the sender's address, salt and initcode from the arguments
     let from = args.get_or_undefined(0).clone();
@@ -243,7 +248,13 @@ pub(crate) fn to_contract2(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> 
     address_to_byte_array_value(contract_addr, ctx)
 }
 
-///  Converts the sender's address to a byte buffer
+/// Compute the address of a contract created by the sender with the given nonce.
+///
+/// Arguments:
+/// 1. from: The address of the contract creator
+/// 2. nonce: The creator's transaction count (optional, none is 0)
+///
+/// Returns: The computed contract address as an ArrayBuffer
 pub(crate) fn to_contract(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     // Extract the sender's address and nonce from the arguments
     let from = args.get_or_undefined(0).clone();
