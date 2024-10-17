@@ -361,7 +361,7 @@ mod tests {
         let array = array.borrow();
         let array = array.as_object().unwrap();
         let array = JsUint8Array::from_object(array.clone()).unwrap();
-        array.length(&mut Context::default()).unwrap() as usize
+        array.length(&mut Context::default()).unwrap()
     }
 
     #[test]
