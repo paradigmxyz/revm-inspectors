@@ -265,7 +265,7 @@ impl MemoryRef {
                 move |_this, args, memory, ctx| {
                     let start = args.get_or_undefined(0).to_number(ctx)?;
                     let end = args.get_or_undefined(1).to_number(ctx)?;
-                    if end < start || start < 0. || (end as usize) < memory.len() {
+                    if end < start || start < 0. || (end as usize) > memory.len() {
                         return Err(JsError::from_native(JsNativeError::typ().with_message(
                             format!(
                                 "tracer accessed out of bound memory: offset {start}, end {end}"
