@@ -871,7 +871,7 @@ mod tests {
             res: [],
             step: function(log) {
                 var op = log.op.toString();
-                if (op === 'MSTORE8') {
+                if (op === 'MSTORE8' || op === 'STOP') {
                     this.res.push(log.memory.slice(0, 2))
                 }
             },
@@ -879,8 +879,20 @@ mod tests {
             result: function() { return this.res }
         }"#;
         let contract = hex!("60ff60005300"); // PUSH1, 0xff, PUSH1, 0x00, MSTORE8, STOP
-        let res = run_trace(code, Some(contract.into()), true);
-        assert_eq!(res, json!([{"0":0,"1":0}]));
+        let res = run_trace(code, Some(contract.into()), false);
+        assert_eq!(res, json!([]));
+    }
+
+    #[test]
+    fn test_memory_limit() {
+        let code = r#"{
+            res: [],
+            step: function(log) { if (log.op.toString() === 'STOP') { this.res.push(log.memory.slice(5, 1025 * 1024)) } },
+            fault: function() {},
+            result: function() { return this.res }
+        }"#;
+        let res = run_trace(code, None, false);
+        assert_eq!(res, json!([]));
     }
 
     #[test]
