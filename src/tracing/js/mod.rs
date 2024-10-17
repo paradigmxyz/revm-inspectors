@@ -640,19 +640,15 @@ mod tests {
 
     #[test]
     fn test_loop_iteration_limit() {
-        // Create the JavaScript context.
         let mut context = Context::default();
         context.runtime_limits_mut().set_loop_iteration_limit(LOOP_ITERATION_LIMIT);
 
-        // The code below iterates 5 times, so no error is thrown.
-        let result = context.eval(Source::from_bytes(
-            r"
-            let i = 0;
-            while (true) {
-                i++;
-            }
-        ",
-        ));
+        let code = "let i = 0; while (i++ < 69) {}";
+        let result = context.eval(Source::from_bytes(code));
+        assert!(result.is_ok());
+
+        let code = "while (true) {}";
+        let result = context.eval(Source::from_bytes(code));
         assert!(result.is_err());
     }
 

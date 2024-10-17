@@ -2,8 +2,8 @@
 
 use crate::tracing::{
     js::builtins::{
-        address_to_byte_array, address_to_byte_array_value, bytes_to_address, bytes_to_hash,
-        from_buf_value, to_bigint, to_byte_array, to_byte_array_value,
+        address_to_uint8_array, address_to_uint8_array_value, bytes_from_value, bytes_to_address,
+        bytes_to_b256, to_bigint, to_uint8_array, to_uint8_array_value,
     },
     types::CallKind,
     TransactionContext,
@@ -280,7 +280,7 @@ impl MemoryRef {
                         .with_inner(|mem| mem.slice(start, size).to_vec())
                         .unwrap_or_default();
 
-                    to_byte_array_value(slice, ctx)
+                    to_uint8_array_value(slice, ctx)
                 },
                 self.clone(),
             ),
@@ -291,23 +291,25 @@ impl MemoryRef {
         let get_uint = FunctionObjectBuilder::new(
             ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
-                move |_this, args, memory, ctx|  {
+                move |_this, args, memory, ctx| {
                     let offset_f64 = args.get_or_undefined(0).to_number(ctx)?;
-                     let len = memory.len();
-                     let offset = offset_f64 as usize;
-                     if len < offset+32 || offset_f64 < 0. {
-                         return Err(JsError::from_native(
-                             JsNativeError::typ().with_message(format!("tracer accessed out of bound memory: available {len}, offset {offset}, size 32"))
-                         ));
-                     }
-                    let slice = memory.0.with_inner(|mem| mem.slice(offset, 32).to_vec()).unwrap_or_default();
-                     to_byte_array_value(slice, ctx)
+                    let len = memory.len();
+                    let offset = offset_f64 as usize;
+                    if len < offset + 32 || offset_f64 < 0. {
+                        let msg = format!("tracer accessed out of bound memory: available {len}, offset {offset}, size 32");
+                        return Err(JsError::from_native(JsNativeError::typ().with_message(msg)));
+                    }
+                    let slice = memory
+                        .0
+                        .with_inner(|mem| mem.slice(offset, 32).to_vec())
+                        .unwrap_or_default();
+                    to_uint8_array_value(slice, ctx)
                 },
-                 self
+                self,
             ),
         )
-            .length(1)
-            .build();
+        .length(1)
+        .build();
 
         obj.set(js_string!("slice"), slice, false, ctx)?;
         obj.set(js_string!("getUint"), get_uint, false, ctx)?;
@@ -510,7 +512,7 @@ impl Contract {
         let get_caller = FunctionObjectBuilder::new(
             ctx.realm(),
             NativeFunction::from_copy_closure(move |_this, _args, ctx| {
-                address_to_byte_array_value(caller, ctx)
+                address_to_uint8_array_value(caller, ctx)
             }),
         )
         .length(0)
@@ -519,7 +521,7 @@ impl Contract {
         let get_address = FunctionObjectBuilder::new(
             ctx.realm(),
             NativeFunction::from_copy_closure(move |_this, _args, ctx| {
-                address_to_byte_array_value(contract, ctx)
+                address_to_uint8_array_value(contract, ctx)
             }),
         )
         .length(0)
@@ -532,7 +534,7 @@ impl Contract {
         .length(0)
         .build();
 
-        let input = to_byte_array_value(input, ctx)?;
+        let input = to_uint8_array_value(input, ctx)?;
         let get_input = FunctionObjectBuilder::new(
             ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
@@ -564,7 +566,7 @@ impl FrameResult {
         let Self { gas_used, output, error } = self;
         let obj = JsObject::default();
 
-        let output = to_byte_array_value(output, ctx)?;
+        let output = to_uint8_array_value(output, ctx)?;
         let get_output = FunctionObjectBuilder::new(
             ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
@@ -602,7 +604,7 @@ impl CallFrame {
         let get_from = FunctionObjectBuilder::new(
             ctx.realm(),
             NativeFunction::from_copy_closure(move |_this, _args, ctx| {
-                address_to_byte_array_value(caller, ctx)
+                address_to_uint8_array_value(caller, ctx)
             }),
         )
         .length(0)
@@ -611,7 +613,7 @@ impl CallFrame {
         let get_to = FunctionObjectBuilder::new(
             ctx.realm(),
             NativeFunction::from_copy_closure(move |_this, _args, ctx| {
-                address_to_byte_array_value(contract, ctx)
+                address_to_uint8_array_value(contract, ctx)
             }),
         )
         .length(0)
@@ -624,7 +626,7 @@ impl CallFrame {
         .length(0)
         .build();
 
-        let input = to_byte_array_value(input, ctx)?;
+        let input = to_uint8_array_value(input, ctx)?;
         let get_input = FunctionObjectBuilder::new(
             ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
@@ -705,31 +707,31 @@ impl JsEvmContext {
         // add properties
 
         obj.set(js_string!("type"), js_string!(r#type), false, ctx)?;
-        obj.set(js_string!("from"), address_to_byte_array(from, ctx)?, false, ctx)?;
+        obj.set(js_string!("from"), address_to_uint8_array(from, ctx)?, false, ctx)?;
         if let Some(to) = to {
-            obj.set(js_string!("to"), address_to_byte_array(to, ctx)?, false, ctx)?;
+            obj.set(js_string!("to"), address_to_uint8_array(to, ctx)?, false, ctx)?;
         } else {
             obj.set(js_string!("to"), JsValue::null(), false, ctx)?;
         }
 
-        obj.set(js_string!("input"), to_byte_array(input, ctx)?, false, ctx)?;
+        obj.set(js_string!("input"), to_uint8_array(input, ctx)?, false, ctx)?;
         obj.set(js_string!("gas"), gas, false, ctx)?;
         obj.set(js_string!("gasUsed"), gas_used, false, ctx)?;
         obj.set(js_string!("gasPrice"), gas_price, false, ctx)?;
         obj.set(js_string!("intrinsicGas"), intrinsic_gas, false, ctx)?;
         obj.set(js_string!("value"), to_bigint(value, ctx)?, false, ctx)?;
         obj.set(js_string!("block"), block, false, ctx)?;
-        obj.set(js_string!("coinbase"), address_to_byte_array(coinbase, ctx)?, false, ctx)?;
-        obj.set(js_string!("output"), to_byte_array(output, ctx)?, false, ctx)?;
+        obj.set(js_string!("coinbase"), address_to_uint8_array(coinbase, ctx)?, false, ctx)?;
+        obj.set(js_string!("output"), to_uint8_array(output, ctx)?, false, ctx)?;
         obj.set(js_string!("time"), js_string!(time), false, ctx)?;
         if let Some(block_hash) = transaction_ctx.block_hash {
-            obj.set(js_string!("blockHash"), to_byte_array(block_hash.0, ctx)?, false, ctx)?;
+            obj.set(js_string!("blockHash"), to_uint8_array(block_hash, ctx)?, false, ctx)?;
         }
         if let Some(tx_index) = transaction_ctx.tx_index {
             obj.set(js_string!("txIndex"), tx_index as u64, false, ctx)?;
         }
         if let Some(tx_hash) = transaction_ctx.tx_hash {
-            obj.set(js_string!("txHash"), to_byte_array(tx_hash.0, ctx)?, false, ctx)?;
+            obj.set(js_string!("txHash"), to_uint8_array(tx_hash, ctx)?, false, ctx)?;
         }
         if let Some(error) = error {
             obj.set(js_string!("error"), js_string!(error), false, ctx)?;
@@ -777,8 +779,8 @@ impl EvmDbRef {
     }
 
     fn read_basic(&self, address: JsValue, ctx: &mut Context) -> JsResult<Option<AccountInfo>> {
-        let buf = from_buf_value(address, ctx)?;
-        let address = bytes_to_address(buf);
+        let buf = bytes_from_value(address, ctx)?;
+        let address = bytes_to_address(&buf);
         if let acc @ Some(_) = self.inner.state.get_account(&address) {
             return Ok(acc);
         }
@@ -808,7 +810,7 @@ impl EvmDbRef {
             ));
         };
 
-        to_byte_array(bytecode.bytecode().to_vec(), ctx)
+        to_uint8_array(bytecode.bytecode().to_vec(), ctx)
     }
 
     fn read_state(
@@ -817,11 +819,11 @@ impl EvmDbRef {
         slot: JsValue,
         ctx: &mut Context,
     ) -> JsResult<JsUint8Array> {
-        let buf = from_buf_value(address, ctx)?;
-        let address = bytes_to_address(buf);
+        let buf = bytes_from_value(address, ctx)?;
+        let address = bytes_to_address(&buf);
 
-        let buf = from_buf_value(slot, ctx)?;
-        let slot = bytes_to_hash(buf);
+        let buf = bytes_from_value(slot, ctx)?;
+        let slot = bytes_to_b256(&buf);
 
         let res = self.inner.db.0.with_inner(|db| db.storage_ref(address, slot.into()));
 
@@ -833,8 +835,7 @@ impl EvmDbRef {
                 ))))
             }
         };
-        let value: B256 = value.into();
-        to_byte_array(value.0, ctx)
+        to_uint8_array(B256::from(value), ctx)
     }
 
     pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
@@ -1019,7 +1020,7 @@ mod tests {
             .unwrap();
         assert!(res.is_object());
 
-        let buf = from_buf_value(res, &mut ctx).unwrap();
+        let buf = bytes_from_value(res, &mut ctx).unwrap();
         assert_eq!(buf, contract.contract.as_slice());
 
         let call = eval_obj.as_object().unwrap().get(js_string!("value"), &mut ctx).unwrap();
@@ -1040,7 +1041,7 @@ mod tests {
             .call(&JsValue::undefined(), &[contract_arg], &mut ctx)
             .unwrap();
 
-        let buf = from_buf_value(res, &mut ctx).unwrap();
+        let buf = bytes_from_value(res, &mut ctx).unwrap();
         assert_eq!(buf, contract.input);
     }
 
