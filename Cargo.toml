@@ -54,3 +54,7 @@ snapbox = { version = "0.6", features = ["term-svg"] }
 [features]
 serde = ["dep:serde", "revm/serde"]
 js-tracer = ["dep:boa_engine", "dep:boa_gc"]
+
+[patch.crates-io]
+alloy-rpc-types-eth = { git = "https://github.com/alloy-rs/alloy", rev = "b63a2c7" }
+alloy-rpc-types-trace = { git = "https://github.com/alloy-rs/alloy", rev = "b63a2c7" }
