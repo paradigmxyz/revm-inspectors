@@ -647,6 +647,7 @@ mod tests {
             HandlerCfg, SpecId, TransactTo, TxEnv,
         },
     };
+    use serde_json::json;
 
     #[test]
     fn test_loop_iteration_limit() {
@@ -676,20 +677,40 @@ mod tests {
     }
 
     // Helper function to run a trace and return the result
-    fn run_trace(js_code: &str, code: Option<Bytes>, success: bool) -> serde_json::Value {
+    fn run_trace(code: &str, contract: Option<Bytes>, success: bool) -> serde_json::Value {
         let addr = Address::repeat_byte(0x01);
         let mut db = CacheDB::new(EmptyDB::default());
-        let code = Some(Bytecode::LegacyRaw(code.unwrap_or_else(|| hex!("6001600100").into()))); // PUSH1 1, PUSH1 1, STOP
-        db.insert_account_info(addr, AccountInfo { code, ..Default::default() });
+
+        // Insert the caller
+        db.insert_account_info(
+            Address::ZERO,
+            AccountInfo { balance: U256::from(1e18), ..Default::default() },
+        );
+        // Insert the contract
+        db.insert_account_info(
+            addr,
+            AccountInfo {
+                code: Some(Bytecode::LegacyRaw(
+                    /* PUSH1 1, PUSH1 1, STOP */
+                    contract.unwrap_or_else(|| hex!("6001600100").into()),
+                )),
+                ..Default::default()
+            },
+        );
 
         let cfg = CfgEnvWithHandlerCfg::new(CfgEnv::default(), HandlerCfg::new(SpecId::CANCUN));
         let env = EnvWithHandlerCfg::new_with_cfg_env(
             cfg.clone(),
             BlockEnv::default(),
-            TxEnv { transact_to: TransactTo::Call(addr), ..Default::default() },
+            TxEnv {
+                gas_price: U256::from(1024),
+                gas_limit: 1_000_000,
+                transact_to: TransactTo::Call(addr),
+                ..Default::default()
+            },
         );
 
-        let mut insp = JsInspector::new(js_code.to_string(), serde_json::Value::Null).unwrap();
+        let mut insp = JsInspector::new(code.to_string(), serde_json::Value::Null).unwrap();
 
         let res = revm::Evm::builder()
             .with_db(db.clone())
@@ -705,13 +726,25 @@ mod tests {
     }
 
     #[test]
+    fn test_general_counting() {
+        let code = r#"{
+            count: 0,
+            step: function() { this.count += 1; },
+            fault: function() {},
+            result: function() { return this.count; }
+        }"#;
+        let res = run_trace(code, None, true);
+        assert_eq!(res.as_u64().unwrap(), 3);
+    }
+
+    #[test]
     fn test_memory_access() {
         let code = r#"{
-        depths: [],
-        step: function(log) { this.depths.push(log.memory.slice(-1,-2)); },
-        fault: function() {},
-        result: function() { return this.depths; }
-    }"#;
+            depths: [],
+            step: function(log) { this.depths.push(log.memory.slice(-1,-2)); },
+            fault: function() {},
+            result: function() { return this.depths; }
+        }"#;
         let res = run_trace(code, None, false);
         assert_eq!(res.as_array().unwrap().len(), 0);
     }
@@ -724,20 +757,141 @@ mod tests {
             fault: function() {},
             result: function() { return this.depths; }
         }"#;
-
         let res = run_trace(code, None, false);
         assert_eq!(res.as_array().unwrap().len(), 0);
     }
 
     #[test]
-    fn test_general_counting() {
+    fn test_memory_get_uint() {
         let code = r#"{
-        count: 0,
-        step: function() { this.count += 1; },
-        fault: function() {},
-        result: function() { return this.count; }
-    }"#;
+            depths: [],
+            step: function(log, db) { this.depths.push(log.memory.getUint(-64)); },
+            fault: function() {},
+            result: function() { return this.depths; }
+        }"#;
+        let res = run_trace(code, None, false);
+        assert_eq!(res.as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_stack_depth() {
+        let code = r#"{
+            depths: [],
+            step: function(log) { this.depths.push(log.stack.length()); },
+            fault: function() {},
+            result: function() { return this.depths; }
+        }"#;
         let res = run_trace(code, None, true);
-        assert_eq!(res.as_u64().unwrap(), 3);
+        assert_eq!(res, json!([0, 1, 2]));
+    }
+
+    #[test]
+    fn test_memory_length() {
+        let code = r#"{
+            lengths: [],
+            step: function(log) { this.lengths.push(log.memory.length()); },
+            fault: function() {},
+            result: function() { return this.lengths; }
+        }"#;
+        let res = run_trace(code, None, true);
+        assert_eq!(res, json!([0, 0, 0]));
+    }
+
+    #[test]
+    fn test_opcode_to_string() {
+        let code = r#"{
+             opcodes: [],
+             step: function(log) { this.opcodes.push(log.op.toString()); },
+             fault: function() {},
+             result: function() { return this.opcodes; }
+         }"#;
+        let res = run_trace(code, None, true);
+        assert_eq!(res, json!(["PUSH1", "PUSH1", "STOP"]));
+    }
+
+    #[test]
+    fn test_gas_used() {
+        let code = r#"{
+            depths: [],
+            step: function() {},
+            fault: function() {},
+            result: function(ctx) { return ctx.gasPrice+'.'+ctx.gasUsed; }
+        }"#;
+        let res = run_trace(code, None, true);
+        assert_eq!(res.as_str().unwrap(), "1024.21006");
+    }
+
+    #[test]
+    fn test_to_word() {
+        let code = r#"{
+            res: null,
+            step: function(log) {},
+            fault: function() {},
+            result: function() { return toWord('0xffaa') }
+        }"#;
+        let res = run_trace(code, None, true);
+        assert_eq!(
+            res,
+            json!({
+                "0": 0, "1": 0, "2": 0, "3": 0, "4": 0, "5": 0, "6": 0, "7": 0, "8": 0,
+                "9": 0, "10": 0, "11": 0, "12": 0, "13": 0, "14": 0, "15": 0, "16": 0,
+                "17": 0, "18": 0, "19": 0, "20": 0, "21": 0, "22": 0, "23": 0, "24": 0,
+                "25": 0, "26": 0, "27": 0, "28": 0, "29": 0, "30": 255, "31": 170,
+            })
+        );
+    }
+
+    #[test]
+    fn test_to_address() {
+        let code = r#"{
+            res: null,
+            step: function(log) { var address = log.contract.getAddress(); this.res = toAddress(address); },
+            fault: function() {},
+            result: function() { return toHex(this.res) }
+        }"#;
+        let res = run_trace(code, None, true);
+        assert_eq!(res.as_str().unwrap(), "0x0101010101010101010101010101010101010101");
+    }
+
+    #[test]
+    fn test_to_address_string() {
+        let code = r#"{
+            res: null,
+            step: function(log) { var address = '0x0000000000000000000000000000000000000000'; this.res = toAddress(address); },
+            fault: function() {},
+            result: function() { return this.res }
+        }"#;
+        let res = run_trace(code, None, true);
+        assert_eq!(res.as_object().unwrap().values().map(|v| v.as_u64().unwrap()).sum::<u64>(), 0);
+    }
+
+    #[test]
+    fn test_memory_slice() {
+        let code = r#"{
+            res: [],
+            step: function(log) {
+                var op = log.op.toString();
+                if (op === 'MSTORE8') {
+                    this.res.push(log.memory.slice(0, 2))
+                }
+            },
+            fault: function() {},
+            result: function() { return this.res }
+        }"#;
+        let contract = hex!("60ff60005300"); // PUSH1, 0xff, PUSH1, 0x00, MSTORE8, STOP
+        let res = run_trace(code, Some(contract.into()), true);
+        assert_eq!(res, json!([{"0":0,"1":0}]));
+    }
+
+    #[test]
+    fn test_coinbase() {
+        let code = r#"{
+            lengths: [],
+            step: function(log) { },
+            fault: function() {},
+            result: function(ctx) { var coinbase = ctx.coinbase; return toAddress(coinbase); }
+        }"#;
+        let res = run_trace(code, None, true);
+        assert_eq!(res.as_object().unwrap().values().map(|v| v.as_u64().unwrap()).sum::<u64>(), 0);
     }
 }
