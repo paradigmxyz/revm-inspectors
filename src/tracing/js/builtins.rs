@@ -135,7 +135,7 @@ pub(crate) fn address_to_uint8_array(
     addr: Address,
     context: &mut Context,
 ) -> JsResult<JsUint8Array> {
-    JsUint8Array::from_iter(addr.0, context)
+    JsUint8Array::from_iter(addr, context)
 }
 
 /// Create a new [JsUint8Array] array buffer from the address' bytes.
@@ -267,7 +267,7 @@ pub(crate) fn to_word(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsRes
     let val = args.get_or_undefined(0).clone();
     let buf = bytes_from_value(val, ctx)?;
     let hash = bytes_to_b256(&buf);
-    to_uint8_array_value(hash.0, ctx)
+    to_uint8_array_value(hash, ctx)
 }
 
 /// Converts a buffer type to a hex string

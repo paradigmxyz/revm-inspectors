@@ -291,23 +291,25 @@ impl MemoryRef {
         let get_uint = FunctionObjectBuilder::new(
             ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
-                move |_this, args, memory, ctx|  {
+                move |_this, args, memory, ctx| {
                     let offset_f64 = args.get_or_undefined(0).to_number(ctx)?;
-                     let len = memory.len();
-                     let offset = offset_f64 as usize;
-                     if len < offset+32 || offset_f64 < 0. {
-                         return Err(JsError::from_native(
-                             JsNativeError::typ().with_message(format!("tracer accessed out of bound memory: available {len}, offset {offset}, size 32"))
-                         ));
-                     }
-                    let slice = memory.0.with_inner(|mem| mem.slice(offset, 32).to_vec()).unwrap_or_default();
-                     to_uint8_array_value(slice, ctx)
+                    let len = memory.len();
+                    let offset = offset_f64 as usize;
+                    if len < offset + 32 || offset_f64 < 0. {
+                        let msg = format!("tracer accessed out of bound memory: available {len}, offset {offset}, size 32");
+                        return Err(JsError::from_native(JsNativeError::typ().with_message(msg)));
+                    }
+                    let slice = memory
+                        .0
+                        .with_inner(|mem| mem.slice(offset, 32).to_vec())
+                        .unwrap_or_default();
+                    to_uint8_array_value(slice, ctx)
                 },
-                 self
+                self,
             ),
         )
-            .length(1)
-            .build();
+        .length(1)
+        .build();
 
         obj.set(js_string!("slice"), slice, false, ctx)?;
         obj.set(js_string!("getUint"), get_uint, false, ctx)?;
@@ -723,13 +725,13 @@ impl JsEvmContext {
         obj.set(js_string!("output"), to_uint8_array(output, ctx)?, false, ctx)?;
         obj.set(js_string!("time"), js_string!(time), false, ctx)?;
         if let Some(block_hash) = transaction_ctx.block_hash {
-            obj.set(js_string!("blockHash"), to_uint8_array(block_hash.0, ctx)?, false, ctx)?;
+            obj.set(js_string!("blockHash"), to_uint8_array(block_hash, ctx)?, false, ctx)?;
         }
         if let Some(tx_index) = transaction_ctx.tx_index {
             obj.set(js_string!("txIndex"), tx_index as u64, false, ctx)?;
         }
         if let Some(tx_hash) = transaction_ctx.tx_hash {
-            obj.set(js_string!("txHash"), to_uint8_array(tx_hash.0, ctx)?, false, ctx)?;
+            obj.set(js_string!("txHash"), to_uint8_array(tx_hash, ctx)?, false, ctx)?;
         }
         if let Some(error) = error {
             obj.set(js_string!("error"), js_string!(error), false, ctx)?;
@@ -833,8 +835,7 @@ impl EvmDbRef {
                 ))))
             }
         };
-        let value: B256 = value.into();
-        to_uint8_array(value.0, ctx)
+        to_uint8_array(B256::from(value), ctx)
     }
 
     pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
