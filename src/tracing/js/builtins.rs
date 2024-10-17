@@ -208,10 +208,15 @@ pub(crate) fn to_bigint(value: U256, ctx: &mut Context) -> JsResult<JsValue> {
         ctx,
     )
 }
-/// Takes three arguments: a JavaScript value that represents the sender's address, a string salt
-/// value, and the initcode for the contract. Compute the address of a contract created by the
-/// sender with the given salt and code hash, then converts the resulting address back into a byte
-/// buffer for output.
+
+/// Compute the address of a contract created using CREATE2.
+///
+/// Arguments:
+/// 1. creator: The address of the contract creator
+/// 2. salt: A 32-byte salt value
+/// 3. initcode: The contract's initialization code
+///
+/// Returns: The computed contract address as an ArrayBuffer
 pub(crate) fn to_contract2(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     // Extract the sender's address, salt and initcode from the arguments
     let from = args.get_or_undefined(0).clone();
@@ -243,7 +248,13 @@ pub(crate) fn to_contract2(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> 
     address_to_byte_array_value(contract_addr, ctx)
 }
 
-///  Converts the sender's address to a byte buffer
+/// Compute the address of a contract created by the sender with the given nonce.
+///
+/// Arguments:
+/// 1. from: The address of the contract creator
+/// 2. nonce: The creator's transaction count (optional, none is 0)
+///
+/// Returns: The computed contract address as an ArrayBuffer
 pub(crate) fn to_contract(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     // Extract the sender's address and nonce from the arguments
     let from = args.get_or_undefined(0).clone();
@@ -280,7 +291,7 @@ pub(crate) fn to_word(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsRes
 pub(crate) fn to_hex(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let val = args.get_or_undefined(0).clone();
     let buf = from_buf_value(val, ctx)?;
-    let s = js_string!(hex::encode(buf));
+    let s = js_string!(hex::encode_prefixed(buf));
     Ok(JsValue::from(s))
 }
 
@@ -341,5 +352,83 @@ mod tests {
         let result =
             big_int.as_callable().unwrap().call(&JsValue::undefined(), &[value], &mut ctx).unwrap();
         assert_eq!(result.to_string(&mut ctx).unwrap().to_std_string().unwrap(), "100");
+    }
+
+    fn as_length<T>(array: T) -> usize
+    where
+        T: Borrow<JsValue>,
+    {
+        let array = array.borrow();
+        let array = array.as_object().unwrap();
+        let array = JsUint8Array::from_object(array.clone()).unwrap();
+        array.length(&mut Context::default()).unwrap()
+    }
+
+    #[test]
+    fn test_to_hex() {
+        let mut ctx = Context::default();
+        let value = JsValue::from(js_string!("0xdeadbeef"));
+        let result = to_hex(&JsValue::undefined(), &[value], &mut ctx).unwrap();
+        assert_eq!(result.to_string(&mut ctx).unwrap().to_std_string().unwrap(), "0xdeadbeef");
+    }
+
+    #[test]
+    fn test_to_address() {
+        let mut ctx = Context::default();
+        let value = JsValue::from(js_string!("0xdeadbeef"));
+        let result = to_address(&JsValue::undefined(), &[value], &mut ctx).unwrap();
+        assert_eq!(as_length(&result), 20);
+        assert_eq!(
+            result.to_string(&mut ctx).unwrap().to_std_string().unwrap(),
+            "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,222,173,190,239"
+        );
+    }
+
+    #[test]
+    fn test_to_word() {
+        let mut ctx = Context::default();
+        let value = JsValue::from(js_string!("0xdeadbeef"));
+        let result = to_word(&JsValue::undefined(), &[value], &mut ctx).unwrap();
+        assert_eq!(as_length(&result), 32);
+        assert_eq!(
+            result.to_string(&mut ctx).unwrap().to_std_string().unwrap(),
+            "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,222,173,190,239"
+        );
+    }
+
+    #[test]
+    fn test_to_contract() {
+        let mut ctx = Context::default();
+        let from = JsValue::from(js_string!("0xdeadbeef"));
+        let nonce = JsValue::from(0);
+        let result = to_contract(&JsValue::undefined(), &[from.clone(), nonce], &mut ctx).unwrap();
+        assert_eq!(as_length(&result), 20);
+        let addr = to_hex(&JsValue::undefined(), &[result], &mut ctx).unwrap();
+        assert_eq!(
+            addr.to_string(&mut ctx).unwrap().to_std_string().unwrap(),
+            "0xe8279be14e9fe2ad2d8e52e42ca96fb33a813bbe",
+        );
+
+        // without nonce
+        let result = to_contract(&JsValue::undefined(), &[from], &mut ctx).unwrap();
+        let addr = to_hex(&JsValue::undefined(), &[result], &mut ctx).unwrap();
+        assert_eq!(
+            addr.to_string(&mut ctx).unwrap().to_std_string().unwrap(),
+            "0xe8279be14e9fe2ad2d8e52e42ca96fb33a813bbe",
+        );
+    }
+    #[test]
+    fn test_to_contract2() {
+        let mut ctx = Context::default();
+        let from = JsValue::from(js_string!("0xdeadbeef"));
+        let salt = JsValue::from(js_string!("0xdead4a17"));
+        let code = JsValue::from(js_string!("0xdeadbeef"));
+        let result = to_contract2(&JsValue::undefined(), &[from, salt, code], &mut ctx).unwrap();
+        assert_eq!(as_length(&result), 20);
+        let addr = to_hex(&JsValue::undefined(), &[result], &mut ctx).unwrap();
+        assert_eq!(
+            addr.to_string(&mut ctx).unwrap().to_std_string().unwrap(),
+            "0x8a0d8a428b30200a296dfbe693310e5d6d2c64c5"
+        );
     }
 }
