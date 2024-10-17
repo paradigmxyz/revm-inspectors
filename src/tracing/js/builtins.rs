@@ -280,7 +280,7 @@ pub(crate) fn to_word(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsRes
 pub(crate) fn to_hex(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let val = args.get_or_undefined(0).clone();
     let buf = from_buf_value(val, ctx)?;
-    let s = js_string!(hex::encode(buf));
+    let s = js_string!(hex::encode_prefixed(buf));
     Ok(JsValue::from(s))
 }
 
