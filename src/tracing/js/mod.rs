@@ -638,6 +638,16 @@ fn js_error_to_revert(err: JsError) -> InterpreterResult {
 mod tests {
     use super::*;
 
+    use alloy_primitives::{hex, Address};
+    use revm::{
+        db::{CacheDB, EmptyDB},
+        inspector_handle_register,
+        primitives::{
+            AccountInfo, BlockEnv, Bytecode, CfgEnv, CfgEnvWithHandlerCfg, EnvWithHandlerCfg,
+            HandlerCfg, SpecId, TransactTo, TxEnv,
+        },
+    };
+
     #[test]
     fn test_loop_iteration_limit() {
         let mut context = Context::default();
@@ -663,5 +673,71 @@ mod tests {
         let config = serde_json::Value::Null;
         let result = JsInspector::new(code.to_string(), config);
         assert!(matches!(result, Err(JsInspectorError::FaultFunctionMissing)));
+    }
+
+    // Helper function to run a trace and return the result
+    fn run_trace(js_code: &str, code: Option<Bytes>, success: bool) -> serde_json::Value {
+        let addr = Address::repeat_byte(0x01);
+        let mut db = CacheDB::new(EmptyDB::default());
+        let code = Some(Bytecode::LegacyRaw(code.unwrap_or_else(|| hex!("6001600100").into()))); // PUSH1 1, PUSH1 1, STOP
+        db.insert_account_info(addr, AccountInfo { code, ..Default::default() });
+
+        let cfg = CfgEnvWithHandlerCfg::new(CfgEnv::default(), HandlerCfg::new(SpecId::CANCUN));
+        let env = EnvWithHandlerCfg::new_with_cfg_env(
+            cfg.clone(),
+            BlockEnv::default(),
+            TxEnv { transact_to: TransactTo::Call(addr), ..Default::default() },
+        );
+
+        let mut insp = JsInspector::new(js_code.to_string(), serde_json::Value::Null).unwrap();
+
+        let res = revm::Evm::builder()
+            .with_db(db.clone())
+            .with_external_context(&mut insp)
+            .with_env_with_handler_cfg(env.clone())
+            .append_handler_register(inspector_handle_register)
+            .build()
+            .transact()
+            .unwrap();
+
+        assert_eq!(res.result.is_success(), success);
+        insp.json_result(res, &env, &db).unwrap()
+    }
+
+    #[test]
+    fn test_memory_access() {
+        let code = r#"{
+        depths: [],
+        step: function(log) { this.depths.push(log.memory.slice(-1,-2)); },
+        fault: function() {},
+        result: function() { return this.depths; }
+    }"#;
+        let res = run_trace(code, None, false);
+        assert_eq!(res.as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_stack_peek() {
+        let code = r#"{
+            depths: [],
+            step: function(log) { this.depths.push(log.stack.peek(-1)); },
+            fault: function() {},
+            result: function() { return this.depths; }
+        }"#;
+
+        let res = run_trace(code, None, false);
+        assert_eq!(res.as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_general_counting() {
+        let code = r#"{
+        count: 0,
+        step: function() { this.count += 1; },
+        fault: function() {},
+        result: function() { return this.count; }
+    }"#;
+        let res = run_trace(code, None, true);
+        assert_eq!(res.as_u64().unwrap(), 3);
     }
 }
