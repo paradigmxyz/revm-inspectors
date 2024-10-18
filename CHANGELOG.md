@@ -5,11 +5,56 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.9.0) - 2024-10-18
+
+### Bug Fixes
+
+- [js] The opposite checking logic ([#232](https://github.com/paradigmxyz/revm-inspectors/issues/232))
+- [tracing/js] ToHex returns with 0x as prefix ([#226](https://github.com/paradigmxyz/revm-inspectors/issues/226))
+- [tracing/js] Error not set in result_fn ([#222](https://github.com/paradigmxyz/revm-inspectors/issues/222))
+- [tracing/js] Fault_fn not checked ([#221](https://github.com/paradigmxyz/revm-inspectors/issues/221))
+- Record state diffs in `all()` ([#215](https://github.com/paradigmxyz/revm-inspectors/issues/215))
+
+### Dependencies
+
+- Bump alloy 0.5 ([#233](https://github.com/paradigmxyz/revm-inspectors/issues/233))
+- Bump revm ([#230](https://github.com/paradigmxyz/revm-inspectors/issues/230))
+- Bump revm ([#227](https://github.com/paradigmxyz/revm-inspectors/issues/227))
+
+### Features
+
+- [tests] Make the test code more clear and reuseable ([#225](https://github.com/paradigmxyz/revm-inspectors/issues/225))
+- [tracing] Js-tracer add coinbase into context ([#223](https://github.com/paradigmxyz/revm-inspectors/issues/223))
+- Tweak write_bytecodes output ([#217](https://github.com/paradigmxyz/revm-inspectors/issues/217))
+- Add TraceWriterConfig ([#216](https://github.com/paradigmxyz/revm-inspectors/issues/216))
+
+### Miscellaneous Tasks
+
+- [tracing/js] Add more unit tests ([#231](https://github.com/paradigmxyz/revm-inspectors/issues/231))
+- Simplify JS utils ([#229](https://github.com/paradigmxyz/revm-inspectors/issues/229))
+- [tests] Move js tracer into a single module ([#224](https://github.com/paradigmxyz/revm-inspectors/issues/224))
+- [meta] Update deny.toml
+- [tracing] Return detailed oog message ([#218](https://github.com/paradigmxyz/revm-inspectors/issues/218))
+
+### Other
+
+- Write storage change in trace ([#213](https://github.com/paradigmxyz/revm-inspectors/issues/213))
+- Distinguish stack oob error ([#219](https://github.com/paradigmxyz/revm-inspectors/issues/219))
+
+### Testing
+
+- Also test `write_bytecodes` ([#214](https://github.com/paradigmxyz/revm-inspectors/issues/214))
+- Writer colors ([#212](https://github.com/paradigmxyz/revm-inspectors/issues/212))
+
 ## [0.8.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.8.1) - 2024-09-30
 
 ### Bug Fixes
 
 - Use alloy maps ([#207](https://github.com/paradigmxyz/revm-inspectors/issues/207))
+
+### Miscellaneous Tasks
+
+- Release 0.8.1
 
 ## [0.8.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.8.0) - 2024-09-30
 
