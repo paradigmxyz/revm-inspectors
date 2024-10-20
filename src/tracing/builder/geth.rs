@@ -229,10 +229,12 @@ impl<'a> GethTraceBuilder<'a> {
         prestate_config: &PreStateConfig,
         db: DB,
     ) -> Result<PreStateFrame, DB::Error> {
-        if prestate_config.is_default_mode() {
-            self.geth_prestate_pre_traces(state, db)
+        let code_enabled = prestate_config.code_enabled();
+        let storage_enabled = prestate_config.storage_enabled();
+        if prestate_config.is_diff_mode() {
+            self.geth_prestate_diff_traces(state, db, code_enabled, storage_enabled)
         } else {
-            self.geth_prestate_diff_traces(state, db)
+            self.geth_prestate_pre_traces(state, db, code_enabled, storage_enabled)
         }
     }
 
@@ -240,18 +242,23 @@ impl<'a> GethTraceBuilder<'a> {
         &self,
         state: &EvmState,
         db: DB,
+        code_enabled: bool,
+        storage_enabled: bool,
     ) -> Result<PreStateFrame, DB::Error> {
         let account_diffs = state.iter().map(|(addr, acc)| (*addr, acc));
         let mut prestate = PreStateMode::default();
+
         // we only want changed accounts for things like balance changes etc
         for (addr, changed_acc) in account_diffs {
             let db_acc = db.basic_ref(addr)?.unwrap_or_default();
-            let code = load_account_code(&db, &db_acc);
+            let code = code_enabled.then(|| load_account_code(&db, &db_acc)).flatten();
             let mut acc_state = AccountState::from_account_info(db_acc.nonce, db_acc.balance, code);
 
             // insert the original value of all modified storage slots
-            for (key, slot) in changed_acc.storage.iter() {
-                acc_state.storage.insert((*key).into(), slot.original_value.into());
+            if storage_enabled {
+                for (key, slot) in changed_acc.storage.iter() {
+                    acc_state.storage.insert((*key).into(), slot.original_value.into());
+                }
             }
 
             prestate.0.insert(addr, acc_state);
@@ -264,6 +271,8 @@ impl<'a> GethTraceBuilder<'a> {
         &self,
         state: &EvmState,
         db: DB,
+        code_enabled: bool,
+        storage_enabled: bool,
     ) -> Result<PreStateFrame, DB::Error> {
         let account_diffs = state.iter().map(|(addr, acc)| (*addr, acc));
         let mut state_diff = DiffMode::default();
@@ -271,7 +280,7 @@ impl<'a> GethTraceBuilder<'a> {
         for (addr, changed_acc) in account_diffs {
             let db_acc = db.basic_ref(addr)?.unwrap_or_default();
 
-            let pre_code = load_account_code(&db, &db_acc);
+            let pre_code = code_enabled.then(|| load_account_code(&db, &db_acc)).flatten();
 
             let mut pre_state =
                 AccountState::from_account_info(db_acc.nonce, db_acc.balance, pre_code);
@@ -283,9 +292,12 @@ impl<'a> GethTraceBuilder<'a> {
             );
 
             // handle storage changes
-            for (key, slot) in changed_acc.storage.iter().filter(|(_, slot)| slot.is_changed()) {
-                pre_state.storage.insert((*key).into(), slot.original_value.into());
-                post_state.storage.insert((*key).into(), slot.present_value.into());
+            if storage_enabled {
+                for (key, slot) in changed_acc.storage.iter().filter(|(_, slot)| slot.is_changed())
+                {
+                    pre_state.storage.insert((*key).into(), slot.original_value.into());
+                    post_state.storage.insert((*key).into(), slot.present_value.into());
+                }
             }
 
             state_diff.pre.insert(addr, pre_state);
