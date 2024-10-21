@@ -402,7 +402,7 @@ impl TracingInspector {
             RecordedMemory::new(interp.shared_memory.context_memory())
         });
 
-        let stack = if self.config.record_stack_snapshots.is_full() {
+        let stack = if self.config.record_stack_snapshots.is_all() || self.config.record_stack_snapshots.is_full() {
             Some(interp.stack.data().clone())
         } else {
             None
@@ -469,7 +469,7 @@ impl TracingInspector {
 
         let step = &mut self.traces.arena[trace_idx].trace.steps[step_idx];
 
-        if self.config.record_stack_snapshots.is_pushes() {
+        if self.config.record_stack_snapshots.is_all() || self.config.record_stack_snapshots.is_pushes() {
             let start = interp.stack.len() - step.op.outputs() as usize;
             step.push_stack = Some(interp.stack.data()[start..].to_vec());
         }
