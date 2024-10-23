@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.10.0) - 2024-10-23
+
+### Dependencies
+
+- Bump revm ([#236](https://github.com/paradigmxyz/revm-inspectors/issues/236))
+
+### Features
+
+- [prestate] Return code or storage as optional ([#234](https://github.com/paradigmxyz/revm-inspectors/issues/234))
+
 ## [0.9.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.9.0) - 2024-10-18
 
 ### Bug Fixes
@@ -30,6 +40,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Miscellaneous Tasks
 
+- Release 0.9.0
 - [tracing/js] Add more unit tests ([#231](https://github.com/paradigmxyz/revm-inspectors/issues/231))
 - Simplify JS utils ([#229](https://github.com/paradigmxyz/revm-inspectors/issues/229))
 - [tests] Move js tracer into a single module ([#224](https://github.com/paradigmxyz/revm-inspectors/issues/224))
