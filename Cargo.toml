@@ -34,7 +34,7 @@ alloy-rpc-types-eth = "0.5"
 alloy-rpc-types-trace = "0.5"
 alloy-sol-types = "0.8"
 alloy-primitives = { version = "0.8", features = ["map"] }
-revm = { version = "16.0.0", default-features = false, features = ["std"] }
+revm = { version = "17.0.0", default-features = false, features = ["std"] }
 
 anstyle = "1.0"
 colorchoice = "1.0"
