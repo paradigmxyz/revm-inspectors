@@ -137,7 +137,8 @@ fn test_geth_mux_tracer() {
     let (addr, mut evm) = deploy_contract(code.into(), deployer, SpecId::LONDON);
 
     let call_config = CallConfig { only_top_call: Some(false), with_log: Some(true) };
-    let prestate_config = PreStateConfig { diff_mode: Some(false) };
+    let prestate_config =
+        PreStateConfig { diff_mode: Some(false), disable_code: None, disable_storage: None };
 
     let nested_call_config = CallConfig { only_top_call: Some(true), with_log: Some(false) };
     let nested_mux_config = MuxConfig(HashMap::from_iter([(
