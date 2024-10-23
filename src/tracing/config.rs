@@ -335,13 +335,21 @@ pub enum StackSnapshotType {
     /// Don't record stack snapshots
     #[default]
     None,
+    /// Record full, push stack
+    All,
     /// Record only the items pushed to the stack
     Pushes,
     /// Record the full stack
-    Full,
+    Full
 }
 
 impl StackSnapshotType {
+    /// Returns true if this is the [StackSnapshotType::All] variant
+    #[inline]
+    pub const fn is_all(self) -> bool {
+        matches!(self, Self::All)
+    }
+
     /// Returns true if this is the [StackSnapshotType::Full] variant
     #[inline]
     pub const fn is_full(self) -> bool {
