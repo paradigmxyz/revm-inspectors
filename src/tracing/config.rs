@@ -340,7 +340,7 @@ pub enum StackSnapshotType {
     /// Record only the items pushed to the stack
     Pushes,
     /// Record the full stack
-    Full
+    Full,
 }
 
 impl StackSnapshotType {
