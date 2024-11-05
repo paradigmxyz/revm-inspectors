@@ -7,7 +7,7 @@ use alloy_rpc_types_trace::{
     geth::{CallFrame, CallLogFrame, GethDefaultTracingOptions, StructLog},
     parity::{
         Action, ActionType, CallAction, CallOutput, CallType, CreateAction, CreateOutput,
-        SelfdestructAction, TraceOutput, TransactionTrace,
+        CreationMethod, SelfdestructAction, TraceOutput, TransactionTrace,
     },
 };
 use revm::interpreter::{opcode, CallScheme, CreateScheme, InstructionResult, OpCode};
@@ -519,6 +519,17 @@ impl CallKind {
     #[inline]
     pub const fn is_auth_call(&self) -> bool {
         matches!(self, Self::AuthCall)
+    }
+
+    /// Returns the creation method of the create callkind.
+    #[inline]
+    pub fn to_creation_method(&self) -> CreationMethod {
+        match self {
+            CallKind::Create => CreationMethod::Create,
+            CallKind::Create2 => CreationMethod::Create2,
+            CallKind::EOFCreate => CreationMethod::EOFCreate,
+            _ => unreachable!(),
+        }
     }
 }
 
