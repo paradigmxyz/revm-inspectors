@@ -397,6 +397,7 @@ impl CallTraceNode {
                     value: self.trace.value,
                     gas: self.trace.gas_limit,
                     init: self.trace.data.clone(),
+                    creation_method: self.kind().to_creation_method(),
                 })
             }
         }
@@ -527,7 +528,7 @@ impl CallKind {
         match self {
             CallKind::Create => CreationMethod::Create,
             CallKind::Create2 => CreationMethod::Create2,
-            CallKind::EOFCreate => CreationMethod::EOFCreate,
+            CallKind::EOFCreate => CreationMethod::EofCreate,
             _ => unreachable!(),
         }
     }
