@@ -397,7 +397,7 @@ impl CallTraceNode {
                     value: self.trace.value,
                     gas: self.trace.gas_limit,
                     init: self.trace.data.clone(),
-                    creation_method: self.kind().to_creation_method(),
+                    creation_method: self.kind().into(),
                 })
             }
         }
@@ -521,15 +521,16 @@ impl CallKind {
     pub const fn is_auth_call(&self) -> bool {
         matches!(self, Self::AuthCall)
     }
+}
 
-    /// Returns the creation method of the create callkind.
-    #[inline]
-    pub fn to_creation_method(&self) -> CreationMethod {
+/// Returns the creation method of the create callkind.
+impl Into<CreationMethod> for CallKind {
+    fn into(self) -> CreationMethod {
         match self {
             CallKind::Create => CreationMethod::Create,
             CallKind::Create2 => CreationMethod::Create2,
             CallKind::EOFCreate => CreationMethod::EofCreate,
-            _ => unreachable!(),
+            _ => CreationMethod::None,
         }
     }
 }
