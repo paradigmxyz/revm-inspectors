@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.11.0) - 2024-11-06
+
+### Dependencies
+
+- Bump revm 18 alloy 0.6 ([#238](https://github.com/paradigmxyz/revm-inspectors/issues/238))
+
+### Features
+
+- [trace/parity] Add  trace creation method ([#237](https://github.com/paradigmxyz/revm-inspectors/issues/237))
+- StackSnapshotType (All). ([#235](https://github.com/paradigmxyz/revm-inspectors/issues/235))
+
+### Miscellaneous Tasks
+
+- Rustmft
+
 ## [0.10.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.10.0) - 2024-10-23
 
 ### Dependencies
@@ -14,6 +29,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Features
 
 - [prestate] Return code or storage as optional ([#234](https://github.com/paradigmxyz/revm-inspectors/issues/234))
+
+### Miscellaneous Tasks
+
+- Release 0.10.0
 
 ## [0.9.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.9.0) - 2024-10-18
 
