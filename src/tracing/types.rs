@@ -7,7 +7,7 @@ use alloy_rpc_types_trace::{
     geth::{CallFrame, CallLogFrame, GethDefaultTracingOptions, StructLog},
     parity::{
         Action, ActionType, CallAction, CallOutput, CallType, CreateAction, CreateOutput,
-        SelfdestructAction, TraceOutput, TransactionTrace,
+        CreationMethod, SelfdestructAction, TraceOutput, TransactionTrace,
     },
 };
 use revm::interpreter::{opcode, CallScheme, CreateScheme, InstructionResult, OpCode};
@@ -397,6 +397,7 @@ impl CallTraceNode {
                     value: self.trace.value,
                     gas: self.trace.gas_limit,
                     init: self.trace.data.clone(),
+                    creation_method: self.kind().into(),
                 })
             }
         }
@@ -519,6 +520,17 @@ impl CallKind {
     #[inline]
     pub const fn is_auth_call(&self) -> bool {
         matches!(self, Self::AuthCall)
+    }
+}
+
+impl From<CallKind> for CreationMethod {
+    fn from(kind: CallKind) -> CreationMethod {
+        match kind {
+            CallKind::Create => CreationMethod::Create,
+            CallKind::Create2 => CreationMethod::Create2,
+            CallKind::EOFCreate => CreationMethod::EofCreate,
+            _ => CreationMethod::None,
+        }
     }
 }
 

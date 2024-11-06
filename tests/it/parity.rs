@@ -3,7 +3,9 @@
 use crate::utils::{inspect, print_traces, TestEvm};
 use alloy_primitives::{address, hex, map::HashSet, Address, U256};
 use alloy_rpc_types_eth::TransactionInfo;
-use alloy_rpc_types_trace::parity::{Action, CallAction, CallType, SelfdestructAction, TraceType};
+use alloy_rpc_types_trace::parity::{
+    Action, CallAction, CallType, CreationMethod, SelfdestructAction, TraceType,
+};
 use revm::{
     db::{CacheDB, EmptyDB},
     primitives::{
@@ -132,6 +134,7 @@ fn test_parity_constructor_selfdestruct() {
 
     assert_eq!(traces.len(), 3);
     assert!(traces[1].trace.action.is_create());
+    assert_eq!(traces[1].trace.action.as_create().unwrap().creation_method, CreationMethod::Create);
     assert_eq!(traces[1].trace.trace_address, vec![0]);
     assert_eq!(traces[1].trace.subtraces, 1);
     assert!(traces[2].trace.action.is_selfdestruct());
