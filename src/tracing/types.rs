@@ -523,10 +523,9 @@ impl CallKind {
     }
 }
 
-/// Returns the creation method of the create callkind.
-impl Into<CreationMethod> for CallKind {
-    fn into(self) -> CreationMethod {
-        match self {
+impl From<CallKind> for CreationMethod {
+    fn from(kind: CallKind) -> CreationMethod {
+        match kind {
             CallKind::Create => CreationMethod::Create,
             CallKind::Create2 => CreationMethod::Create2,
             CallKind::EOFCreate => CreationMethod::EofCreate,
