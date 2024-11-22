@@ -3,7 +3,6 @@
 use crate::tracing::{
     types::{CallTraceNode, CallTraceStepStackItem},
     utils::load_account_code,
-    TracingInspectorConfig,
 };
 use alloy_primitives::{Address, Bytes, B256, U256};
 use alloy_rpc_types_trace::geth::{
@@ -24,27 +23,19 @@ use std::{
 pub struct GethTraceBuilder<'a> {
     /// Recorded trace nodes.
     nodes: Cow<'a, [CallTraceNode]>,
-    /// How the traces were recorded
-    _config: TracingInspectorConfig,
 }
 
 impl GethTraceBuilder<'static> {
     /// Returns a new instance of the builder from [`Cow::Owned`]
-    pub fn new(
-        nodes: Vec<CallTraceNode>,
-        _config: TracingInspectorConfig,
-    ) -> GethTraceBuilder<'static> {
-        Self { nodes: Cow::Owned(nodes), _config }
+    pub fn new(nodes: Vec<CallTraceNode>) -> GethTraceBuilder<'static> {
+        Self { nodes: Cow::Owned(nodes) }
     }
 }
 
 impl<'a> GethTraceBuilder<'a> {
     /// Returns a new instance of the builder from [`Cow::Borrowed`]
-    pub fn new_borrowed(
-        nodes: &'a [CallTraceNode],
-        _config: TracingInspectorConfig,
-    ) -> GethTraceBuilder<'a> {
-        Self { nodes: Cow::Borrowed(nodes), _config }
+    pub fn new_borrowed(nodes: &'a [CallTraceNode]) -> GethTraceBuilder<'a> {
+        Self { nodes: Cow::Borrowed(nodes) }
     }
 
     /// Consumes the builder and returns the recorded trace nodes.

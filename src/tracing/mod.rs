@@ -210,7 +210,7 @@ impl TracingInspector {
     /// Consumes the Inspector and returns a [GethTraceBuilder].
     #[inline]
     pub fn into_geth_builder(self) -> GethTraceBuilder<'static> {
-        GethTraceBuilder::new(self.traces.arena, self.config)
+        GethTraceBuilder::new(self.traces.arena)
     }
 
     /// Returns the  [GethTraceBuilder] for the recorded traces without consuming the type.
@@ -220,7 +220,7 @@ impl TracingInspector {
     /// starting a new transaction: [`Self::fuse`]
     #[inline]
     pub fn geth_builder(&self) -> GethTraceBuilder<'_> {
-        GethTraceBuilder::new_borrowed(&self.traces.arena, self.config)
+        GethTraceBuilder::new_borrowed(&self.traces.arena)
     }
 
     /// Returns true if we're no longer in the context of the root call.
