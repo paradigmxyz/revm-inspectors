@@ -36,7 +36,7 @@ impl MuxInspector {
     /// Try creating a new instance of [MuxInspector] from the given [MuxConfig].
     pub fn try_from_config(config: MuxConfig) -> Result<MuxInspector, Error> {
         let mut four_byte = None;
-        let mut tracing = None;
+        let mut inspector_config = TracingInspectorConfig::none();
         let mut configs = Vec::new();
 
         // Process each tracer configuration
@@ -53,11 +53,8 @@ impl MuxInspector {
                         .ok_or(Error::MissingConfig(tracer_type))?
                         .into_call_config()?;
 
-                    if tracing.is_none() {
-                        tracing = Some(TracingInspector::new(
-                            TracingInspectorConfig::from_geth_call_config(&call_config),
-                        ));
-                    }
+                    inspector_config
+                        .merge(TracingInspectorConfig::from_geth_call_config(&call_config));
                     configs.push((tracer_type, TraceConfig::Call(call_config)));
                 }
                 GethDebugBuiltInTracerType::PreStateTracer => {
@@ -65,11 +62,8 @@ impl MuxInspector {
                         .ok_or(Error::MissingConfig(tracer_type))?
                         .into_pre_state_config()?;
 
-                    if tracing.is_none() {
-                        tracing = Some(TracingInspector::new(
-                            TracingInspectorConfig::from_geth_prestate_config(&prestate_config),
-                        ));
-                    }
+                    inspector_config
+                        .merge(TracingInspectorConfig::from_geth_prestate_config(&prestate_config));
                     configs.push((tracer_type, TraceConfig::PreState(prestate_config)));
                 }
                 GethDebugBuiltInTracerType::NoopTracer => {
@@ -86,6 +80,8 @@ impl MuxInspector {
                 }
             }
         }
+
+        let tracing = (!configs.is_empty()).then(|| TracingInspector::new(inspector_config));
 
         Ok(MuxInspector { four_byte, tracing, configs })
     }

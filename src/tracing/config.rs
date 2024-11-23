@@ -210,6 +210,21 @@ impl TracingInspectorConfig {
         Self::none()
     }
 
+    /// Merge another config into this one.
+    #[inline]
+    pub fn merge(&mut self, other: Self) -> &mut Self {
+        self.record_steps |= other.record_steps;
+        self.record_memory_snapshots |= other.record_memory_snapshots;
+        self.record_stack_snapshots = other.record_stack_snapshots;
+        self.record_state_diff |= other.record_state_diff;
+        self.record_returndata_snapshots |= other.record_returndata_snapshots;
+        self.exclude_precompile_calls |= other.exclude_precompile_calls;
+        self.record_logs |= other.record_logs;
+        self.record_opcodes_filter = self.record_opcodes_filter.or(other.record_opcodes_filter);
+        self.record_immediate_bytes |= other.record_immediate_bytes;
+        self
+    }
+
     /// Configure whether calls to precompiles should be ignored.
     ///
     /// If set to `true`, calls to precompiles without value transfers will be ignored.
