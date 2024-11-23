@@ -4,7 +4,7 @@ use crate::utils::{deploy_contract, inspect};
 use alloy_primitives::{hex, map::HashMap, Address, Bytes};
 use alloy_rpc_types_trace::geth::{
     mux::MuxConfig, CallConfig, GethDebugBuiltInTracerType, GethDebugTracerConfig, GethTrace,
-    PreStateConfig,
+    PreStateConfig, PreStateFrame,
 };
 use revm::{
     db::{CacheDB, EmptyDB},
@@ -139,12 +139,6 @@ fn test_geth_mux_tracer() {
     let call_config = CallConfig { only_top_call: Some(false), with_log: Some(true) };
     let prestate_config = PreStateConfig { diff_mode: Some(false), ..Default::default() };
 
-    let nested_call_config = CallConfig { only_top_call: Some(true), with_log: Some(false) };
-    let nested_mux_config = MuxConfig(HashMap::from_iter([(
-        GethDebugBuiltInTracerType::CallTracer,
-        Some(GethDebugTracerConfig(serde_json::to_value(nested_call_config).unwrap())),
-    )]));
-
     let config = MuxConfig(HashMap::from_iter([
         (GethDebugBuiltInTracerType::FourByteTracer, None),
         (
@@ -154,10 +148,6 @@ fn test_geth_mux_tracer() {
         (
             GethDebugBuiltInTracerType::PreStateTracer,
             Some(GethDebugTracerConfig(serde_json::to_value(prestate_config).unwrap())),
-        ),
-        (
-            GethDebugBuiltInTracerType::MuxTracer,
-            Some(GethDebugTracerConfig(serde_json::to_value(nested_mux_config).unwrap())),
         ),
     ]));
 
@@ -176,11 +166,10 @@ fn test_geth_mux_tracer() {
 
     let frame = insp.try_into_mux_frame(&res, &evm.db).unwrap();
 
-    assert_eq!(frame.0.len(), 4);
+    assert_eq!(frame.0.len(), 3);
     assert!(frame.0.contains_key(&GethDebugBuiltInTracerType::FourByteTracer));
     assert!(frame.0.contains_key(&GethDebugBuiltInTracerType::CallTracer));
     assert!(frame.0.contains_key(&GethDebugBuiltInTracerType::PreStateTracer));
-    assert!(frame.0.contains_key(&GethDebugBuiltInTracerType::MuxTracer));
 
     let four_byte_frame = frame.0[&GethDebugBuiltInTracerType::FourByteTracer].clone();
     match four_byte_frame {
@@ -203,22 +192,16 @@ fn test_geth_mux_tracer() {
         _ => panic!("Expected CallTracer"),
     }
 
-    let nested_frame = frame.0[&GethDebugBuiltInTracerType::MuxTracer].clone();
-    match nested_frame {
-        GethTrace::MuxTracer(nested_frame) => {
-            assert_eq!(nested_frame.0.len(), 1);
-            assert!(nested_frame.0.contains_key(&GethDebugBuiltInTracerType::CallTracer));
-
-            let nested_call_frame = nested_frame.0[&GethDebugBuiltInTracerType::CallTracer].clone();
-            match nested_call_frame {
-                GethTrace::CallTracer(nested_call_frame) => {
-                    assert_eq!(nested_call_frame.calls.len(), 0);
-                    assert_eq!(nested_call_frame.logs.len(), 0);
-                }
-                _ => panic!("Expected CallTracer"),
+    let prestate_frame = frame.0[&GethDebugBuiltInTracerType::PreStateTracer].clone();
+    match prestate_frame {
+        GethTrace::PreStateTracer(prestate_frame) => {
+            if let PreStateFrame::Default(prestate_mode) = prestate_frame {
+                assert_eq!(prestate_mode.0.len(), 2);
+            } else {
+                panic!("Expected Default PreStateFrame");
             }
         }
-        _ => panic!("Expected MuxTracer"),
+        _ => panic!("Expected PreStateTracer"),
     }
 }
 
