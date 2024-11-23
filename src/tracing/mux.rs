@@ -188,18 +188,13 @@ where
         context: &mut EvmContext<DB>,
         inputs: &mut CallInputs,
     ) -> Option<CallOutcome> {
-        let mut outcome = None;
-
         if let Some(ref mut inspector) = self.four_byte {
-            outcome = inspector.call(context, inputs);
+            let _ = inspector.call(context, inputs);
         }
         if let Some(ref mut inspector) = self.tracing {
-            if outcome.is_none() {
-                outcome = inspector.call(context, inputs);
-            }
+            return inspector.call(context, inputs);
         }
-
-        outcome
+        None
     }
 
     #[inline]
@@ -227,18 +222,13 @@ where
         context: &mut EvmContext<DB>,
         inputs: &mut CreateInputs,
     ) -> Option<CreateOutcome> {
-        let mut outcome = None;
-
         if let Some(ref mut inspector) = self.four_byte {
-            outcome = inspector.create(context, inputs);
+            let _ = inspector.create(context, inputs);
         }
         if let Some(ref mut inspector) = self.tracing {
-            if outcome.is_none() {
-                outcome = inspector.create(context, inputs);
-            }
+            return inspector.create(context, inputs);
         }
-
-        outcome
+        None
     }
 
     #[inline]
@@ -266,18 +256,13 @@ where
         context: &mut EvmContext<DB>,
         inputs: &mut EOFCreateInputs,
     ) -> Option<CreateOutcome> {
-        let mut outcome = None;
-
         if let Some(ref mut inspector) = self.four_byte {
-            outcome = inspector.eofcreate(context, inputs);
+            let _ = inspector.eofcreate(context, inputs);
         }
         if let Some(ref mut inspector) = self.tracing {
-            if outcome.is_none() {
-                outcome = inspector.eofcreate(context, inputs);
-            }
+            return inspector.eofcreate(context, inputs);
         }
-
-        outcome
+        None
     }
 
     #[inline]
