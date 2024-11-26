@@ -1,8 +1,10 @@
 use crate::tracing::{FourByteInspector, TracingInspector, TracingInspectorConfig};
 use alloy_primitives::{map::HashMap, Address, Log, U256};
+use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::geth::{
     mux::{MuxConfig, MuxFrame},
-    CallConfig, FourByteFrame, GethDebugBuiltInTracerType, NoopFrame, PreStateConfig,
+    CallConfig, FlatCallConfig, FourByteFrame, GethDebugBuiltInTracerType, NoopFrame,
+    PreStateConfig,
 };
 use revm::{
     interpreter::{
@@ -29,6 +31,7 @@ pub struct MuxInspector {
 enum TraceConfig {
     Call(CallConfig),
     PreState(PreStateConfig),
+    FlatCall(FlatCallConfig),
     Noop,
 }
 
@@ -73,7 +76,13 @@ impl MuxInspector {
                     configs.push((tracer_type, TraceConfig::Noop));
                 }
                 GethDebugBuiltInTracerType::FlatCallTracer => {
-                    return Err(Error::UnexpectedConfig(tracer_type));
+                    let flatcall_config = tracer_config
+                        .ok_or(Error::MissingConfig(tracer_type))?
+                        .into_flat_call_config()?;
+
+                    inspector_config
+                        .merge(TracingInspectorConfig::from_flat_call_config(&flatcall_config));
+                    configs.push((tracer_type, TraceConfig::FlatCall(flatcall_config)));
                 }
                 GethDebugBuiltInTracerType::MuxTracer => {
                     return Err(Error::UnexpectedConfig(tracer_type));
@@ -91,6 +100,7 @@ impl MuxInspector {
         &self,
         result: &ResultAndState,
         db: &DB,
+        tx_info: TransactionInfo,
     ) -> Result<MuxFrame, DB::Error> {
         let mut frame = HashMap::with_capacity_and_hasher(self.configs.len(), Default::default());
 
@@ -111,6 +121,17 @@ impl MuxInspector {
                         inspector
                             .geth_builder()
                             .geth_prestate_traces(result, prestate_config, db)?
+                            .into()
+                    } else {
+                        continue;
+                    }
+                }
+                TraceConfig::FlatCall(_flatcall_config) => {
+                    if let Some(inspector) = &self.tracing {
+                        inspector
+                            .clone()
+                            .into_parity_builder()
+                            .into_localized_transaction_traces(tx_info)
                             .into()
                     } else {
                         continue;
