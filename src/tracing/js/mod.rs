@@ -478,9 +478,11 @@ where
                 kind: call.kind,
                 gas: inputs.gas_limit,
             };
-            if let Err(_err) = self.try_enter(frame) {
-                todo!("return revert")
-                // return (InstructionResult::Revert, Gas::new(0), err.to_string().into());
+            if let Err(err) = self.try_enter(frame) {
+                return Some(CallOutcome::new(
+                    js_error_to_revert(err),
+                    inputs.return_memory_offset.clone(),
+                ));
             }
         }
 
