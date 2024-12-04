@@ -356,15 +356,15 @@ impl JsInspector {
     /// Pushes a new call to the stack
     fn push_call(
         &mut self,
-        address: Address,
-        data: Bytes,
+        contract: Address,
+        input: Bytes,
         value: U256,
         kind: CallKind,
         caller: Address,
         gas_limit: u64,
     ) -> &CallStackItem {
         let call = CallStackItem {
-            contract: Contract { caller, contract: address, value, input: data },
+            contract: Contract { caller, contract, value, input },
             kind,
             gas_limit,
         };
@@ -453,21 +453,19 @@ where
     ) -> Option<CallOutcome> {
         self.register_precompiles(&context.precompiles);
 
-        // determine correct `from` and `to` based on the call scheme
-        let (from, to) = match inputs.scheme {
-            CallScheme::DelegateCall | CallScheme::CallCode => {
-                (inputs.target_address, inputs.bytecode_address)
-            }
-            _ => (inputs.caller, inputs.bytecode_address),
+        // determine contract address based on the call scheme
+        let contract = match inputs.scheme {
+            CallScheme::DelegateCall | CallScheme::CallCode => inputs.target_address,
+            _ => inputs.bytecode_address,
         };
 
         let value = inputs.transfer_value().unwrap_or_default();
         self.push_call(
-            to,
+            contract,
             inputs.input.clone(),
             value,
             inputs.scheme.into(),
-            from,
+            inputs.caller,
             inputs.gas_limit,
         );
 
@@ -520,9 +518,9 @@ where
 
         let _ = context.load_account(inputs.caller);
         let nonce = context.journaled_state.account(inputs.caller).info.nonce;
-        let address = inputs.created_address(nonce);
+        let contract = inputs.created_address(nonce);
         self.push_call(
-            address,
+            contract,
             inputs.init_code.clone(),
             inputs.value,
             inputs.scheme.into(),
