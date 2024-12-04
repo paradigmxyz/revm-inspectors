@@ -1,9 +1,10 @@
 //! Geth Js tracer tests
 
-use crate::utils::{deploy_contract, inspect};
-use alloy_primitives::{hex, Address};
+use crate::utils::{deploy_contract, inspect, TestEvm};
+use alloy_primitives::{address, hex, Address};
 use revm::primitives::{SpecId, TransactTo, TxEnv};
 use revm_inspectors::tracing::js::JsInspector;
+use serde_json::json;
 
 #[test]
 fn test_geth_jstracer_revert() {
@@ -69,4 +70,77 @@ fn test_geth_jstracer_revert() {
 
     // reverted operation
     assert!(result["error"].as_bool().unwrap());
+}
+
+// Fix issue https://github.com/paradigmxyz/reth/issues/13089
+#[test]
+fn test_geth_jstracer_proxy_contract() {
+    /*
+
+    contract Token {
+        event Transfer(address indexed from, address indexed to, uint256 value);
+
+        function transfer(address to, uint256 amount) public payable {
+            emit Transfer(msg.sender, to, amount);
+        }
+    }
+
+    contract Proxy {
+        function transfer(address _contract, address _to, uint256 _amount) external payable {
+            (bool success, bytes memory data) =
+                _contract.delegatecall(abi.encodeWithSignature("transfer(address,uint256)", _to, _amount));
+            require(success, "failed to delegatecall");
+        }
+    }
+    */
+
+    let token_code = hex!("6080604052348015600e575f80fd5b5060dd80601a5f395ff3fe608060405260043610601b575f3560e01c8063a9059cbb14601f575b5f80fd5b602e602a3660046074565b6030565b005b6040518181526001600160a01b0383169033907fddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef9060200160405180910390a35050565b5f80604083850312156084575f80fd5b82356001600160a01b03811681146099575f80fd5b94602093909301359350505056fea2646970667358221220d81408f997c5f148e7d6afc66ccc7cda17a38396925363f11993fa885b70729b64736f6c63430008190033");
+
+    let proxy_code = hex!("6080604052348015600e575f80fd5b506101998061001c5f395ff3fe60806040526004361061001d575f3560e01c80631a69523014610021575b5f80fd5b61003461002f366004610120565b610036565b005b6040516104006024820152606560448201525f9081906001600160a01b0384169060640160408051601f198184030181529181526020820180516001600160e01b031663a9059cbb60e01b1790525161008f919061014d565b5f60405180830381855af49150503d805f81146100c7576040519150601f19603f3d011682016040523d82523d5f602084013e6100cc565b606091505b50915091508161011b5760405162461bcd60e51b815260206004820152601660248201527519985a5b1959081d1bc819195b1959d85d1958d85b1b60521b604482015260640160405180910390fd5b505050565b5f60208284031215610130575f80fd5b81356001600160a01b0381168114610146575f80fd5b9392505050565b5f82518060208501845e5f92019182525091905056fea2646970667358221220d7855999519e998c7bcef0432918ca2f5b00228a4058ba259260e327013226f764736f6c63430008190033");
+
+    let deployer = address!("f077b491b355e64048ce21e3a6fc4751eeea77fa");
+
+    let mut evm = TestEvm::new();
+
+    // Deploy Implementation(Token) contract
+    let token_addr = evm.simple_deploy(token_code.into());
+
+    // Deploy Proxy contract
+    let proxy_addr = evm.simple_deploy(proxy_code.into());
+
+    // Set input data for ProxyFactory.transfer(address)
+    let mut input_data = hex!("1a695230").to_vec(); // keccak256("transfer(address)")[:4]
+    input_data.extend_from_slice(&[0u8; 12]); // Pad with zeros
+    input_data.extend_from_slice(token_addr.as_slice());
+    println!("token {:?} proxy: {:?}", token_addr, proxy_addr);
+
+    let code = r#"
+{
+    data: [],
+    fault: function(log) {},
+    step: function(log) {
+        if (log.op.toString().match(/LOG/)) {
+            const topic1 = log.stack.peek(2).toString(16);
+            const token = toHex(log.contract.getAddress());
+            if (topic1 === "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef") {
+                this.data.push({ event: "Transfer", token })
+            }
+        }
+    },
+    result: function() { return this.data; }
+}"#;
+    let mut insp = JsInspector::new(code.to_string(), serde_json::Value::Null).unwrap();
+    let env = evm.env_with_tx(TxEnv {
+        caller: deployer,
+        gas_limit: 1000000,
+        transact_to: TransactTo::Call(proxy_addr),
+        data: input_data.into(),
+        ..Default::default()
+    });
+
+    let (res, _) = inspect(&mut evm.db, env.clone(), &mut insp).unwrap();
+    assert!(res.result.is_success());
+
+    let result = insp.json_result(res, &env, &evm.db).unwrap();
+    assert_eq!(result, json!([{"event": "Transfer", "token": proxy_addr}]));
 }
