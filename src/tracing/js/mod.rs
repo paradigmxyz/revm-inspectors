@@ -453,12 +453,10 @@ where
     ) -> Option<CallOutcome> {
         self.register_precompiles(&context.precompiles);
 
-        // determine correct `from` and `to` based on the call scheme
-        let (caller, contract) = match inputs.scheme {
-            CallScheme::DelegateCall | CallScheme::CallCode => {
-                (inputs.target_address, inputs.target_address)
-            }
-            _ => (inputs.caller, inputs.bytecode_address),
+        // determine contract address based on the call scheme
+        let contract = match inputs.scheme {
+            CallScheme::DelegateCall | CallScheme::CallCode => inputs.target_address,
+            _ => inputs.bytecode_address,
         };
 
         let value = inputs.transfer_value().unwrap_or_default();
@@ -467,7 +465,7 @@ where
             inputs.input.clone(),
             value,
             inputs.scheme.into(),
-            caller,
+            inputs.caller,
             inputs.gas_limit,
         );
 

@@ -121,9 +121,10 @@ fn test_geth_jstracer_proxy_contract() {
     step: function(log) {
         if (log.op.toString().match(/LOG/)) {
             const topic1 = log.stack.peek(2).toString(16);
+            const caller = toHex(log.contract.getCaller());
             const token = toHex(log.contract.getAddress());
             if (topic1 === "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef") {
-                this.data.push({ event: "Transfer", token })
+                this.data.push({ event: "Transfer", token, caller })
             }
         }
     },
@@ -142,5 +143,5 @@ fn test_geth_jstracer_proxy_contract() {
     assert!(res.result.is_success());
 
     let result = insp.json_result(res, &env, &evm.db).unwrap();
-    assert_eq!(result, json!([{"event": "Transfer", "token": proxy_addr}]));
+    assert_eq!(result, json!([{"event": "Transfer", "token": proxy_addr, "caller": deployer}]));
 }
