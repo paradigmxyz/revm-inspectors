@@ -356,15 +356,15 @@ impl JsInspector {
     /// Pushes a new call to the stack
     fn push_call(
         &mut self,
-        address: Address,
-        data: Bytes,
+        contract: Address,
+        input: Bytes,
         value: U256,
         kind: CallKind,
         caller: Address,
         gas_limit: u64,
     ) -> &CallStackItem {
         let call = CallStackItem {
-            contract: Contract { caller, contract: address, value, input: data },
+            contract: Contract { caller, contract, value, input },
             kind,
             gas_limit,
         };
