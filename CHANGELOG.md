@@ -5,11 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.12.1) - 2024-12-04
+
+### Bug Fixes
+
+- [js] Incorrect caller and contract address extracting ([#244](https://github.com/paradigmxyz/revm-inspectors/issues/244))
+
+### Dependencies
+
+- Bump msrv 1.81 ([#243](https://github.com/paradigmxyz/revm-inspectors/issues/243))
+
+### Miscellaneous Tasks
+
+- Remove bad todo ([#242](https://github.com/paradigmxyz/revm-inspectors/issues/242))
+
 ## [0.12.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.12.0) - 2024-11-28
 
 ### Dependencies
 
 - Bump alloy ([#241](https://github.com/paradigmxyz/revm-inspectors/issues/241))
+
+### Miscellaneous Tasks
+
+- Release 0.12.0
 
 ### Other
 
