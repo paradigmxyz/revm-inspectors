@@ -456,7 +456,7 @@ where
         // determine correct `from` and `to` based on the call scheme
         let (caller, contract) = match inputs.scheme {
             CallScheme::DelegateCall | CallScheme::CallCode => {
-                (inputs.target_address, inputs.bytecode_address)
+                (inputs.target_address, inputs.target_address)
             }
             _ => (inputs.caller, inputs.bytecode_address),
         };
