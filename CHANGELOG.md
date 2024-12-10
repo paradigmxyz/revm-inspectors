@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bump alloy 0.8 ([#245](https://github.com/paradigmxyz/revm-inspectors/issues/245))
 
+### Miscellaneous Tasks
+
+- Release 0.13.0
+
 ## [0.12.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.12.1) - 2024-12-04
 
 ### Bug Fixes
