@@ -385,9 +385,10 @@ impl JsInspector {
     }
 }
 
-impl<DB> Inspector<PrevContext<DB>, EthInterpreter> for JsInspector
+impl<DB, W> Inspector<ContextWire<DB, W>, EthInterpreter> for JsInspector
 where
     DB: Database + DatabaseRef,
+    W: ContextWiring<DB>,
     <DB as DatabaseRef>::Error: std::fmt::Display,
 {
     fn step(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut PrevContext<DB>) {

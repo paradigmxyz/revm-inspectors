@@ -533,7 +533,7 @@ impl TracingInspector {
     }
 }
 
-impl<DB> Inspector<PrevContext<DB>, EthInterpreter> for TracingInspector
+impl<DB,W> Inspector<ContextWire<DB,W>, EthInterpreter> for TracingInspector
 where
     DB: Database,
 {

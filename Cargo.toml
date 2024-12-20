@@ -34,10 +34,10 @@ alloy-rpc-types-eth = "0.8"
 alloy-rpc-types-trace = "0.8"
 alloy-sol-types = "0.8"
 alloy-primitives = { version = "0.8", features = ["map"] }
-revm = { git = "https://github.com/bluealloy/revm.git", rev = "f84bfb58", default-features = false, features = [
+revm = { git = "https://github.com/bluealloy/revm.git", rev = "ab62fe1a", default-features = false, features = [
     "std",
 ] }
-revm-inspector = { git = "https://github.com/bluealloy/revm.git", rev = "f84bfb58", default-features = false, features = [
+revm-inspector = { git = "https://github.com/bluealloy/revm.git", rev = "ab62fe1a", default-features = false, features = [
     "std",
 ] }
 
@@ -55,7 +55,7 @@ boa_gc = { version = "0.19", optional = true }
 
 [dev-dependencies]
 snapbox = { version = "0.6", features = ["term-svg"] }
-revm-database = { git = "https://github.com/bluealloy/revm.git", rev = "f84bfb58", default-features = false, features = [
+revm-database = { git = "https://github.com/bluealloy/revm.git", rev = "ab62fe1a", default-features = false, features = [
     "std",
 ] }
 

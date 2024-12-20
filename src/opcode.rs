@@ -60,7 +60,7 @@ impl OpcodeGasInspector {
     }
 }
 
-impl<DB> Inspector<PrevContext<DB>, EthInterpreter> for OpcodeGasInspector
+impl<DB,W> Inspector<ContextWire<DB,W>, EthInterpreter> for OpcodeGasInspector
 where
     DB: Database,
 {

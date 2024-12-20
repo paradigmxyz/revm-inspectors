@@ -24,8 +24,9 @@
 use alloy_primitives::{hex, Selector};
 use alloy_rpc_types_trace::geth::FourByteFrame;
 use revm::{
+    context::{BlockEnv, CfgEnv, ContextWire, ContextWiring, TxEnv},
     interpreter::{interpreter::EthInterpreter, CallInputs, CallOutcome},
-    Database,
+    Context, Database,
 };
 use revm_inspector::{Inspector, PrevContext};
 use std::collections::HashMap;
@@ -44,9 +45,12 @@ impl FourByteInspector {
     }
 }
 
-impl<DB> Inspector<PrevContext<DB>, EthInterpreter> for FourByteInspector
+/// TODO : rakita the type parameter `CTXW` is not constrained by the impl trait, self type, or predicates
+/// unconstrained type parameter
+impl<DB, CTXW> Inspector<ContextWire<DB, CTXW>, EthInterpreter> for FourByteInspector
 where
     DB: Database,
+    CTXW: ContextWiring<DB>,
 {
     fn call(
         &mut self,

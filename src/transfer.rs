@@ -99,7 +99,7 @@ impl TransferInspector {
     }
 }
 
-impl<DB> Inspector<PrevContext<DB>, EthInterpreter> for TransferInspector
+impl<DB,W> Inspector<ContextWire<DB,W>, EthInterpreter> for TransferInspector
 where
     DB: Database,
 {

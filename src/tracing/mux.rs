@@ -157,7 +157,7 @@ impl MuxInspector {
     }
 }
 
-impl<DB> Inspector<PrevContext<DB>, EthInterpreter> for MuxInspector
+impl<DB,W> Inspector<ContextWire<DB,W>, EthInterpreter> for MuxInspector
 where
     DB: Database,
 {

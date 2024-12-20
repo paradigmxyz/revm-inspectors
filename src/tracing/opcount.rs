@@ -23,7 +23,7 @@ impl OpcodeCountInspector {
     }
 }
 
-impl<DB> Inspector<PrevContext<DB>, EthInterpreter> for OpcodeCountInspector
+impl<DB,W> Inspector<ContextWire<DB,W>, EthInterpreter> for OpcodeCountInspector
 where
     DB: Database,
 {

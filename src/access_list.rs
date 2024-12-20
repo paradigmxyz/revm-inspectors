@@ -64,7 +64,7 @@ impl AccessListInspector {
     }
 }
 
-impl<DB> Inspector<PrevContext<DB>, EthInterpreter> for AccessListInspector
+impl<DB,W> Inspector<ContextWire<DB,W>, EthInterpreter> for AccessListInspector
 where
     DB: Database,
 {
