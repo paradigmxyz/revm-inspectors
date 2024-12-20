@@ -417,7 +417,11 @@ where
         }
     }
 
-    fn step_end(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut PrevContext<DB>) {
+    fn step_end(
+        &mut self,
+        interp: &mut Interpreter<EthInterpreter>,
+        context: &mut PrevContext<DB>,
+    ) {
         if self.step_fn.is_none() {
             return;
         }
@@ -444,7 +448,13 @@ where
         }
     }
 
-    fn log(&mut self, _interp: &mut Interpreter<EthInterpreter>, _context: &mut PrevContext<DB>, _log: &Log) {}
+    fn log(
+        &mut self,
+        _interp: &mut Interpreter<EthInterpreter>,
+        _context: &mut PrevContext<DB>,
+        _log: &Log,
+    ) {
+    }
 
     fn call(
         &mut self,
