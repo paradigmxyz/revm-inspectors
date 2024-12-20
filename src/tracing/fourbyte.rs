@@ -24,9 +24,10 @@
 use alloy_primitives::{hex, Selector};
 use alloy_rpc_types_trace::geth::FourByteFrame;
 use revm::{
-    interpreter::{CallInputs, CallOutcome},
-    Database, EvmContext, Inspector,
+    interpreter::{interpreter::EthInterpreter, CallInputs, CallOutcome},
+    Database,
 };
+use revm_inspector::{Inspector, PrevContext};
 use std::collections::HashMap;
 
 /// Fourbyte tracing inspector that records all function selectors and their calldata sizes.
@@ -43,13 +44,13 @@ impl FourByteInspector {
     }
 }
 
-impl<DB> Inspector<DB> for FourByteInspector
+impl<DB> Inspector<PrevContext<DB>, EthInterpreter> for FourByteInspector
 where
     DB: Database,
 {
     fn call(
         &mut self,
-        _context: &mut EvmContext<DB>,
+        _context: &mut PrevContext<DB>,
         inputs: &mut CallInputs,
     ) -> Option<CallOutcome> {
         if inputs.input.len() >= 4 {

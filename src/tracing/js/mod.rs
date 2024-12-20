@@ -385,12 +385,12 @@ impl JsInspector {
     }
 }
 
-impl<DB> Inspector<DB> for JsInspector
+impl<DB> Inspector<PrevContext<DB>, EthInterpreter> for JsInspector
 where
     DB: Database + DatabaseRef,
     <DB as DatabaseRef>::Error: std::fmt::Display,
 {
-    fn step(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
+    fn step(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut PrevContext<DB>) {
         if self.step_fn.is_none() {
             return;
         }
@@ -417,7 +417,7 @@ where
         }
     }
 
-    fn step_end(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
+    fn step_end(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut PrevContext<DB>) {
         if self.step_fn.is_none() {
             return;
         }
@@ -444,11 +444,11 @@ where
         }
     }
 
-    fn log(&mut self, _interp: &mut Interpreter, _context: &mut EvmContext<DB>, _log: &Log) {}
+    fn log(&mut self, _interp: &mut Interpreter<EthInterpreter>, _context: &mut PrevContext<DB>, _log: &Log) {}
 
     fn call(
         &mut self,
-        context: &mut EvmContext<DB>,
+        context: &mut PrevContext<DB>,
         inputs: &mut CallInputs,
     ) -> Option<CallOutcome> {
         self.register_precompiles(&context.precompiles);
@@ -489,7 +489,7 @@ where
 
     fn call_end(
         &mut self,
-        _context: &mut EvmContext<DB>,
+        _context: &mut PrevContext<DB>,
         _inputs: &CallInputs,
         mut outcome: CallOutcome,
     ) -> CallOutcome {
@@ -511,7 +511,7 @@ where
 
     fn create(
         &mut self,
-        context: &mut EvmContext<DB>,
+        context: &mut PrevContext<DB>,
         inputs: &mut CreateInputs,
     ) -> Option<CreateOutcome> {
         self.register_precompiles(&context.precompiles);
@@ -542,7 +542,7 @@ where
 
     fn create_end(
         &mut self,
-        _context: &mut EvmContext<DB>,
+        _context: &mut PrevContext<DB>,
         _inputs: &CreateInputs,
         mut outcome: CreateOutcome,
     ) -> CreateOutcome {

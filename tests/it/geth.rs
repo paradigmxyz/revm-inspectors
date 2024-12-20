@@ -7,13 +7,8 @@ use alloy_rpc_types_trace::geth::{
     mux::MuxConfig, CallConfig, FlatCallConfig, GethDebugBuiltInTracerType, GethDebugTracerConfig,
     GethTrace, PreStateConfig, PreStateFrame,
 };
-use revm::{
-    db::{CacheDB, EmptyDB},
-    primitives::{
-        BlockEnv, CfgEnv, CfgEnvWithHandlerCfg, EnvWithHandlerCfg, HandlerCfg, SpecId, TransactTo,
-        TxEnv,
-    },
-};
+use revm::{context::{CfgEnv, TxEnv}, context_interface::TransactTo, database_interface::EmptyDB, specification::hardfork::SpecId};
+use revm_database::CacheDB;
 use revm_inspectors::tracing::{MuxInspector, TracingInspector, TracingInspectorConfig};
 
 #[test]

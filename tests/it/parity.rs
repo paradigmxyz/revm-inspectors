@@ -6,14 +6,8 @@ use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::parity::{
     Action, CallAction, CallType, CreationMethod, SelfdestructAction, TraceType,
 };
-use revm::{
-    db::{CacheDB, EmptyDB},
-    primitives::{
-        AccountInfo, BlobExcessGasAndPrice, BlockEnv, CfgEnv, CfgEnvWithHandlerCfg,
-        EnvWithHandlerCfg, ExecutionResult, HandlerCfg, Output, SpecId, TransactTo, TxEnv,
-    },
-    DatabaseCommit,
-};
+use revm::{database_interface::EmptyDB, specification::hardfork::SpecId, DatabaseCommit};
+use revm_database::CacheDB;
 use revm_inspectors::tracing::{
     parity::populate_state_diff, TracingInspector, TracingInspectorConfig,
 };

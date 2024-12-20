@@ -1,11 +1,14 @@
 use alloy_rpc_types_trace::opcode::OpcodeGas;
 use revm::{
+    bytecode::opcode::{self, OpCode},
     interpreter::{
-        opcode::{self, OpCode},
+        interpreter::EthInterpreter,
+        interpreter_types::{Immediates, Jumps, LoopControl},
         Interpreter,
     },
-    Database, EvmContext, Inspector,
+    Database,
 };
+use revm_inspector::{Inspector, PrevContext};
 use std::collections::HashMap;
 
 /// An Inspector that counts opcodes and measures gas usage per opcode.
@@ -57,80 +60,88 @@ impl OpcodeGasInspector {
     }
 }
 
-impl<DB> Inspector<DB> for OpcodeGasInspector
+impl<DB> Inspector<PrevContext<DB>, EthInterpreter> for OpcodeGasInspector
 where
     DB: Database,
 {
-    fn step(&mut self, interp: &mut Interpreter, _context: &mut EvmContext<DB>) {
-        let opcode_value = interp.current_opcode();
+    fn step(&mut self, interp: &mut Interpreter<EthInterpreter>, _context: &mut PrevContext<DB>) {
+        let opcode_value = interp.bytecode.opcode();
         if let Some(opcode) = OpCode::new(opcode_value) {
             // keep track of opcode counts
             *self.opcode_counts.entry(opcode).or_default() += 1;
 
             // keep track of the last opcode executed
-            self.last_opcode_gas_remaining = Some((opcode, interp.gas().remaining()));
+            self.last_opcode_gas_remaining = Some((opcode, interp.control.gas().remaining()));
         }
     }
 
-    fn step_end(&mut self, interp: &mut Interpreter, _context: &mut EvmContext<DB>) {
+    fn step_end(
+        &mut self,
+        interp: &mut Interpreter<EthInterpreter>,
+        _context: &mut PrevContext<DB>,
+    ) {
         // update gas usage for the last opcode
         if let Some((opcode, gas_remaining)) = self.last_opcode_gas_remaining.take() {
-            let gas_cost = gas_remaining.saturating_sub(interp.gas().remaining());
+            let gas_cost = gas_remaining.saturating_sub(interp.control.gas().remaining());
             *self.opcode_gas.entry(opcode).or_default() += gas_cost;
         }
     }
 }
 
-/// Accepts [OpCode] and a slice of bytecode immediately after it and returns the size of immediate
+/// Accepts Bytecode that implements [Immediates] and returns the size of immediate
 /// value.
 ///
 /// Primarily needed to handle a special case of RJUMPV opcode.
-pub fn immediate_size(op: OpCode, bytes_after: &[u8]) -> u8 {
-    match op.get() {
-        opcode::RJUMPV => {
-            if bytes_after.is_empty() {
-                return 0;
-            }
-            1 + (bytes_after[0] + 1) * 2
-        }
-        _ => op.info().immediate_size(),
+pub fn immediate_size(bytecode: &impl Immediates) -> u8 {
+    let opcode = bytecode.read_u8();
+    if opcode == opcode::RJUMPV {
+        let vtable_size = bytecode.read_slice(2)[2];
+        return 1 + (vtable_size + 1) * 2;
     }
+    let Some(opcode) = OpCode::new(opcode) else { return 0 };
+    opcode.info().immediate_size()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use revm::{
-        db::{CacheDB, EmptyDB},
-        interpreter::{opcode, Contract},
+        bytecode::Bytecode,
+        database_interface::EmptyDB,
+        interpreter::{InputsImpl, SharedMemory},
+        primitives::Bytes,
+        specification::hardfork::SpecId,
     };
+    use revm_database::CacheDB;
+    use std::{cell::RefCell, rc::Rc};
 
     #[test]
     fn test_opcode_counter_inspector() {
         let mut opcode_counter = OpcodeGasInspector::new();
-        let contract = Contract::default();
-        let mut interpreter = Interpreter::new(contract, 10000, false);
+
+        let opcodes = [opcode::ADD, opcode::ADD, opcode::ADD, opcode::BYTE];
+
+        let bytecode = Bytecode::new_raw(Bytes::from(opcodes));
+        let mut interpreter = Interpreter::<EthInterpreter>::new(
+            Rc::new(RefCell::new(SharedMemory::new())),
+            bytecode,
+            InputsImpl::default(),
+            false,
+            false,
+            SpecId::LATEST,
+            u64::MAX,
+        );
         let db = CacheDB::new(EmptyDB::default());
 
-        let opcodes = [
-            OpCode::new(opcode::ADD).unwrap(),
-            OpCode::new(opcode::ADD).unwrap(),
-            OpCode::new(opcode::ADD).unwrap(),
-            OpCode::new(opcode::BYTE).unwrap(),
-        ];
-
-        for &opcode in &opcodes {
-            interpreter.instruction_pointer = &opcode.get();
-            opcode_counter.step(&mut interpreter, &mut EvmContext::new(db.clone()));
+        for _ in &opcodes {
+            opcode_counter
+                .step(&mut interpreter, &mut PrevContext::new(db.clone(), SpecId::BERLIN));
         }
     }
 
     #[test]
     fn test_with_variety_of_opcodes() {
         let mut opcode_counter = OpcodeGasInspector::new();
-        let contract = Contract::default();
-        let mut interpreter = Interpreter::new(contract, 2024, false);
-        let db = CacheDB::new(EmptyDB::default());
 
         let opcodes = [
             opcode::PUSH1,
@@ -141,9 +152,21 @@ mod tests {
             opcode::STOP,
         ];
 
-        for opcode in opcodes.iter() {
-            interpreter.instruction_pointer = opcode;
-            opcode_counter.step(&mut interpreter, &mut EvmContext::new(db.clone()));
+        let bytecode = Bytecode::new_raw(Bytes::from(opcodes));
+        let mut interpreter = Interpreter::<EthInterpreter>::new(
+            Rc::new(RefCell::new(SharedMemory::new())),
+            bytecode,
+            InputsImpl::default(),
+            false,
+            false,
+            SpecId::LATEST,
+            u64::MAX,
+        );
+        let db = CacheDB::new(EmptyDB::default());
+
+        for _ in opcodes.iter() {
+            opcode_counter
+                .step(&mut interpreter, &mut PrevContext::new(db.clone(), SpecId::LATEST));
         }
     }
 }

@@ -1,14 +1,8 @@
 //! Transfer tests
 
 use alloy_primitives::{hex, Address, U256};
-use revm::{
-    db::{CacheDB, EmptyDB},
-    primitives::{
-        BlockEnv, CfgEnv, CfgEnvWithHandlerCfg, EnvWithHandlerCfg, ExecutionResult, HandlerCfg,
-        Output, SpecId, TransactTo, TxEnv,
-    },
-    DatabaseCommit,
-};
+use revm::{database_interface::EmptyDB, DatabaseCommit};
+use revm_database::CacheDB;
 
 use crate::utils::inspect;
 use revm_inspectors::{

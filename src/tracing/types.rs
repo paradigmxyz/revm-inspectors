@@ -10,7 +10,10 @@ use alloy_rpc_types_trace::{
         CreationMethod, SelfdestructAction, TraceOutput, TransactionTrace,
     },
 };
-use revm::interpreter::{opcode, CallScheme, CreateScheme, InstructionResult, OpCode};
+use revm::{
+    bytecode::opcode::{self, OpCode},
+    interpreter::{CallScheme, CreateScheme, InstructionResult},
+};
 use std::collections::VecDeque;
 
 /// Decoded call data.

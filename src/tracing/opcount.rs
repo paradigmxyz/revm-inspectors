@@ -2,7 +2,11 @@
 //!
 //! See also <https://geth.ethereum.org/docs/developers/evm-tracing/built-in-tracers>
 
-use revm::{interpreter::Interpreter, Database, EvmContext, Inspector};
+use revm::{
+    interpreter::{interpreter::EthInterpreter, Interpreter},
+    Database,
+};
+use revm_inspector::{Inspector, PrevContext};
 
 /// An inspector that counts all opcodes.
 #[derive(Clone, Copy, Debug, Default)]
@@ -19,11 +23,11 @@ impl OpcodeCountInspector {
     }
 }
 
-impl<DB> Inspector<DB> for OpcodeCountInspector
+impl<DB> Inspector<PrevContext<DB>, EthInterpreter> for OpcodeCountInspector
 where
     DB: Database,
 {
-    fn step(&mut self, _interp: &mut Interpreter, _context: &mut EvmContext<DB>) {
+    fn step(&mut self, _interp: &mut Interpreter<EthInterpreter>, _context: &mut PrevContext<DB>) {
         self.count += 1;
     }
 }

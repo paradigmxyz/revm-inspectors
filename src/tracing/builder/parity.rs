@@ -8,8 +8,11 @@ use alloy_primitives::{map::HashSet, Address, U256, U64};
 use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::parity::*;
 use revm::{
-    db::DatabaseRef,
-    primitives::{Account, ExecutionResult, ResultAndState, SpecId, KECCAK_EMPTY},
+    context_interface::result::{ExecutionResult, HaltReasonTrait, ResultAndState},
+    primitives::KECCAK_EMPTY,
+    specification::hardfork::SpecId,
+    state::Account,
+    DatabaseRef,
 };
 use std::{collections::VecDeque, iter::Peekable};
 
@@ -148,7 +151,7 @@ impl ParityTraceBuilder {
     /// using the [DatabaseRef].
     pub fn into_trace_results(
         self,
-        res: &ExecutionResult,
+        res: &ExecutionResult<impl HaltReasonTrait>,
         trace_types: &HashSet<TraceType>,
     ) -> TraceResults {
         let output = res.output().cloned().unwrap_or_default();
@@ -169,7 +172,7 @@ impl ParityTraceBuilder {
     /// with the [TracingInspector](crate::tracing::TracingInspector).
     pub fn into_trace_results_with_state<DB: DatabaseRef>(
         self,
-        res: &ResultAndState,
+        res: &ResultAndState<impl HaltReasonTrait>,
         trace_types: &HashSet<TraceType>,
         db: DB,
     ) -> Result<TraceResults, DB::Error> {

@@ -1,14 +1,15 @@
 use alloy_primitives::{Address, Bytes, U256};
 use colorchoice::ColorChoice;
 use revm::{
-    db::{CacheDB, EmptyDB},
-    inspector_handle_register,
+    database_interface::EmptyDB,
     primitives::{
         BlockEnv, EVMError, Env, EnvWithHandlerCfg, ExecutionResult, HandlerCfg, ResultAndState,
         SpecId, TransactTo, TxEnv,
     },
-    Database, DatabaseCommit, GetInspector,
+    Database, DatabaseCommit,
 };
+use revm_database::CacheDB;
+use revm_inspector::{inspector_handler, Inspector};
 use revm_inspectors::tracing::{
     TraceWriter, TraceWriterConfig, TracingInspector, TracingInspectorConfig,
 };
