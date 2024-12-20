@@ -2,14 +2,15 @@ use alloy_primitives::{Address, B256};
 use alloy_rpc_types_eth::{AccessList, AccessListItem};
 use revm::{
     bytecode::opcode,
+    context_interface::Journal,
     interpreter::{
         interpreter::EthInterpreter,
         interpreter_types::{InputsTrait, Jumps},
         Interpreter,
     },
-    Database,
+    Context, Database,
 };
-use revm_inspector::{Inspector, PrevContext};
+use revm_inspector::Inspector;
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 /// An [Inspector] that collects touched accounts and storage slots.
@@ -64,11 +65,17 @@ impl AccessListInspector {
     }
 }
 
-impl<DB,W> Inspector<ContextWire<DB,W>, EthInterpreter> for AccessListInspector
+impl<DB, BLOCK, TX, CFG, JOURNAL, CHAIN>
+    Inspector<Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>, EthInterpreter> for AccessListInspector
 where
     DB: Database,
+    JOURNAL: Journal<Database = DB>,
 {
-    fn step(&mut self, interp: &mut Interpreter<EthInterpreter>, _context: &mut PrevContext<DB>) {
+    fn step(
+        &mut self,
+        interp: &mut Interpreter<EthInterpreter>,
+        _context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
+    ) {
         match interp.bytecode.opcode() {
             opcode::SLOAD | opcode::SSTORE => {
                 if let Ok(slot) = interp.stack.peek(0) {

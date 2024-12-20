@@ -12,7 +12,7 @@ use crate::{
 use alloy_primitives::{Address, Bytes, Log, B256, U256};
 use revm::{
     bytecode::opcode::{self, OpCode},
-    context_interface::{Journal, JournalStateGetter},
+    context_interface::{Journal, JournalGetter},
     interpreter::{
         interpreter::EthInterpreter,
         interpreter_types::{
@@ -22,7 +22,7 @@ use revm::{
         InstructionResult, Interpreter, InterpreterResult,
     },
     specification::hardfork::SpecId,
-    Database, JournalEntry,
+    Context, Database, JournalEntry,
 };
 
 mod arena;
@@ -44,7 +44,7 @@ mod opcount;
 pub use opcount::OpcodeCountInspector;
 
 pub mod types;
-use revm_inspector::{Inspector, PrevContext};
+use revm_inspector::{Inspector, JournalExt, JournalExtGetter};
 use types::{CallLog, CallTrace, CallTraceStep};
 
 mod utils;
@@ -239,9 +239,10 @@ impl TracingInspector {
     ///
     /// Returns true if the `to` address is a precompile contract and the value is zero.
     #[inline]
-    fn is_precompile_call<DB: Database>(
+    fn is_precompile_call(
         &self,
-        context: &PrevContext<DB>,
+        // TODO(rakita)
+        //context: &Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
         to: &Address,
         value: &U256,
     ) -> bool {
@@ -297,9 +298,9 @@ impl TracingInspector {
     ///
     /// Invoked on [Inspector::call].
     #[allow(clippy::too_many_arguments)]
-    fn start_trace_on_call<DB: Database>(
+    fn start_trace_on_call<CTX: JournalGetter>(
         &mut self,
-        context: &PrevContext<DB>,
+        context: &mut CTX,
         address: Address,
         input_data: Bytes,
         value: U256,
@@ -321,7 +322,7 @@ impl TracingInspector {
             0,
             push_kind,
             CallTrace {
-                depth: context.journaled_state.depth() as usize,
+                depth: context.journal().depth() as usize,
                 address,
                 kind,
                 data: input_data,
@@ -342,9 +343,8 @@ impl TracingInspector {
     /// # Panics
     ///
     /// This expects an existing trace [Self::start_trace_on_call]
-    fn fill_trace_on_call_end<DB: Database>(
+    fn fill_trace_on_call_end(
         &mut self,
-        _context: &mut PrevContext<DB>,
         result: &InterpreterResult,
         created_address: Option<Address>,
     ) {
@@ -376,10 +376,10 @@ impl TracingInspector {
     /// This expects an existing [CallTrace], in other words, this panics if not within the context
     /// of a call.
     #[cold]
-    fn start_step<DB: Database>(
+    fn start_step<CTX: JournalGetter>(
         &mut self,
         interp: &mut Interpreter<EthInterpreter>,
-        context: &mut PrevContext<DB>,
+        context: &mut CTX,
     ) {
         let trace_idx = self.last_trace_idx();
         let trace = &mut self.traces.arena[trace_idx];
@@ -442,7 +442,7 @@ impl TracingInspector {
         }
 
         trace.trace.steps.push(CallTraceStep {
-            depth: context.journaled_state.depth() as u64,
+            depth: context.journal().depth() as u64,
             pc: interp.bytecode.pc(),
             code_section_idx: interp.sub_routine.routine_idx(),
             op,
@@ -470,10 +470,10 @@ impl TracingInspector {
     ///
     /// Invoked on [Inspector::step_end].
     #[cold]
-    fn fill_step_on_step_end<DB: Database>(
+    fn fill_step_on_step_end<CTX: JournalExtGetter>(
         &mut self,
         interp: &mut Interpreter<EthInterpreter>,
-        context: &mut PrevContext<DB>,
+        context: &mut CTX,
     ) {
         let StackStep { trace_idx, step_idx, record } =
             self.step_stack.pop().expect("can't fill step without starting a step first");
@@ -494,14 +494,7 @@ impl TracingInspector {
         if self.config.record_state_diff {
             let op = step.op.get();
 
-            let journal_entry = context
-                .journaled_state
-                .journal
-                .last()
-                // This should always work because revm initializes it as `vec![vec![]]`
-                // See [JournaledState::new](revm::JournaledState)
-                .expect("exists; initialized with vec")
-                .last();
+            let journal_entry = context.journal_ext().last_journal().last().cloned();
 
             step.storage_change = match (op, journal_entry) {
                 (
@@ -509,14 +502,15 @@ impl TracingInspector {
                     Some(JournalEntry::StorageChanged { address, key, had_value }),
                 ) => {
                     // SAFETY: (Address,key) exists if part if StorageChange
-                    let value = context.journaled_state.state[address].storage[key].present_value();
+                    //TODO let value =
+                    // context.journal_ext().state[address].storage[key].present_value();
+                    let value = U256::ZERO;
                     let reason = match op {
                         opcode::SLOAD => StorageChangeReason::SLOAD,
                         opcode::SSTORE => StorageChangeReason::SSTORE,
                         _ => unreachable!(),
                     };
-                    let change =
-                        StorageChange { key: *key, value, had_value: Some(*had_value), reason };
+                    let change = StorageChange { key, value, had_value: Some(had_value), reason };
                     Some(change)
                 }
                 _ => None,
@@ -533,12 +527,18 @@ impl TracingInspector {
     }
 }
 
-impl<DB,W> Inspector<ContextWire<DB,W>, EthInterpreter> for TracingInspector
+impl<DB, BLOCK, TX, CFG, JOURNAL, CHAIN>
+    Inspector<Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>, EthInterpreter> for TracingInspector
 where
     DB: Database,
+    JOURNAL: Journal<Database = DB>,
 {
     #[inline]
-    fn step(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut PrevContext<DB>) {
+    fn step(
+        &mut self,
+        interp: &mut Interpreter<EthInterpreter>,
+        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
+    ) {
         if self.config.record_steps {
             self.start_step(interp, context);
         }
@@ -548,17 +548,18 @@ where
     fn step_end(
         &mut self,
         interp: &mut Interpreter<EthInterpreter>,
-        context: &mut PrevContext<DB>,
+        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
     ) {
         if self.config.record_steps {
-            self.fill_step_on_step_end(interp, context);
+            // TODO(rakita) fix this
+            //self.fill_step_on_step_end(interp, context);
         }
     }
 
     fn log(
         &mut self,
         _interp: &mut Interpreter<EthInterpreter>,
-        _context: &mut PrevContext<DB>,
+        _context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
         log: &Log,
     ) {
         if self.config.record_logs {
@@ -570,7 +571,7 @@ where
 
     fn call(
         &mut self,
-        context: &mut PrevContext<DB>,
+        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
         inputs: &mut CallInputs,
     ) -> Option<CallOutcome> {
         // determine correct `from` and `to` based on the call scheme
@@ -594,10 +595,8 @@ where
             };
 
         // if calls to precompiles should be excluded, check whether this is a call to a precompile
-        let maybe_precompile = self
-            .config
-            .exclude_precompile_calls
-            .then(|| self.is_precompile_call(context, &to, &value));
+        let maybe_precompile =
+            self.config.exclude_precompile_calls.then(|| self.is_precompile_call(&to, &value));
 
         self.start_trace_on_call(
             context,
@@ -615,20 +614,20 @@ where
 
     fn call_end(
         &mut self,
-        context: &mut PrevContext<DB>,
+        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
         _inputs: &CallInputs,
         outcome: &mut CallOutcome,
     ) {
-        self.fill_trace_on_call_end(context, &outcome.result, None);
+        self.fill_trace_on_call_end(&outcome.result, None);
     }
 
     fn create(
         &mut self,
-        context: &mut PrevContext<DB>,
+        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
         inputs: &mut CreateInputs,
     ) -> Option<CreateOutcome> {
         let _ = context.journal().load_account(inputs.caller);
-        let nonce = context.journaled_state.account(inputs.caller).info.nonce;
+        let nonce = context.journaled_state.load_account(inputs.caller).ok()?.info.nonce;
         self.start_trace_on_call(
             context,
             inputs.created_address(nonce),
@@ -645,23 +644,23 @@ where
 
     fn create_end(
         &mut self,
-        context: &mut PrevContext<DB>,
+        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
         _inputs: &CreateInputs,
         outcome: &mut CreateOutcome,
     ) {
-        self.fill_trace_on_call_end(context, &outcome.result, outcome.address);
+        self.fill_trace_on_call_end(&outcome.result, outcome.address);
     }
 
     fn eofcreate(
         &mut self,
-        context: &mut PrevContext<DB>,
+        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
         inputs: &mut EOFCreateInputs,
     ) -> Option<CreateOutcome> {
         let address = if let Some(address) = inputs.kind.created_address() {
             *address
         } else {
             let _ = context.journal().load_account(inputs.caller);
-            let nonce = context.journaled_state.account(inputs.caller).info.nonce;
+            let nonce = context.journaled_state.load_account(inputs.caller).ok()?.info.nonce;
             inputs.caller.create(nonce)
         };
         self.start_trace_on_call(
@@ -680,11 +679,11 @@ where
 
     fn eofcreate_end(
         &mut self,
-        context: &mut PrevContext<DB>,
+        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
         _inputs: &EOFCreateInputs,
         outcome: &mut CreateOutcome,
     ) {
-        self.fill_trace_on_call_end(context, &outcome.result, outcome.address);
+        self.fill_trace_on_call_end(&outcome.result, outcome.address);
     }
 
     fn selfdestruct(&mut self, contract: Address, target: Address, value: U256) {

@@ -24,11 +24,12 @@
 use alloy_primitives::{hex, Selector};
 use alloy_rpc_types_trace::geth::FourByteFrame;
 use revm::{
-    context::{BlockEnv, CfgEnv, ContextWire, ContextWiring, TxEnv},
+    context::{BlockEnv, CfgEnv, TxEnv},
+    context_interface::Journal,
     interpreter::{interpreter::EthInterpreter, CallInputs, CallOutcome},
     Context, Database,
 };
-use revm_inspector::{Inspector, PrevContext};
+use revm_inspector::Inspector;
 use std::collections::HashMap;
 
 /// Fourbyte tracing inspector that records all function selectors and their calldata sizes.
@@ -45,16 +46,17 @@ impl FourByteInspector {
     }
 }
 
-/// TODO : rakita the type parameter `CTXW` is not constrained by the impl trait, self type, or predicates
-/// unconstrained type parameter
-impl<DB, CTXW> Inspector<ContextWire<DB, CTXW>, EthInterpreter> for FourByteInspector
+/// TODO rakita the type parameter `CTXW` is not constrained by the impl trait, self type, or
+/// predicates unconstrained type parameter
+impl<DB, BLOCK, TX, CFG, JOURNAL, CHAIN>
+    Inspector<Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>, EthInterpreter> for FourByteInspector
 where
     DB: Database,
-    CTXW: ContextWiring<DB>,
+    JOURNAL: Journal<Database = DB>,
 {
     fn call(
         &mut self,
-        _context: &mut PrevContext<DB>,
+        _context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
         inputs: &mut CallInputs,
     ) -> Option<CallOutcome> {
         if inputs.input.len() >= 4 {

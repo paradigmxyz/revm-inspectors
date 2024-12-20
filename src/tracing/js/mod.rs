@@ -391,7 +391,11 @@ where
     W: ContextWiring<DB>,
     <DB as DatabaseRef>::Error: std::fmt::Display,
 {
-    fn step(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut PrevContext<DB>) {
+    fn step(
+        &mut self,
+        interp: &mut Interpreter<EthInterpreter>,
+        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
+    ) {
         if self.step_fn.is_none() {
             return;
         }
@@ -421,7 +425,7 @@ where
     fn step_end(
         &mut self,
         interp: &mut Interpreter<EthInterpreter>,
-        context: &mut PrevContext<DB>,
+        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
     ) {
         if self.step_fn.is_none() {
             return;
@@ -452,14 +456,14 @@ where
     fn log(
         &mut self,
         _interp: &mut Interpreter<EthInterpreter>,
-        _context: &mut PrevContext<DB>,
+        _context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
         _log: &Log,
     ) {
     }
 
     fn call(
         &mut self,
-        context: &mut PrevContext<DB>,
+        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
         inputs: &mut CallInputs,
     ) -> Option<CallOutcome> {
         self.register_precompiles(&context.precompiles);
@@ -500,7 +504,7 @@ where
 
     fn call_end(
         &mut self,
-        _context: &mut PrevContext<DB>,
+        _context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
         _inputs: &CallInputs,
         mut outcome: CallOutcome,
     ) -> CallOutcome {
@@ -522,7 +526,7 @@ where
 
     fn create(
         &mut self,
-        context: &mut PrevContext<DB>,
+        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
         inputs: &mut CreateInputs,
     ) -> Option<CreateOutcome> {
         self.register_precompiles(&context.precompiles);
@@ -553,7 +557,7 @@ where
 
     fn create_end(
         &mut self,
-        _context: &mut PrevContext<DB>,
+        _context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
         _inputs: &CreateInputs,
         mut outcome: CreateOutcome,
     ) -> CreateOutcome {
