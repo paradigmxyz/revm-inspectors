@@ -1,5 +1,5 @@
-// #![allow(missing_docs)]
-// pub mod utils;
+#![allow(missing_docs)]
+pub mod utils;
 
 // mod geth;
 // #[cfg(feature = "js-tracer")]

@@ -1,12 +1,12 @@
 use alloy_primitives::{address, b256, Address, Log, LogData, B256, U256};
 use alloy_sol_types::SolValue;
 use revm::{
-    context_interface::{Journal, Transaction, TransactionGetter},
+    context_interface::{Journal, JournalGetter, Transaction, TransactionGetter},
     interpreter::{
         interpreter::EthInterpreter, CallInputs, CallOutcome, CreateInputs, CreateOutcome,
         CreateScheme, EOFCreateKind,
     },
-    Context, Database, JournaledState,
+    Context, Database,
 };
 use revm_inspector::Inspector;
 
@@ -99,37 +99,26 @@ impl TransferInspector {
     }
 }
 
-impl<DB, BLOCK, TX, CFG, JOURNAL, CHAIN>
-    Inspector<Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>, EthInterpreter> for TransferInspector
+impl<CTX> Inspector<CTX, EthInterpreter> for TransferInspector
 where
-    DB: Database,
-    JOURNAL: Journal<Database = DB>,
-    TX: Transaction,
+    CTX: TransactionGetter + JournalGetter,
 {
-    fn call(
-        &mut self,
-        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
-        inputs: &mut CallInputs,
-    ) -> Option<CallOutcome> {
+    fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         if let Some(value) = inputs.transfer_value() {
             self.on_transfer(
                 inputs.transfer_from(),
                 inputs.transfer_to(),
                 value,
                 TransferKind::Call,
-                &mut context.journaled_state,
+                context.journal(),
             );
         }
 
         None
     }
 
-    fn create(
-        &mut self,
-        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
-        inputs: &mut CreateInputs,
-    ) -> Option<CreateOutcome> {
-        let nonce = context.journaled_state.load_account(inputs.caller).ok()?.data.info.nonce;
+    fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
+        let nonce = context.journal().load_account(inputs.caller).ok()?.data.info.nonce;
         let address = inputs.created_address(nonce);
 
         let kind = match inputs.scheme {
@@ -137,14 +126,14 @@ where
             CreateScheme::Create2 { .. } => TransferKind::Create2,
         };
 
-        self.on_transfer(inputs.caller, address, inputs.value, kind, &mut context.journaled_state);
+        self.on_transfer(inputs.caller, address, inputs.value, kind, context.journal());
 
         None
     }
 
     fn eofcreate(
         &mut self,
-        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
+        context: &mut CTX,
         inputs: &mut revm::interpreter::EOFCreateInputs,
     ) -> Option<CreateOutcome> {
         let address = match inputs.kind {
@@ -157,7 +146,7 @@ where
             address,
             inputs.value,
             TransferKind::EofCreate,
-            &mut context.journaled_state,
+            context.journal(),
         );
 
         None

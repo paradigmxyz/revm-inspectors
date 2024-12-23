@@ -391,11 +391,7 @@ where
     W: ContextWiring<DB>,
     <DB as DatabaseRef>::Error: std::fmt::Display,
 {
-    fn step(
-        &mut self,
-        interp: &mut Interpreter<EthInterpreter>,
-        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
-    ) {
+    fn step(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut CTX) {
         if self.step_fn.is_none() {
             return;
         }
@@ -422,11 +418,7 @@ where
         }
     }
 
-    fn step_end(
-        &mut self,
-        interp: &mut Interpreter<EthInterpreter>,
-        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
-    ) {
+    fn step_end(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut CTX) {
         if self.step_fn.is_none() {
             return;
         }
@@ -453,19 +445,9 @@ where
         }
     }
 
-    fn log(
-        &mut self,
-        _interp: &mut Interpreter<EthInterpreter>,
-        _context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
-        _log: &Log,
-    ) {
-    }
+    fn log(&mut self, _interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX, _log: &Log) {}
 
-    fn call(
-        &mut self,
-        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
-        inputs: &mut CallInputs,
-    ) -> Option<CallOutcome> {
+    fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         self.register_precompiles(&context.precompiles);
 
         // determine contract address based on the call scheme
@@ -504,7 +486,7 @@ where
 
     fn call_end(
         &mut self,
-        _context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
+        _context: &mut CTX,
         _inputs: &CallInputs,
         mut outcome: CallOutcome,
     ) -> CallOutcome {
@@ -524,11 +506,7 @@ where
         outcome
     }
 
-    fn create(
-        &mut self,
-        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
-        inputs: &mut CreateInputs,
-    ) -> Option<CreateOutcome> {
+    fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
         self.register_precompiles(&context.precompiles);
 
         let _ = context.load_account(inputs.caller);
@@ -557,7 +535,7 @@ where
 
     fn create_end(
         &mut self,
-        _context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
+        _context: &mut CTX,
         _inputs: &CreateInputs,
         mut outcome: CreateOutcome,
     ) -> CreateOutcome {

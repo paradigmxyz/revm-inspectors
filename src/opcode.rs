@@ -1,7 +1,7 @@
 use alloy_rpc_types_trace::opcode::OpcodeGas;
 use revm::{
     bytecode::opcode::{self, OpCode},
-    context_interface::Journal,
+    context_interface::{Journal, JournalGetter},
     interpreter::{
         interpreter::EthInterpreter,
         interpreter_types::{Immediates, Jumps, LoopControl},
@@ -61,17 +61,11 @@ impl OpcodeGasInspector {
     }
 }
 
-impl<DB, BLOCK, TX, CFG, JOURNAL, CHAIN>
-    Inspector<Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>, EthInterpreter> for OpcodeGasInspector
+impl<CTX> Inspector<CTX, EthInterpreter> for OpcodeGasInspector
 where
-    DB: Database,
-    JOURNAL: Journal<Database = DB>,
+    CTX: JournalGetter,
 {
-    fn step(
-        &mut self,
-        interp: &mut Interpreter<EthInterpreter>,
-        _context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
-    ) {
+    fn step(&mut self, interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX) {
         let opcode_value = interp.bytecode.opcode();
         if let Some(opcode) = OpCode::new(opcode_value) {
             // keep track of opcode counts
@@ -82,11 +76,7 @@ where
         }
     }
 
-    fn step_end(
-        &mut self,
-        interp: &mut Interpreter<EthInterpreter>,
-        _context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
-    ) {
+    fn step_end(&mut self, interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX) {
         // update gas usage for the last opcode
         if let Some((opcode, gas_remaining)) = self.last_opcode_gas_remaining.take() {
             let gas_cost = gas_remaining.saturating_sub(interp.control.gas().remaining());
@@ -140,11 +130,10 @@ mod tests {
         );
         let db = CacheDB::new(EmptyDB::default());
 
-        // TODO(rakita) fix this
-        // let mut context = PrevContext::new(db.clone(), SpecId::BERLIN);
-        // for _ in &opcodes {
-        //     opcode_counter.step(&mut interpreter, &mut context);
-        // }
+        let mut context = Context::default().with_db(db);
+        for _ in &opcodes {
+            opcode_counter.step(&mut interpreter, &mut context);
+        }
     }
 
     #[test]
@@ -172,10 +161,9 @@ mod tests {
         );
         let db = CacheDB::new(EmptyDB::default());
 
-        // TODO(rakita): fix this
-        // let mut context: Context<> = Context::new(db.clone(), SpecId::LATEST);
-        // for _ in opcodes.iter() {
-        //     opcode_counter.step(&mut interpreter, &mut context);
-        // }
+        let mut context = Context::default().with_db(db);
+        for _ in opcodes.iter() {
+            opcode_counter.step(&mut interpreter, &mut context);
+        }
     }
 }

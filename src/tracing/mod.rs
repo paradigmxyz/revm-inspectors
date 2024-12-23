@@ -242,16 +242,16 @@ impl TracingInspector {
     fn is_precompile_call(
         &self,
         // TODO(rakita)
-        //context: &Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
-        to: &Address,
-        value: &U256,
+        //context: &CTX,
+        _to: &Address,
+        _value: &U256,
     ) -> bool {
         // TODO rakita how to support this?
         //if context.precompiles.contains(to) {
         //    // only if this is _not_ the root call
         //    return self.is_deep() && value.is_zero();
         //}
-        false
+        self.is_deep()
     }
 
     /// Returns the currently active call trace.
