@@ -1,13 +1,11 @@
 use alloy_rpc_types_trace::opcode::OpcodeGas;
 use revm::{
     bytecode::opcode::{self, OpCode},
-    context_interface::{Journal, JournalGetter},
     interpreter::{
         interpreter::EthInterpreter,
         interpreter_types::{Immediates, Jumps, LoopControl},
         Interpreter,
     },
-    Context, Database,
 };
 use revm_inspector::Inspector;
 use std::collections::HashMap;
@@ -61,10 +59,7 @@ impl OpcodeGasInspector {
     }
 }
 
-impl<CTX> Inspector<CTX, EthInterpreter> for OpcodeGasInspector
-where
-    CTX: JournalGetter,
-{
+impl<CTX> Inspector<CTX, EthInterpreter> for OpcodeGasInspector {
     fn step(&mut self, interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX) {
         let opcode_value = interp.bytecode.opcode();
         if let Some(opcode) = OpCode::new(opcode_value) {
@@ -108,6 +103,7 @@ mod tests {
         interpreter::{InputsImpl, SharedMemory},
         primitives::Bytes,
         specification::hardfork::SpecId,
+        Context,
     };
     use revm_database::CacheDB;
     use std::{cell::RefCell, rc::Rc};

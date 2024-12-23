@@ -2,13 +2,11 @@ use alloy_primitives::{Address, B256};
 use alloy_rpc_types_eth::{AccessList, AccessListItem};
 use revm::{
     bytecode::opcode,
-    context_interface::{Journal, JournalGetter},
     interpreter::{
         interpreter::EthInterpreter,
         interpreter_types::{InputsTrait, Jumps},
         Interpreter,
     },
-    Context, Database,
 };
 use revm_inspector::Inspector;
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -65,10 +63,7 @@ impl AccessListInspector {
     }
 }
 
-impl<CTX> Inspector<CTX, EthInterpreter> for AccessListInspector
-where
-    CTX: JournalGetter,
-{
+impl<CTX> Inspector<CTX, EthInterpreter> for AccessListInspector {
     fn step(&mut self, interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX) {
         match interp.bytecode.opcode() {
             opcode::SLOAD | opcode::SSTORE => {
