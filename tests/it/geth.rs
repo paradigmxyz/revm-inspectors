@@ -8,10 +8,8 @@ use alloy_rpc_types_trace::geth::{
     GethTrace, PreStateConfig, PreStateFrame,
 };
 use revm::{
-    context::{CfgEnv, TxEnv},
-    context_interface::TransactTo,
-    database_interface::EmptyDB,
-    specification::hardfork::SpecId,
+    context::TxEnv, context_interface::TransactTo, database_interface::EmptyDB,
+    specification::hardfork::SpecId, Context,
 };
 use revm_database::CacheDB;
 use revm_inspectors::tracing::{MuxInspector, TracingInspector, TracingInspectorConfig};
@@ -232,23 +230,21 @@ fn test_geth_inspector_reset() {
     let mut insp = TracingInspector::new(TracingInspectorConfig::default_geth());
 
     let mut db = CacheDB::new(EmptyDB::default());
-    let cfg = CfgEnvWithHandlerCfg::new(CfgEnv::default(), HandlerCfg::new(SpecId::LONDON));
-    let env = EnvWithHandlerCfg::new_with_cfg_env(
-        cfg.clone(),
-        BlockEnv::default(),
-        TxEnv {
-            caller: Address::ZERO,
-            gas_limit: 1000000,
-            gas_price: Default::default(),
-            transact_to: TransactTo::Call(Address::ZERO),
-            ..Default::default()
-        },
-    );
+    //let cfg = CfgEnvWithHandlerCfg::new(CfgEnv::default(), HandlerCfg::new(SpecId::LONDON));
+    let context = Context::default()
+        .with_db(&mut db)
+        .modify_cfg_chained(|cfg| cfg.spec = SpecId::LONDON)
+        .modify_tx_chained(|tx| {
+            tx.caller = Address::ZERO;
+            tx.gas_limit = 1000000;
+            tx.gas_price = Default::default();
+            tx.transact_to = TransactTo::Call(Address::ZERO);
+        });
 
     assert_eq!(insp.traces().nodes().first().unwrap().trace.gas_limit, 0);
 
     // first run inspector
-    let (res, env) = inspect(&mut db, env.clone(), &mut insp).unwrap();
+    let (res, env) = inspect(&mut context, &mut insp).unwrap();
     assert!(res.result.is_success());
     assert_eq!(
         insp.clone()

@@ -23,12 +23,7 @@
 
 use alloy_primitives::{hex, Selector};
 use alloy_rpc_types_trace::geth::FourByteFrame;
-use revm::{
-    context::{BlockEnv, CfgEnv, TxEnv},
-    context_interface::Journal,
-    interpreter::{interpreter::EthInterpreter, CallInputs, CallOutcome},
-    Context, Database,
-};
+use revm::interpreter::{interpreter::EthInterpreter, CallInputs, CallOutcome};
 use revm_inspector::Inspector;
 use std::collections::HashMap;
 
@@ -48,17 +43,8 @@ impl FourByteInspector {
 
 /// TODO rakita the type parameter `CTXW` is not constrained by the impl trait, self type, or
 /// predicates unconstrained type parameter
-impl<DB, BLOCK, TX, CFG, JOURNAL, CHAIN>
-    Inspector<Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>, EthInterpreter> for FourByteInspector
-where
-    DB: Database,
-    JOURNAL: Journal<Database = DB>,
-{
-    fn call(
-        &mut self,
-        _context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
-        inputs: &mut CallInputs,
-    ) -> Option<CallOutcome> {
+impl<CTX> Inspector<CTX, EthInterpreter> for FourByteInspector {
+    fn call(&mut self, _context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         if inputs.input.len() >= 4 {
             let selector =
                 Selector::try_from(&inputs.input[..4]).expect("input is at least 4 bytes");

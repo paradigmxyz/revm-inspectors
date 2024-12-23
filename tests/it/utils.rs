@@ -1,8 +1,18 @@
 use alloy_primitives::{Address, Bytes, U256};
 use colorchoice::ColorChoice;
-use revm::{database_interface::EmptyDB, Database, DatabaseCommit};
+use revm::{
+    context::{BlockEnv, CfgEnv, TxEnv},
+    context_interface::result::{EVMError, HaltReason, InvalidTransaction, ResultAndState},
+    database_interface::EmptyDB,
+    interpreter::interpreter::EthInterpreter,
+    specification::hardfork::SpecId,
+    Context, Database, DatabaseCommit, EvmExec, JournaledState,
+};
 use revm_database::CacheDB;
-use revm_inspector::{inspector_handler, Inspector};
+use revm_inspector::{
+    inspector_handler, GetInspector, Inspector, InspectorContext, InspectorHandler,
+    InspectorMainEvm,
+};
 use revm_inspectors::tracing::{
     TraceWriter, TraceWriterConfig, TracingInspector, TracingInspectorConfig,
 };
@@ -104,25 +114,21 @@ impl TestEvm {
     }
 }
 
+pub type ContextDb<DB> = Context<BlockEnv, TxEnv, CfgEnv, DB, JournaledState<DB>, ()>;
+
 /// Executes the [EnvWithHandlerCfg] against the given [Database] without committing state changes.
 pub fn inspect<DB, I>(
-    db: DB,
-    env: EnvWithHandlerCfg,
+    context: &mut ContextDb<DB>,
     inspector: I,
-) -> Result<(ResultAndState, EnvWithHandlerCfg), EVMError<DB::Error>>
+) -> Result<ResultAndState<HaltReason>, EVMError<DB::Error, InvalidTransaction>>
 where
     DB: Database,
-    I: GetInspector<DB>,
+    I: for<'a> GetInspector<&'a mut ContextDb<DB>, EthInterpreter>,
 {
-    let mut evm = revm::Evm::builder()
-        .with_db(db)
-        .with_external_context(inspector)
-        .with_env_with_handler_cfg(env)
-        .append_handler_register(inspector_handle_register)
-        .build();
-    let res = evm.transact()?;
-    let (_, env) = evm.into_db_and_env_with_handler_cfg();
-    Ok((res, env))
+    let ctx = InspectorContext::new(context, inspector);
+    let mut evm = InspectorMainEvm::new(ctx, inspector_handler());
+
+    evm.exec()
 }
 
 pub fn write_traces(tracer: &TracingInspector) -> String {

@@ -9,15 +9,15 @@ use alloy_rpc_types_trace::geth::{
 use revm::{
     context_interface::{
         result::{HaltReasonTrait, ResultAndState},
-        Journal,
+        JournalGetter,
     },
     interpreter::{
         interpreter::EthInterpreter, CallInputs, CallOutcome, CreateInputs, CreateOutcome,
         EOFCreateInputs, Interpreter,
     },
-    Context, Database, DatabaseRef,
+    DatabaseRef,
 };
-use revm_inspector::Inspector;
+use revm_inspector::{Inspector, JournalExtGetter};
 use thiserror::Error;
 
 /// Mux tracing inspector that runs and collects results of multiple inspectors at once.
@@ -160,18 +160,12 @@ impl MuxInspector {
     }
 }
 
-impl<DB, BLOCK, TX, CFG, JOURNAL, CHAIN>
-    Inspector<Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>, EthInterpreter> for MuxInspector
+impl<CTX> Inspector<CTX, EthInterpreter> for MuxInspector
 where
-    DB: Database,
-    JOURNAL: Journal<Database = DB>,
+    CTX: JournalExtGetter + JournalGetter,
 {
     #[inline]
-    fn initialize_interp(
-        &mut self,
-        interp: &mut Interpreter<EthInterpreter>,
-        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
-    ) {
+    fn initialize_interp(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut CTX) {
         if let Some(ref mut inspector) = self.four_byte {
             inspector.initialize_interp(interp, context);
         }
@@ -181,11 +175,7 @@ where
     }
 
     #[inline]
-    fn step(
-        &mut self,
-        interp: &mut Interpreter<EthInterpreter>,
-        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
-    ) {
+    fn step(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut CTX) {
         if let Some(ref mut inspector) = self.four_byte {
             inspector.step(interp, context);
         }
@@ -195,11 +185,7 @@ where
     }
 
     #[inline]
-    fn step_end(
-        &mut self,
-        interp: &mut Interpreter<EthInterpreter>,
-        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
-    ) {
+    fn step_end(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut CTX) {
         if let Some(ref mut inspector) = self.four_byte {
             inspector.step_end(interp, context);
         }
@@ -209,12 +195,7 @@ where
     }
 
     #[inline]
-    fn log(
-        &mut self,
-        interp: &mut Interpreter<EthInterpreter>,
-        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
-        log: &Log,
-    ) {
+    fn log(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut CTX, log: &Log) {
         if let Some(ref mut inspector) = self.four_byte {
             inspector.log(interp, context, log);
         }
@@ -224,11 +205,7 @@ where
     }
 
     #[inline]
-    fn call(
-        &mut self,
-        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
-        inputs: &mut CallInputs,
-    ) -> Option<CallOutcome> {
+    fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         if let Some(ref mut inspector) = self.four_byte {
             let _ = inspector.call(context, inputs);
         }
@@ -239,12 +216,7 @@ where
     }
 
     #[inline]
-    fn call_end(
-        &mut self,
-        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
-        inputs: &CallInputs,
-        outcome: &mut CallOutcome,
-    ) {
+    fn call_end(&mut self, context: &mut CTX, inputs: &CallInputs, outcome: &mut CallOutcome) {
         if let Some(ref mut inspector) = self.four_byte {
             inspector.call_end(context, inputs, outcome);
         }
@@ -254,11 +226,7 @@ where
     }
 
     #[inline]
-    fn create(
-        &mut self,
-        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
-        inputs: &mut CreateInputs,
-    ) -> Option<CreateOutcome> {
+    fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
         if let Some(ref mut inspector) = self.four_byte {
             let _ = inspector.create(context, inputs);
         }
@@ -271,7 +239,7 @@ where
     #[inline]
     fn create_end(
         &mut self,
-        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
+        context: &mut CTX,
         inputs: &CreateInputs,
         outcome: &mut CreateOutcome,
     ) {
@@ -286,7 +254,7 @@ where
     #[inline]
     fn eofcreate(
         &mut self,
-        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
+        context: &mut CTX,
         inputs: &mut EOFCreateInputs,
     ) -> Option<CreateOutcome> {
         if let Some(ref mut inspector) = self.four_byte {
@@ -301,7 +269,7 @@ where
     #[inline]
     fn eofcreate_end(
         &mut self,
-        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
+        context: &mut CTX,
         inputs: &EOFCreateInputs,
         outcome: &mut CreateOutcome,
     ) {
@@ -316,16 +284,14 @@ where
     #[inline]
     fn selfdestruct(&mut self, contract: Address, target: Address, value: U256) {
         if let Some(ref mut inspector) = self.four_byte {
-            <FourByteInspector as Inspector<
-                Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
-                EthInterpreter,
-            >>::selfdestruct(inspector, contract, target, value);
+            <FourByteInspector as Inspector<CTX, EthInterpreter>>::selfdestruct(
+                inspector, contract, target, value,
+            );
         }
         if let Some(ref mut inspector) = self.tracing {
-            <TracingInspector as Inspector<
-                Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
-                EthInterpreter,
-            >>::selfdestruct(inspector, contract, target, value);
+            <TracingInspector as Inspector<CTX, EthInterpreter>>::selfdestruct(
+                inspector, contract, target, value,
+            );
         }
     }
 }

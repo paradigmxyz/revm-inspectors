@@ -527,41 +527,26 @@ impl TracingInspector {
     }
 }
 
-impl<DB, BLOCK, TX, CFG, JOURNAL, CHAIN>
-    Inspector<Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>, EthInterpreter> for TracingInspector
+impl<CTX> Inspector<CTX, EthInterpreter> for TracingInspector
 where
-    DB: Database,
-    JOURNAL: Journal<Database = DB>,
+    CTX: JournalExtGetter + JournalGetter,
 {
     #[inline]
-    fn step(
-        &mut self,
-        interp: &mut Interpreter<EthInterpreter>,
-        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
-    ) {
+    fn step(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut CTX) {
         if self.config.record_steps {
             self.start_step(interp, context);
         }
     }
 
     #[inline]
-    fn step_end(
-        &mut self,
-        interp: &mut Interpreter<EthInterpreter>,
-        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
-    ) {
+    fn step_end(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut CTX) {
         if self.config.record_steps {
             // TODO(rakita) fix this
-            //self.fill_step_on_step_end(interp, context);
+            self.fill_step_on_step_end(interp, context);
         }
     }
 
-    fn log(
-        &mut self,
-        _interp: &mut Interpreter<EthInterpreter>,
-        _context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
-        log: &Log,
-    ) {
+    fn log(&mut self, _interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX, log: &Log) {
         if self.config.record_logs {
             let trace = self.last_trace();
             trace.ordering.push(TraceMemberOrder::Log(trace.logs.len()));
@@ -569,11 +554,7 @@ where
         }
     }
 
-    fn call(
-        &mut self,
-        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
-        inputs: &mut CallInputs,
-    ) -> Option<CallOutcome> {
+    fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         // determine correct `from` and `to` based on the call scheme
         let (from, to) = match inputs.scheme {
             CallScheme::DelegateCall | CallScheme::CallCode | CallScheme::ExtDelegateCall => {
@@ -612,22 +593,13 @@ where
         None
     }
 
-    fn call_end(
-        &mut self,
-        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
-        _inputs: &CallInputs,
-        outcome: &mut CallOutcome,
-    ) {
+    fn call_end(&mut self, _: &mut CTX, _inputs: &CallInputs, outcome: &mut CallOutcome) {
         self.fill_trace_on_call_end(&outcome.result, None);
     }
 
-    fn create(
-        &mut self,
-        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
-        inputs: &mut CreateInputs,
-    ) -> Option<CreateOutcome> {
+    fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
         let _ = context.journal().load_account(inputs.caller);
-        let nonce = context.journaled_state.load_account(inputs.caller).ok()?.info.nonce;
+        let nonce = context.journal().load_account(inputs.caller).ok()?.info.nonce;
         self.start_trace_on_call(
             context,
             inputs.created_address(nonce),
@@ -644,7 +616,7 @@ where
 
     fn create_end(
         &mut self,
-        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
+        context: &mut CTX,
         _inputs: &CreateInputs,
         outcome: &mut CreateOutcome,
     ) {
@@ -653,14 +625,14 @@ where
 
     fn eofcreate(
         &mut self,
-        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
+        context: &mut CTX,
         inputs: &mut EOFCreateInputs,
     ) -> Option<CreateOutcome> {
         let address = if let Some(address) = inputs.kind.created_address() {
             *address
         } else {
             let _ = context.journal().load_account(inputs.caller);
-            let nonce = context.journaled_state.load_account(inputs.caller).ok()?.info.nonce;
+            let nonce = context.journal().load_account(inputs.caller).ok()?.info.nonce;
             inputs.caller.create(nonce)
         };
         self.start_trace_on_call(
@@ -679,7 +651,7 @@ where
 
     fn eofcreate_end(
         &mut self,
-        context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
+        context: &mut CTX,
         _inputs: &EOFCreateInputs,
         outcome: &mut CreateOutcome,
     ) {
