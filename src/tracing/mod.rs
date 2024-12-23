@@ -22,7 +22,7 @@ use revm::{
         InstructionResult, Interpreter, InterpreterResult,
     },
     specification::hardfork::SpecId,
-    Context, Database, JournalEntry,
+    JournalEntry,
 };
 
 mod arena;

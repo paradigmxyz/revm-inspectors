@@ -41,8 +41,6 @@ impl FourByteInspector {
     }
 }
 
-/// TODO rakita the type parameter `CTXW` is not constrained by the impl trait, self type, or
-/// predicates unconstrained type parameter
 impl<CTX> Inspector<CTX, EthInterpreter> for FourByteInspector {
     fn call(&mut self, _context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         if inputs.input.len() >= 4 {
