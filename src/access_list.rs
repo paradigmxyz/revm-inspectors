@@ -2,7 +2,7 @@ use alloy_primitives::{Address, B256};
 use alloy_rpc_types_eth::{AccessList, AccessListItem};
 use revm::{
     bytecode::opcode,
-    context_interface::Journal,
+    context_interface::{Journal, JournalGetter},
     interpreter::{
         interpreter::EthInterpreter,
         interpreter_types::{InputsTrait, Jumps},
@@ -65,17 +65,11 @@ impl AccessListInspector {
     }
 }
 
-impl<DB, BLOCK, TX, CFG, JOURNAL, CHAIN>
-    Inspector<Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>, EthInterpreter> for AccessListInspector
+impl<CTX> Inspector<CTX, EthInterpreter> for AccessListInspector
 where
-    DB: Database,
-    JOURNAL: Journal<Database = DB>,
+    CTX: JournalGetter,
 {
-    fn step(
-        &mut self,
-        interp: &mut Interpreter<EthInterpreter>,
-        _context: &mut Context<BLOCK, TX, CFG, DB, JOURNAL, CHAIN>,
-    ) {
+    fn step(&mut self, interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX) {
         match interp.bytecode.opcode() {
             opcode::SLOAD | opcode::SSTORE => {
                 if let Ok(slot) = interp.stack.peek(0) {
