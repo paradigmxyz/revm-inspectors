@@ -6,7 +6,7 @@ use revm::{
         interpreter::EthInterpreter, CallInputs, CallOutcome, CreateInputs, CreateOutcome,
         CreateScheme, EOFCreateKind,
     },
-    Context, Database,
+    Database,
 };
 use revm_inspector::Inspector;
 

@@ -14,13 +14,19 @@ use alloy_primitives::{Address, Bytes, Log, U256};
 pub use boa_engine::vm::RuntimeLimits;
 use boa_engine::{js_string, Context, JsError, JsObject, JsResult, JsValue, Source};
 use revm::{
-    interpreter::{
-        return_revert, CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, Gas,
-        InstructionResult, Interpreter, InterpreterResult,
+    context_interface::{
+        result::{ExecutionResult, HaltReasonTrait, Output, ResultAndState},
+        Block, DatabaseGetter, Journal, JournalGetter, TransactTo, Transaction,
     },
-    primitives::{Env, ExecutionResult, Output, ResultAndState, TransactTo},
-    ContextPrecompiles, Database, DatabaseRef, EvmContext, Inspector,
+    interpreter::{
+        interpreter::EthInterpreter,
+        interpreter_types::{Jumps, LoopControl},
+        return_revert, CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, Gas,
+        InstructionResult, Interpreter, InterpreterResult, InterpreterTypes,
+    },
+    Database, DatabaseRef,
 };
+use revm_inspector::{Inspector, JournalExt, JournalExtGetter};
 
 pub(crate) mod bindings;
 pub(crate) mod builtins;
@@ -207,26 +213,29 @@ impl JsInspector {
     /// Note: This is supposed to be called after the inspection has finished.
     pub fn json_result<DB>(
         &mut self,
-        res: ResultAndState,
-        env: &Env,
+        res: ResultAndState<impl HaltReasonTrait>,
+        tx: &impl Transaction,
+        block: &impl Block,
         db: &DB,
     ) -> Result<serde_json::Value, JsInspectorError>
     where
         DB: DatabaseRef,
         <DB as DatabaseRef>::Error: std::fmt::Display,
     {
-        let result = self.result(res, env, db)?;
+        let result = self.result(res, tx, block, db)?;
         Ok(to_serde_value(result, &mut self.ctx)?)
     }
 
     /// Calls the result function and returns the result.
-    pub fn result<DB>(
+    pub fn result<TX, DB>(
         &mut self,
-        res: ResultAndState,
-        env: &Env,
+        res: ResultAndState<impl HaltReasonTrait>,
+        tx: &TX,
+        block: &impl Block,
         db: &DB,
     ) -> Result<JsValue, JsInspectorError>
     where
+        TX: Transaction,
         DB: DatabaseRef,
         <DB as DatabaseRef>::Error: std::fmt::Display,
     {
@@ -256,27 +265,27 @@ impl JsInspector {
             }
         };
 
-        if let TransactTo::Call(target) = env.tx.transact_to {
+        if let TransactTo::Call(target) = tx.kind() {
             to = Some(target);
         }
 
         let ctx = JsEvmContext {
-            r#type: match env.tx.transact_to {
+            r#type: match tx.kind() {
                 TransactTo::Call(_) => "CALL",
                 TransactTo::Create => "CREATE",
             }
             .to_string(),
-            from: env.tx.caller,
+            from: tx.common_fields().caller(),
             to,
-            input: env.tx.data.clone(),
-            gas: env.tx.gas_limit,
+            input: tx.common_fields().input().clone(),
+            gas: tx.common_fields().gas_limit(),
             gas_used,
-            gas_price: env.tx.gas_price.try_into().unwrap_or(u64::MAX),
-            value: env.tx.value,
-            block: env.block.number.try_into().unwrap_or(u64::MAX),
-            coinbase: env.block.coinbase,
+            gas_price: tx.effective_gas_price(*block.basefee()).try_into().unwrap_or(u64::MAX),
+            value: tx.common_fields().value(),
+            block: block.number().try_into().unwrap_or(u64::MAX),
+            coinbase: *block.beneficiary(),
             output: output_bytes.unwrap_or_default(),
-            time: env.block.timestamp.to_string(),
+            time: block.timestamp().to_string(),
             intrinsic_gas: 0,
             transaction_ctx: self.transaction_context,
             error,
@@ -385,36 +394,34 @@ impl JsInspector {
     }
 }
 
-impl<DB, W> Inspector<ContextWire<DB, W>, EthInterpreter> for JsInspector
+impl<CTX> Inspector<CTX, EthInterpreter> for JsInspector
 where
-    DB: Database + DatabaseRef,
-    W: ContextWiring<DB>,
-    <DB as DatabaseRef>::Error: std::fmt::Display,
+    CTX: JournalGetter + JournalExtGetter + DatabaseGetter,
 {
     fn step(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut CTX) {
         if self.step_fn.is_none() {
             return;
         }
 
-        let (db, _db_guard) = EvmDbRef::new(&context.journaled_state.state, &context.db);
+        let (db, _db_guard) = EvmDbRef::new(&context.journal_ext().evm_state(), &context.db());
 
         let (stack, _stack_guard) = StackRef::new(&interp.stack);
-        let (memory, _memory_guard) = MemoryRef::new(&interp.shared_memory);
+        let (memory, _memory_guard) = MemoryRef::new(&interp.memory.borrow());
         let step = StepLog {
             stack,
-            op: interp.current_opcode().into(),
+            op: interp.bytecode.opcode().into(),
             memory,
-            pc: interp.program_counter() as u64,
-            gas_remaining: interp.gas.remaining(),
-            cost: interp.gas.spent(),
-            depth: context.journaled_state.depth(),
-            refund: interp.gas.refunded() as u64,
+            pc: interp.bytecode.pc() as u64,
+            gas_remaining: interp.control.gas().remaining(),
+            cost: interp.control.gas().spent(),
+            depth: context.journal().depth() as u64,
+            refund: interp.control.gas().refunded() as u64,
             error: None,
             contract: self.active_call().contract.clone(),
         };
 
         if self.try_step(step, db).is_err() {
-            interp.instruction_result = InstructionResult::Revert;
+            interp.control.set_instruction_result(InstructionResult::Revert);
         }
     }
 
@@ -423,21 +430,21 @@ where
             return;
         }
 
-        if matches!(interp.instruction_result, return_revert!()) {
-            let (db, _db_guard) = EvmDbRef::new(&context.journaled_state.state, &context.db);
+        if interp.control.instruction_result().is_revert() {
+            let (db, _db_guard) = EvmDbRef::new(&context.journal_ext().evm_state(), &context.db());
 
             let (stack, _stack_guard) = StackRef::new(&interp.stack);
-            let (memory, _memory_guard) = MemoryRef::new(&interp.shared_memory);
+            let (memory, _memory_guard) = MemoryRef::new(&interp.memory.borrow());
             let step = StepLog {
                 stack,
-                op: interp.current_opcode().into(),
+                op: interp.bytecode.opcode().into(),
                 memory,
-                pc: interp.program_counter() as u64,
-                gas_remaining: interp.gas.remaining(),
-                cost: interp.gas.spent(),
-                depth: context.journaled_state.depth(),
-                refund: interp.gas.refunded() as u64,
-                error: Some(format!("{:?}", interp.instruction_result)),
+                pc: interp.bytecode.pc() as u64,
+                gas_remaining: interp.control.gas().remaining(),
+                cost: interp.control.gas().spent(),
+                depth: context.journal().depth() as u64,
+                refund: interp.control.gas().refunded() as u64,
+                error: Some(format!("{:?}", interp.control.instruction_result())),
                 contract: self.active_call().contract.clone(),
             };
 
@@ -488,8 +495,8 @@ where
         &mut self,
         _context: &mut CTX,
         _inputs: &CallInputs,
-        mut outcome: CallOutcome,
-    ) -> CallOutcome {
+        mut outcome: &mut CallOutcome,
+    ) {
         if self.can_call_exit() {
             let frame_result = FrameResult {
                 gas_used: outcome.result.gas.spent(),
@@ -502,15 +509,12 @@ where
         }
 
         self.pop_call();
-
-        outcome
     }
 
     fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
         self.register_precompiles(&context.precompiles);
 
-        let _ = context.load_account(inputs.caller);
-        let nonce = context.journaled_state.account(inputs.caller).info.nonce;
+        let nonce = context.journal().load_account(inputs.caller).unwrap().info.nonce;
         let contract = inputs.created_address(nonce);
         self.push_call(
             contract,
@@ -537,8 +541,8 @@ where
         &mut self,
         _context: &mut CTX,
         _inputs: &CreateInputs,
-        mut outcome: CreateOutcome,
-    ) -> CreateOutcome {
+        outcome: &mut CreateOutcome,
+    ) {
         if self.can_call_exit() {
             let frame_result = FrameResult {
                 gas_used: outcome.result.gas.spent(),
@@ -551,8 +555,6 @@ where
         }
 
         self.pop_call();
-
-        outcome
     }
 
     fn selfdestruct(&mut self, _contract: Address, _target: Address, _value: U256) {
@@ -633,13 +635,10 @@ mod tests {
 
     use alloy_primitives::{hex, Address};
     use revm::{
-        db::{CacheDB, EmptyDB},
-        inspector_handle_register,
-        primitives::{
-            AccountInfo, BlockEnv, Bytecode, CfgEnv, CfgEnvWithHandlerCfg, EnvWithHandlerCfg,
-            HandlerCfg, SpecId, TransactTo, TxEnv,
-        },
+        database_interface::EmptyDB,
+        state::{AccountInfo, Bytecode},
     };
+    use revm_database::CacheDB;
     use serde_json::json;
 
     #[test]
@@ -683,7 +682,7 @@ mod tests {
         db.insert_account_info(
             addr,
             AccountInfo {
-                code: Some(Bytecode::LegacyRaw(
+                code: Some(Bytecode::new_legacy(
                     /* PUSH1 1, PUSH1 1, STOP */
                     contract.unwrap_or_else(|| hex!("6001600100").into()),
                 )),

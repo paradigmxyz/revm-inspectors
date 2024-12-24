@@ -1,7 +1,14 @@
-use crate::utils::{write_traces_with, TestEvm};
+use crate::utils::{inspect, inspect_deploy_contract, write_traces_with};
 use alloy_primitives::{address, b256, bytes, hex, Address, B256, U256};
 use alloy_sol_types::{sol, SolCall};
 use colorchoice::ColorChoice;
+use revm::{
+    context_interface::{DatabaseGetter, TransactTo, TransactionGetter},
+    database_interface::EmptyDB,
+    specification::hardfork::SpecId,
+    Context, DatabaseCommit,
+};
+use revm_database::CacheDB;
 use revm_inspectors::tracing::{
     types::{DecodedCallData, DecodedInternalCall, DecodedTraceStep},
     TraceWriterConfig, TracingInspector, TracingInspectorConfig,
@@ -19,10 +26,19 @@ fn test_trace_printing() {
 
     let base_path = &Path::new(OUT_DIR).join("test_trace_printing");
 
-    let mut evm = TestEvm::new();
+    let mut context = Context::default().with_db(CacheDB::new(EmptyDB::default()));
 
     let mut tracer = TracingInspector::new(TracingInspectorConfig::all());
-    let address = evm.deploy(CREATION_CODE.parse().unwrap(), &mut tracer).unwrap();
+    //let address = evm.deploy(CREATION_CODE.parse().unwrap(), &mut tracer).unwrap();
+    let address = inspect_deploy_contract(
+        &mut context,
+        CREATION_CODE.parse().unwrap(),
+        Address::default(),
+        SpecId::LONDON,
+        &mut tracer,
+    )
+    .created_address()
+    .unwrap();
 
     let mut index = 0;
 
@@ -31,7 +47,14 @@ fn test_trace_printing() {
 
     let mut call = |data: Vec<u8>| {
         let mut tracer = TracingInspector::new(TracingInspectorConfig::all());
-        let r = evm.call(address, data.into(), &mut tracer).unwrap();
+        context.modify_tx(|tx| {
+            tx.data = data.into();
+            tx.transact_to = TransactTo::Call(address);
+            tx.nonce = index as u64;
+        });
+        let r = inspect(&mut context, &mut tracer).unwrap();
+        context.db().commit(r.state);
+        let r = r.result;
         assert!(r.is_success(), "evm.call reverted: {r:#?}");
 
         assert_traces(base_path, None, Some(index), &mut tracer);
@@ -68,9 +91,16 @@ fn test_trace_printing() {
 fn deploy_fail() {
     let base_path = &Path::new(OUT_DIR).join("deploy_fail");
 
-    let mut evm = TestEvm::new();
+    let mut context = Context::default().with_db(CacheDB::new(EmptyDB::default()));
     let mut tracer = TracingInspector::new(TracingInspectorConfig::all());
-    let _ = evm.try_deploy(bytes!("604260005260206000fd"), &mut tracer).unwrap();
+
+    inspect_deploy_contract(
+        &mut context,
+        bytes!("604260005260206000fd"),
+        Address::default(),
+        SpecId::LONDON,
+        &mut tracer,
+    );
 
     assert_traces(base_path, Some("raw"), None, &mut tracer);
 

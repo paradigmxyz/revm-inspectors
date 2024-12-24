@@ -1,7 +1,16 @@
 //! Transfer tests
 
 use alloy_primitives::{hex, Address, U256};
-use revm::{database_interface::EmptyDB, DatabaseCommit};
+use revm::{
+    context::TxEnv,
+    context_interface::{
+        result::{ExecutionResult, Output},
+        DatabaseGetter, TransactTo,
+    },
+    database_interface::EmptyDB,
+    specification::hardfork::SpecId,
+    Context, DatabaseCommit,
+};
 use revm_database::CacheDB;
 
 use crate::utils::inspect;
@@ -26,24 +35,21 @@ fn test_internal_transfers() {
 
     let mut db = CacheDB::new(EmptyDB::default());
 
-    let cfg = CfgEnvWithHandlerCfg::new(CfgEnv::default(), HandlerCfg::new(SpecId::LONDON));
-
-    let env = EnvWithHandlerCfg::new_with_cfg_env(
-        cfg.clone(),
-        BlockEnv::default(),
-        TxEnv {
+    let mut context = Context::default()
+        .with_db(db)
+        .modify_cfg_chained(|c| c.spec = SpecId::LONDON)
+        .with_tx(TxEnv {
             caller: deployer,
             gas_limit: 1000000,
             transact_to: TransactTo::Create,
             data: code.into(),
             ..Default::default()
-        },
-    );
+        });
 
     let mut insp = TracingInspector::new(TracingInspectorConfig::default_geth());
 
     // Create contract
-    let (res, _) = inspect(&mut db, env, &mut insp).unwrap();
+    let res = inspect(&mut context, &mut insp).unwrap();
     let addr = match res.result {
         ExecutionResult::Success { output, .. } => match output {
             Output::Create(_, addr) => addr.unwrap(),
@@ -51,9 +57,9 @@ fn test_internal_transfers() {
         },
         _ => panic!("Execution failed"),
     };
-    db.commit(res.state);
+    context.db().commit(res.state);
 
-    let acc = db.load_account(deployer).unwrap();
+    let acc = context.db().load_account(deployer).unwrap();
     acc.info.balance = U256::from(u64::MAX);
 
     let tx_env = TxEnv {
@@ -63,13 +69,17 @@ fn test_internal_transfers() {
         data: hex!("830c29ae0000000000000000000000000000000000000000000000000000000000000000")
             .into(),
         value: U256::from(10),
+        nonce: 0,
         ..Default::default()
     };
 
     let mut insp = TransferInspector::new(false);
 
-    let env = EnvWithHandlerCfg::new_with_cfg_env(cfg.clone(), BlockEnv::default(), tx_env.clone());
-    let (res, _) = inspect(&mut db, env, &mut insp).unwrap();
+    context.modify_tx(|tx| {
+        *tx = tx_env.clone();
+        tx.nonce = 1;
+    });
+    let res = inspect(&mut context, &mut insp).unwrap();
     assert!(res.result.is_success());
 
     assert_eq!(insp.transfers().len(), 2);
@@ -94,9 +104,11 @@ fn test_internal_transfers() {
 
     let mut insp = TransferInspector::internal_only();
 
-    let env = EnvWithHandlerCfg::new_with_cfg_env(cfg, BlockEnv::default(), tx_env);
-
-    let (res, _) = inspect(&mut db, env, &mut insp).unwrap();
+    context.modify_tx(|tx| {
+        *tx = tx_env.clone();
+        tx.nonce = 1;
+    });
+    let res = inspect(&mut context, &mut insp).unwrap();
     assert!(res.result.is_success());
 
     assert_eq!(insp.transfers().len(), 1);

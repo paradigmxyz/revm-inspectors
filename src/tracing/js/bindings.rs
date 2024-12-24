@@ -17,11 +17,10 @@ use boa_engine::{
 };
 use boa_gc::{empty_trace, Finalize, Trace};
 use revm::{
-    interpreter::{
-        opcode::{PUSH0, PUSH32},
-        OpCode, SharedMemory, Stack,
-    },
-    primitives::{AccountInfo, Bytecode, EvmState, KECCAK_EMPTY},
+    bytecode::opcode::{OpCode, PUSH0, PUSH32},
+    interpreter::{SharedMemory, Stack},
+    primitives::KECCAK_EMPTY,
+    state::{AccountInfo, Bytecode, EvmState},
     DatabaseRef,
 };
 use std::{cell::RefCell, rc::Rc};
@@ -277,7 +276,7 @@ impl MemoryRef {
                     let size = end - start;
                     let slice = memory
                         .0
-                        .with_inner(|mem| mem.slice(start, size).to_vec())
+                        .with_inner(|mem| mem.slice_len(start, size).to_vec())
                         .unwrap_or_default();
 
                     to_uint8_array_value(slice, ctx)
@@ -301,7 +300,7 @@ impl MemoryRef {
                     }
                     let slice = memory
                         .0
-                        .with_inner(|mem| mem.slice(offset, 32).to_vec())
+                        .with_inner(|mem| mem.slice_len(offset, 32).to_vec())
                         .unwrap_or_default();
                     to_uint8_array_value(slice, ctx)
                 },
@@ -976,7 +975,8 @@ mod tests {
         json_stringify, register_builtins, to_serde_value, BIG_INT_JS,
     };
     use boa_engine::{property::Attribute, Source};
-    use revm::db::{CacheDB, EmptyDB};
+    use revm::database_interface::EmptyDB;
+    use revm_database::CacheDB;
 
     #[test]
     fn test_contract() {
@@ -1161,9 +1161,9 @@ mod tests {
             obj.get(js_string!("step"), &mut context).unwrap().as_object().cloned().unwrap();
 
         let mut stack = Stack::new();
-        stack.push(U256::from(35000)).unwrap();
-        stack.push(U256::from(35000)).unwrap();
-        stack.push(U256::from(35000)).unwrap();
+        stack.push(U256::from(35000));
+        stack.push(U256::from(35000));
+        stack.push(U256::from(35000));
         let (stack_ref, _stack_guard) = StackRef::new(&stack);
         let mem = SharedMemory::new();
         let (mem_ref, _mem_guard) = MemoryRef::new(&mem);
@@ -1253,9 +1253,9 @@ mod tests {
             obj.get(js_string!("step"), &mut context).unwrap().as_object().cloned().unwrap();
 
         let mut stack = Stack::new();
-        stack.push(U256::from(35000)).unwrap();
-        stack.push(U256::from(35000)).unwrap();
-        stack.push(U256::from(35000)).unwrap();
+        stack.push(U256::from(35000));
+        stack.push(U256::from(35000));
+        stack.push(U256::from(35000));
         let (stack_ref, _stack_guard) = StackRef::new(&stack);
         let mem = SharedMemory::new();
         let (mem_ref, _mem_guard) = MemoryRef::new(&mem);
