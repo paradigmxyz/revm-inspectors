@@ -55,6 +55,7 @@ fn test_parity_selfdestruct(spec_id: SpecId) {
             db.insert_account_info(deployer, AccountInfo { balance: value, ..Default::default() });
         });
 
+    context.modify_tx(|tx| tx.value = value);
     let output = deploy_contract(&mut context, code.into(), deployer, spec_id);
     let addr = output.created_address().unwrap();
 
@@ -170,14 +171,14 @@ fn test_parity_call_selfdestruct() {
     let deployer = address!("341348115259a8bf69f1f50101c227fced83bac6");
     let value = U256::from(69);
 
-    // let mut evm = TestEvm::new_with_spec_id(SpecId::LONDON);
-    // evm.db.insert_account_info(deployer, AccountInfo { balance: value, ..Default::default() });
-    // evm.env.tx.caller = deployer;
-    // evm.env.tx.value = value;
-
-    let mut context =
-        Context::default().with_db(CacheDB::<EmptyDB>::default()).modify_db_chained(|db| {
+    let mut context = Context::default()
+        .with_db(CacheDB::<EmptyDB>::default())
+        .modify_db_chained(|db| {
             db.insert_account_info(deployer, AccountInfo { balance: value, ..Default::default() });
+        })
+        .modify_tx_chained(|tx| {
+            tx.caller = deployer;
+            tx.value = value;
         });
 
     let to = deploy_contract(&mut context, code.into(), deployer, SpecId::LONDON)
@@ -192,7 +193,7 @@ fn test_parity_call_selfdestruct() {
             gas_limit: 100000000,
             transact_to: TransactTo::Call(to),
             data: input.to_vec().into(),
-            nonce: 1,
+            nonce: 0,
             ..Default::default()
         };
     });
@@ -329,7 +330,7 @@ fn test_parity_delegatecall_selfdestruct() {
         gas_limit: 1000000,
         transact_to: TransactTo::Call(delegate_addr),
         data: input_data.into(),
-        nonce: 2,
+        nonce: 0,
         ..Default::default()
     });
 

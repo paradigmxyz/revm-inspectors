@@ -3,7 +3,7 @@ use alloy_primitives::{address, b256, bytes, hex, Address, B256, U256};
 use alloy_sol_types::{sol, SolCall};
 use colorchoice::ColorChoice;
 use revm::{
-    context_interface::{DatabaseGetter, TransactTo, TransactionGetter},
+    context_interface::{DatabaseGetter, TransactTo},
     database_interface::EmptyDB,
     specification::hardfork::SpecId,
     Context, DatabaseCommit,
@@ -34,7 +34,7 @@ fn test_trace_printing() {
         &mut context,
         CREATION_CODE.parse().unwrap(),
         Address::default(),
-        SpecId::LONDON,
+        SpecId::CANCUN,
         &mut tracer,
     )
     .created_address()

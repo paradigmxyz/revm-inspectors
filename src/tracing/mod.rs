@@ -251,7 +251,8 @@ impl TracingInspector {
         //    // only if this is _not_ the root call
         //    return self.is_deep() && value.is_zero();
         //}
-        self.is_deep()
+        let _ = self.is_deep();
+        false
     }
 
     /// Returns the currently active call trace.
@@ -494,7 +495,7 @@ impl TracingInspector {
         if self.config.record_state_diff {
             let op = step.op.get();
 
-            let journal_entry = context.journal_ext().last_journal().last().cloned();
+            let journal_entry = context.journal_ext().last_journal().last();
 
             step.storage_change = match (op, journal_entry) {
                 (
@@ -502,15 +503,15 @@ impl TracingInspector {
                     Some(JournalEntry::StorageChanged { address, key, had_value }),
                 ) => {
                     // SAFETY: (Address,key) exists if part if StorageChange
-                    //TODO let value =
-                    // context.journal_ext().state[address].storage[key].present_value();
-                    let value = U256::ZERO;
+                    let value =
+                        context.journal_ext().evm_state()[address].storage[&key].present_value();
                     let reason = match op {
                         opcode::SLOAD => StorageChangeReason::SLOAD,
                         opcode::SSTORE => StorageChangeReason::SSTORE,
                         _ => unreachable!(),
                     };
-                    let change = StorageChange { key, value, had_value: Some(had_value), reason };
+                    let change =
+                        StorageChange { key: *key, value, had_value: Some(*had_value), reason };
                     Some(change)
                 }
                 _ => None,
@@ -541,7 +542,6 @@ where
     #[inline]
     fn step_end(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut CTX) {
         if self.config.record_steps {
-            // TODO(rakita) fix this
             self.fill_step_on_step_end(interp, context);
         }
     }
@@ -616,7 +616,7 @@ where
 
     fn create_end(
         &mut self,
-        context: &mut CTX,
+        _context: &mut CTX,
         _inputs: &CreateInputs,
         outcome: &mut CreateOutcome,
     ) {
@@ -651,7 +651,7 @@ where
 
     fn eofcreate_end(
         &mut self,
-        context: &mut CTX,
+        _context: &mut CTX,
         _inputs: &EOFCreateInputs,
         outcome: &mut CreateOutcome,
     ) {
