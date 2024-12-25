@@ -239,19 +239,16 @@ impl TracingInspector {
     ///
     /// Returns true if the `to` address is a precompile contract and the value is zero.
     #[inline]
-    fn is_precompile_call(
+    fn is_precompile_call<CTX: JournalGetter>(
         &self,
-        // TODO(rakita)
-        //context: &CTX,
-        _to: &Address,
-        _value: &U256,
+        context: &CTX,
+        to: &Address,
+        value: &U256,
     ) -> bool {
-        // TODO rakita how to support this?
-        //if context.precompiles.contains(to) {
-        //    // only if this is _not_ the root call
-        //    return self.is_deep() && value.is_zero();
-        //}
-        let _ = self.is_deep();
+        if context.journal_ref().contains_precompile(to) {
+            // only if this is _not_ the root call
+            return self.is_deep() && value.is_zero();
+        }
         false
     }
 
@@ -576,8 +573,10 @@ where
             };
 
         // if calls to precompiles should be excluded, check whether this is a call to a precompile
-        let maybe_precompile =
-            self.config.exclude_precompile_calls.then(|| self.is_precompile_call(&to, &value));
+        let maybe_precompile = self
+            .config
+            .exclude_precompile_calls
+            .then(|| self.is_precompile_call(context, &to, &value));
 
         self.start_trace_on_call(
             context,
