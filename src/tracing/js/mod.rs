@@ -24,7 +24,6 @@ use revm::{
         CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, Gas, InstructionResult,
         Interpreter, InterpreterResult,
     },
-    primitives::HashSet,
     Database, DatabaseRef,
 };
 use revm_inspector::{Inspector, JournalExt, JournalExtGetter};
@@ -383,13 +382,11 @@ impl JsInspector {
     }
 
     /// Registers the precompiles in the JS context
-    fn register_precompiles<CTX: JournalGetter>(&mut self, _context: &mut CTX) {
+    fn register_precompiles<CTX: JournalGetter>(&mut self, context: &mut CTX) {
         if !self.precompiles_registered {
             return;
         }
-        let precompiles = PrecompileList(HashSet::default());
-        // TODO(rakita) : add precompile_addresses to Journal.
-        // context.journal().warm_precompiles(addresses);.addresses().copied().collect());
+        let precompiles = PrecompileList(context.journal().precompile_addresses().clone());
 
         let _ = precompiles.register_callable(&mut self.ctx);
 

@@ -245,7 +245,7 @@ impl TracingInspector {
         to: &Address,
         value: &U256,
     ) -> bool {
-        if context.journal_ref().contains_precompile(to) {
+        if context.journal_ref().precompile_addresses().contains(to) {
             // only if this is _not_ the root call
             return self.is_deep() && value.is_zero();
         }
