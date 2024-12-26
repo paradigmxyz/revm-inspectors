@@ -859,7 +859,6 @@ mod opcode_serde {
         D: Deserializer<'de>,
     {
         let op = u8::deserialize(deserializer)?;
-        Ok(OpCode::new(op)
-            .unwrap_or_else(|| OpCode::new(revm::interpreter::opcode::INVALID).unwrap()))
+        Ok(OpCode::new(op).unwrap_or_else(|| OpCode::new(revm::bytecode::opcode::INVALID).unwrap()))
     }
 }

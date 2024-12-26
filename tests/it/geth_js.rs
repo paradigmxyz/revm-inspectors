@@ -4,7 +4,9 @@ use crate::utils::{deploy_contract, inspect};
 use alloy_primitives::{address, hex, Address};
 use revm::{
     context::TxEnv,
-    context_interface::{transaction::TransactionSetter, DatabaseGetter, TransactTo},
+    context_interface::{
+        transaction::TransactionSetter, BlockGetter, DatabaseGetter, TransactTo, TransactionGetter,
+    },
     database_interface::EmptyDB,
     specification::hardfork::SpecId,
     Context,
@@ -55,6 +57,7 @@ fn test_geth_jstracer_revert() {
         gas_limit: 1000000,
         transact_to: TransactTo::Call(addr),
         data: hex!("c2985578").into(), // call foo
+        nonce: 1,
         ..Default::default()
     });
 
@@ -62,24 +65,25 @@ fn test_geth_jstracer_revert() {
     let res = inspect(&mut context, &mut insp).unwrap();
     assert!(res.result.is_success());
 
-    let result = insp.json_result(res, context.tx(), context.block(), context.db()).unwrap();
+    let result = insp.json_result(res, context.tx(), context.block(), context.db_ref()).unwrap();
 
     // sucessful operation
     assert!(!result["error"].as_bool().unwrap());
 
     // test with reverted operation
-    env.tx = TxEnv {
+    context.set_tx(TxEnv {
         caller: deployer,
         gas_limit: 1000000,
         transact_to: TransactTo::Call(addr),
         data: hex!("febb0f7e").into(), // call bar
+        nonce: 1,
         ..Default::default()
-    };
+    });
     let mut insp = JsInspector::new(code.to_string(), serde_json::Value::Null).unwrap();
     let res = inspect(&mut context, &mut insp).unwrap();
     assert!(!res.result.is_success());
 
-    let result = insp.json_result(res, context.tx(), context.block(), context.db()).unwrap();
+    let result = insp.json_result(res, context.tx(), context.block(), context.db_ref()).unwrap();
 
     // reverted operation
     assert!(result["error"].as_bool().unwrap());
@@ -124,7 +128,10 @@ fn test_geth_jstracer_proxy_contract() {
             .unwrap();
 
     // Deploy Proxy contract
-    let proxy_addr = evm.simple_deploy(proxy_code.into());
+    let proxy_addr =
+        deploy_contract(&mut context, proxy_code.into(), Address::ZERO, SpecId::CANCUN)
+            .created_address()
+            .unwrap();
 
     // Set input data for ProxyFactory.transfer(address)
     let mut input_data = hex!("1a695230").to_vec(); // keccak256("transfer(address)")[:4]
@@ -160,6 +167,6 @@ fn test_geth_jstracer_proxy_contract() {
     let res = inspect(&mut context, &mut insp).unwrap();
     assert!(res.result.is_success());
 
-    let result = insp.json_result(res, context.tx(), context.block(), context.db()).unwrap();
+    let result = insp.json_result(res, context.tx(), context.block(), context.db_ref()).unwrap();
     assert_eq!(result, json!([{"event": "Transfer", "token": proxy_addr, "caller": deployer}]));
 }

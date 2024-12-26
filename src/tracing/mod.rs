@@ -320,7 +320,7 @@ impl TracingInspector {
             0,
             push_kind,
             CallTrace {
-                depth: context.journal().depth() as usize,
+                depth: context.journal().depth(),
                 address,
                 kind,
                 data: input_data,
@@ -501,7 +501,7 @@ impl TracingInspector {
                 ) => {
                     // SAFETY: (Address,key) exists if part if StorageChange
                     let value =
-                        context.journal_ext().evm_state()[address].storage[&key].present_value();
+                        context.journal_ext().evm_state()[address].storage[key].present_value();
                     let reason = match op {
                         opcode::SLOAD => StorageChangeReason::SLOAD,
                         opcode::SSTORE => StorageChangeReason::SSTORE,
