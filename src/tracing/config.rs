@@ -3,7 +3,7 @@ use alloy_rpc_types_trace::{
     geth::{CallConfig, FlatCallConfig, GethDefaultTracingOptions, PreStateConfig},
     parity::TraceType,
 };
-use revm::interpreter::OpCode;
+use revm::bytecode::opcode::OpCode;
 
 /// 256 bits each marking whether an opcode should be included into steps trace or not.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

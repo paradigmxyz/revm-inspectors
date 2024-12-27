@@ -10,8 +10,9 @@ use alloy_rpc_types_trace::geth::{
     GethDefaultTracingOptions, PreStateConfig, PreStateFrame, PreStateMode, StructLog,
 };
 use revm::{
-    db::DatabaseRef,
-    primitives::{EvmState, ResultAndState},
+    context_interface::result::{HaltReasonTrait, ResultAndState},
+    state::EvmState,
+    DatabaseRef,
 };
 use std::{
     borrow::Cow,
@@ -96,7 +97,7 @@ impl<'a> GethTraceBuilder<'a> {
     /// Generate a geth-style trace e.g. for `debug_traceTransaction`
     ///
     /// This expects the gas used and return value for the
-    /// [ExecutionResult](revm::primitives::ExecutionResult) of the executed transaction.
+    /// [ExecutionResult](revm::context_interface::result::ExecutionResult) of the executed transaction.
     pub fn geth_traces(
         &self,
         receipt_gas_used: u64,
@@ -128,7 +129,7 @@ impl<'a> GethTraceBuilder<'a> {
     /// This decodes all call frames from the recorded traces.
     ///
     /// This expects the gas used and return value for the
-    /// [ExecutionResult](revm::primitives::ExecutionResult) of the executed transaction.
+    /// [ExecutionResult](revm::context_interface::result::ExecutionResult) of the executed transaction.
     pub fn geth_call_traces(&self, opts: CallConfig, gas_used: u64) -> CallFrame {
         if self.nodes.is_empty() {
             return Default::default();
@@ -216,7 +217,7 @@ impl<'a> GethTraceBuilder<'a> {
     /// * `db` - The database to fetch state pre-transaction execution.
     pub fn geth_prestate_traces<DB: DatabaseRef>(
         &self,
-        ResultAndState { state, .. }: &ResultAndState,
+        ResultAndState { state, .. }: &ResultAndState<impl HaltReasonTrait>,
         prestate_config: &PreStateConfig,
         db: DB,
     ) -> Result<PreStateFrame, DB::Error> {

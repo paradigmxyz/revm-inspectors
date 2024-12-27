@@ -53,6 +53,7 @@ impl CallTraceArena {
         kind: PushTraceKind,
         new_trace: CallTrace,
     ) -> usize {
+        println!("entry: {:?} kind {kind:?}, new_trace: {new_trace:?}", entry);
         loop {
             match new_trace.depth {
                 // The entry node, just update it
@@ -91,6 +92,7 @@ impl CallTraceArena {
 }
 
 /// How to push a trace into the arena
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PushTraceKind {
     /// This will _only_ push the trace into the arena.
     PushOnly,

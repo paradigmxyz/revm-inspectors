@@ -1,9 +1,14 @@
 use alloy_primitives::{Address, B256};
 use alloy_rpc_types_eth::{AccessList, AccessListItem};
 use revm::{
-    interpreter::{opcode, Interpreter},
-    Database, EvmContext, Inspector,
+    bytecode::opcode,
+    interpreter::{
+        interpreter::EthInterpreter,
+        interpreter_types::{InputsTrait, Jumps},
+        Interpreter,
+    },
 };
+use revm_inspector::Inspector;
 use std::collections::{BTreeSet, HashMap, HashSet};
 
 /// An [Inspector] that collects touched accounts and storage slots.
@@ -58,15 +63,12 @@ impl AccessListInspector {
     }
 }
 
-impl<DB> Inspector<DB> for AccessListInspector
-where
-    DB: Database,
-{
-    fn step(&mut self, interp: &mut Interpreter, _context: &mut EvmContext<DB>) {
-        match interp.current_opcode() {
+impl<CTX> Inspector<CTX, EthInterpreter> for AccessListInspector {
+    fn step(&mut self, interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX) {
+        match interp.bytecode.opcode() {
             opcode::SLOAD | opcode::SSTORE => {
-                if let Ok(slot) = interp.stack().peek(0) {
-                    let cur_contract = interp.contract.target_address;
+                if let Ok(slot) = interp.stack.peek(0) {
+                    let cur_contract = interp.input.target_address();
                     self.access_list
                         .entry(cur_contract)
                         .or_default()
@@ -78,7 +80,7 @@ where
             | opcode::EXTCODESIZE
             | opcode::BALANCE
             | opcode::SELFDESTRUCT => {
-                if let Ok(slot) = interp.stack().peek(0) {
+                if let Ok(slot) = interp.stack.peek(0) {
                     let addr = Address::from_word(B256::from(slot.to_be_bytes()));
                     if !self.excluded.contains(&addr) {
                         self.access_list.entry(addr).or_default();
@@ -86,7 +88,7 @@ where
                 }
             }
             opcode::DELEGATECALL | opcode::CALL | opcode::STATICCALL | opcode::CALLCODE => {
-                if let Ok(slot) = interp.stack().peek(1) {
+                if let Ok(slot) = interp.stack.peek(1) {
                     let addr = Address::from_word(B256::from(slot.to_be_bytes()));
                     if !self.excluded.contains(&addr) {
                         self.access_list.entry(addr).or_default();
