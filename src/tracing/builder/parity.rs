@@ -411,9 +411,11 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         // ensure the selfdestruct trace is emitted just at the ending of the same depth
         if let Some(selfdestruct) = &self.next_selfdestruct {
-            if self.iter.peek().map_or(true, |(next_trace, _)| {
-                selfdestruct.trace_address < next_trace.trace_address
-            }) {
+            if self
+                .iter
+                .peek()
+                .is_none_or(|(next_trace, _)| selfdestruct.trace_address < next_trace.trace_address)
+            {
                 return self.next_selfdestruct.take();
             }
         }
