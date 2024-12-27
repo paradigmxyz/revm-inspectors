@@ -45,8 +45,8 @@ serde = { version = "1", optional = true, features = ["derive"] }
 serde_json = "1.0"
 
 # js-tracer
-boa_engine = { version = "0.19", optional = true }
-boa_gc = { version = "0.19", optional = true }
+boa_engine = { version = "0.20", optional = true }
+boa_gc = { version = "0.20", optional = true }
 
 [dev-dependencies]
 snapbox = { version = "0.6", features = ["term-svg"] }
