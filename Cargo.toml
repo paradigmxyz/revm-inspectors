@@ -30,19 +30,19 @@ clippy.lint_groups_priority = "allow"
 
 [dependencies]
 # eth
-alloy-rpc-types-eth = "0.8"
-alloy-rpc-types-trace = "0.8"
-alloy-sol-types = "0.8"
-alloy-primitives = { version = "0.8", features = ["map"] }
+alloy-rpc-types-eth = { version = "0.8", default-features = false }
+alloy-rpc-types-trace = {version = "0.8", default-features = false }
+alloy-sol-types = {version = "0.8", default-features = false }
+alloy-primitives = { version = "0.8", features = ["map"], default-features = false }
 revm = { version = "18.0.0", default-features = false, features = ["std"] }
 
-anstyle = "1.0"
-colorchoice = "1.0"
-thiserror = "2.0"
+anstyle = { version = "1.0", optional = true }
+colorchoice = { version = "1.0", optional = true }
+thiserror = { version = "2.0", default-features = false }
 
 # serde
 serde = { version = "1", optional = true, features = ["derive"] }
-serde_json = "1.0"
+serde_json = { version = "1.0", optional = true }
 
 # js-tracer
 boa_engine = { version = "0.20", optional = true }
@@ -52,5 +52,8 @@ boa_gc = { version = "0.20", optional = true }
 snapbox = { version = "0.6", features = ["term-svg"] }
 
 [features]
+default = ["std"]
+std = ["anstyle", "colorchoice", "serde_json"]
+no_std = []
 serde = ["dep:serde", "revm/serde"]
 js-tracer = ["dep:boa_engine", "dep:boa_gc"]

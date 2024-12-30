@@ -9,6 +9,7 @@ use crate::{
         utils::gas_used,
     },
 };
+use alloc::vec::Vec;
 use alloy_primitives::{Address, Bytes, Log, B256, U256};
 use revm::{
     interpreter::{

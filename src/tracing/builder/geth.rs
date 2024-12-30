@@ -1,10 +1,14 @@
 //! Geth trace builder
-
 use crate::tracing::{
     types::{CallTraceNode, CallTraceStepStackItem},
     utils::load_account_code,
 };
-use alloy_primitives::{Address, Bytes, B256, U256};
+use alloc::{
+    borrow::Cow,
+    collections::{BTreeMap, VecDeque},
+    vec::Vec,
+};
+use alloy_primitives::{map::HashMap, Address, Bytes, B256, U256};
 use alloy_rpc_types_trace::geth::{
     AccountChangeKind, AccountState, CallConfig, CallFrame, DefaultFrame, DiffMode,
     GethDefaultTracingOptions, PreStateConfig, PreStateFrame, PreStateMode, StructLog,
@@ -12,10 +16,6 @@ use alloy_rpc_types_trace::geth::{
 use revm::{
     db::DatabaseRef,
     primitives::{EvmState, ResultAndState},
-};
-use std::{
-    borrow::Cow,
-    collections::{BTreeMap, HashMap, VecDeque},
 };
 
 /// A type for creating geth style traces

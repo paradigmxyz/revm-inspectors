@@ -1,6 +1,7 @@
 //! Types for representing call trace items.
 
 use crate::tracing::{config::TraceStyle, utils, utils::convert_memory};
+use alloc::{collections::VecDeque, format, string::String, vec::Vec};
 pub use alloy_primitives::Log;
 use alloy_primitives::{Address, Bytes, FixedBytes, LogData, U256};
 use alloy_rpc_types_trace::{
@@ -11,7 +12,6 @@ use alloy_rpc_types_trace::{
     },
 };
 use revm::interpreter::{opcode, CallScheme, CreateScheme, InstructionResult, OpCode};
-use std::collections::VecDeque;
 
 /// Decoded call data.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -534,8 +534,8 @@ impl From<CallKind> for CreationMethod {
     }
 }
 
-impl std::fmt::Display for CallKind {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for CallKind {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(self.to_str())
     }
 }

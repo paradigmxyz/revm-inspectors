@@ -1,4 +1,5 @@
 use crate::tracing::{FourByteInspector, TracingInspector, TracingInspectorConfig};
+use alloc::vec::Vec;
 use alloy_primitives::{map::HashMap, Address, Log, U256};
 use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::geth::{
@@ -322,6 +323,10 @@ pub enum Error {
     #[error("expected config is missing for tracer '{0:?}'")]
     MissingConfig(GethDebugBuiltInTracerType),
     /// Error when deserializing the config
+    #[cfg(feature = "std")]
     #[error("error deserializing config: {0}")]
     InvalidConfig(#[from] serde_json::Error),
+    #[cfg(not(feature = "std"))]
+    #[error("error deserializing config")]
+    InvalidConfigNoStd,
 }
