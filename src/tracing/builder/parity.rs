@@ -4,7 +4,7 @@ use crate::tracing::{
     utils::load_account_code,
     TracingInspectorConfig,
 };
-use alloc::{collections::VecDeque, vec, vec::Vec};
+use alloc::{collections::VecDeque, string::ToString, vec, vec::Vec};
 use alloy_primitives::{map::HashSet, Address, U256, U64};
 use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::parity::*;

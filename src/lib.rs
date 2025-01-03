@@ -17,9 +17,6 @@
 
 extern crate alloc;
 
-#[cfg(feature = "std")]
-pub use colorchoice::ColorChoice;
-
 /// An inspector implementation for an EIP2930 Accesslist
 pub mod access_list;
 
@@ -31,3 +28,5 @@ pub mod tracing;
 
 /// An inspector for recording internal transfers.
 pub mod transfer;
+
+pub use colorchoice::ColorChoice;

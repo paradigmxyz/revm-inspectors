@@ -1,7 +1,7 @@
 [package]
 name = "revm-inspectors"
 description = "Revm inspector implementations"
-version = "0.13.0"
+version = "0.14.1"
 edition = "2021"
 rust-version = "1.82.0"
 license = "MIT OR Apache-2.0"
@@ -30,19 +30,19 @@ clippy.lint_groups_priority = "allow"
 
 [dependencies]
 # eth
-alloy-rpc-types-eth = { version = "0.8", default-features = false }
-alloy-rpc-types-trace = {version = "0.8", default-features = false }
-alloy-sol-types = {version = "0.8", default-features = false }
-alloy-primitives = { version = "0.8", features = ["map"], default-features = false }
-revm = { version = "18.0.0", default-features = false, features = ["std"] }
+alloy-rpc-types-eth = "0.9"
+alloy-rpc-types-trace = "0.9"
+alloy-sol-types = "0.8"
+alloy-primitives = { version = "0.8", features = ["map-hashbrown"] }
+revm = { version = "19.0.0", default-features = false, features = ["std"] }
 
 anstyle = { version = "1.0", optional = true }
-colorchoice = { version = "1.0", optional = true }
+colorchoice = "1.0"
 thiserror = { version = "2.0", default-features = false }
 
 # serde
 serde = { version = "1", optional = true, features = ["derive"] }
-serde_json = { version = "1.0", optional = true }
+serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 
 # js-tracer
 boa_engine = { version = "0.20", optional = true }
@@ -53,7 +53,7 @@ snapbox = { version = "0.6", features = ["term-svg"] }
 
 [features]
 default = ["std"]
-std = ["anstyle", "colorchoice", "serde_json"]
+std = ["alloy-primitives/std", "anstyle/std", "serde/std", "serde_json/std", "revm/std", "thiserror/std"]
 no_std = []
 serde = ["dep:serde", "revm/serde"]
 js-tracer = ["dep:boa_engine", "dep:boa_gc"]

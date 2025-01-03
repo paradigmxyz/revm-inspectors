@@ -1,7 +1,12 @@
 //! Types for representing call trace items.
 
 use crate::tracing::{config::TraceStyle, utils, utils::convert_memory};
-use alloc::{collections::VecDeque, format, string::String, vec::Vec};
+use alloc::{
+    collections::VecDeque,
+    format,
+    string::{String, ToString},
+    vec::Vec,
+};
 pub use alloy_primitives::Log;
 use alloy_primitives::{Address, Bytes, FixedBytes, LogData, U256};
 use alloy_rpc_types_trace::{

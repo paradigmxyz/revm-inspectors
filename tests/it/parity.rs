@@ -228,7 +228,7 @@ fn test_parity_statediff_blob_commit() {
         cfg.clone(),
         BlockEnv {
             basefee: U256::from(100),
-            blob_excess_gas_and_price: Some(BlobExcessGasAndPrice::new(100)),
+            blob_excess_gas_and_price: Some(BlobExcessGasAndPrice::new(100, false)),
             ..Default::default()
         },
         TxEnv {
