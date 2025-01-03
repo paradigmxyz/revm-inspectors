@@ -752,7 +752,7 @@ impl EvmDbRef {
     pub(crate) fn new<'a, 'b, DB>(state: &'a EvmState, db: &'b DB) -> (Self, EvmDbGuard<'a, 'b>)
     where
         DB: DatabaseRef,
-        DB::Error: std::fmt::Display,
+        DB::Error: core::fmt::Display,
     {
         let (state, state_guard) = StateRef::new(state);
 
@@ -948,7 +948,7 @@ pub(crate) struct JsDb<DB: DatabaseRef>(DB);
 impl<DB> DatabaseRef for JsDb<DB>
 where
     DB: DatabaseRef,
-    DB::Error: std::fmt::Display,
+    DB::Error: core::fmt::Display,
 {
     type Error = String;
 

@@ -1,5 +1,8 @@
 //! Util functions for revm related ops
-
+use alloc::{
+    string::{String, ToString},
+    vec::Vec,
+};
 use alloy_primitives::{hex, Bytes};
 use alloy_sol_types::{ContractError, GenericRevertReason};
 use revm::{

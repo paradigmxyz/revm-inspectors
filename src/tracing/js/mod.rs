@@ -213,7 +213,7 @@ impl JsInspector {
     ) -> Result<serde_json::Value, JsInspectorError>
     where
         DB: DatabaseRef,
-        <DB as DatabaseRef>::Error: std::fmt::Display,
+        <DB as DatabaseRef>::Error: core::fmt::Display,
     {
         let result = self.result(res, env, db)?;
         Ok(to_serde_value(result, &mut self.ctx)?)
@@ -228,7 +228,7 @@ impl JsInspector {
     ) -> Result<JsValue, JsInspectorError>
     where
         DB: DatabaseRef,
-        <DB as DatabaseRef>::Error: std::fmt::Display,
+        <DB as DatabaseRef>::Error: core::fmt::Display,
     {
         let ResultAndState { result, state } = res;
         let (db, _db_guard) = EvmDbRef::new(&state, db);
@@ -388,7 +388,7 @@ impl JsInspector {
 impl<DB> Inspector<DB> for JsInspector
 where
     DB: Database + DatabaseRef,
-    <DB as DatabaseRef>::Error: std::fmt::Display,
+    <DB as DatabaseRef>::Error: core::fmt::Display,
 {
     fn step(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
         if self.step_fn.is_none() {

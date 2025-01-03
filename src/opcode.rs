@@ -1,3 +1,5 @@
+use alloc::string::ToString;
+use alloy_primitives::map::HashMap;
 use alloy_rpc_types_trace::opcode::OpcodeGas;
 use revm::{
     interpreter::{
@@ -6,7 +8,6 @@ use revm::{
     },
     Database, EvmContext, Inspector,
 };
-use std::collections::HashMap;
 
 /// An Inspector that counts opcodes and measures gas usage per opcode.
 #[derive(Clone, Debug, Default)]
