@@ -8,6 +8,12 @@ use crate::tracing::{
     types::CallKind,
     TransactionContext,
 };
+use alloc::{
+    boxed::Box,
+    format,
+    rc::Rc,
+    string::{String, ToString},
+};
 use alloy_primitives::{Address, Bytes, B256, U256};
 use boa_engine::{
     js_string,
@@ -16,6 +22,7 @@ use boa_engine::{
     Context, JsArgs, JsError, JsNativeError, JsObject, JsResult, JsValue,
 };
 use boa_gc::{empty_trace, Finalize, Trace};
+use core::cell::RefCell;
 use revm::{
     interpreter::{
         opcode::{PUSH0, PUSH32},
@@ -24,7 +31,6 @@ use revm::{
     primitives::{AccountInfo, Bytecode, EvmState, KECCAK_EMPTY},
     DatabaseRef,
 };
-use std::{cell::RefCell, rc::Rc};
 
 /// A macro that creates a native function that returns via [JsValue::from]
 macro_rules! js_value_getter {
@@ -99,7 +105,7 @@ impl<Val: 'static> GuardedNullableGc<Val> {
 
         // SAFETY: guard enforces that the value is removed from the refcell before it is dropped.
         #[allow(clippy::missing_transmute_annotations)]
-        let this = Self { inner: unsafe { std::mem::transmute(inner) } };
+        let this = Self { inner: unsafe { core::mem::transmute(inner) } };
 
         (this, guard)
     }
@@ -764,7 +770,7 @@ impl EvmDbRef {
         // the guard.
         let db = JsDb(db);
         let js_db = unsafe {
-            std::mem::transmute::<
+            core::mem::transmute::<
                 Box<dyn DatabaseRef<Error = String> + '_>,
                 Box<dyn DatabaseRef<Error = String> + 'static>,
             >(Box::new(db))
@@ -799,7 +805,7 @@ impl EvmDbRef {
         let acc = self.read_basic(address, ctx)?;
         let code_hash = acc.map(|acc| acc.code_hash).unwrap_or(KECCAK_EMPTY);
         if code_hash == KECCAK_EMPTY {
-            return JsUint8Array::from_iter(std::iter::empty(), ctx);
+            return JsUint8Array::from_iter(core::iter::empty(), ctx);
         }
 
         let Some(Ok(bytecode)) = self.inner.db.0.with_inner(|db| db.code_by_hash_ref(code_hash))

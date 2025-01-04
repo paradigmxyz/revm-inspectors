@@ -1,6 +1,7 @@
 //! Builtin functions
 
-use alloc::borrow::Borrow;
+use crate::alloc::string::ToString;
+use alloc::{borrow::Borrow, format, vec::Vec};
 use alloy_primitives::{hex, map::HashSet, Address, FixedBytes, B256, U256};
 use boa_engine::{
     builtins::{array_buffer::ArrayBuffer, typed_array::TypedArray},
