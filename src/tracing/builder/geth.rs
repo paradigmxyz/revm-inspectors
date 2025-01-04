@@ -111,7 +111,7 @@ impl<'a> GethTraceBuilder<'a> {
         let main_trace = &main_trace_node.trace;
 
         let mut struct_logs = Vec::new();
-        let mut storage = HashMap::new();
+        let mut storage = HashMap::default();
         self.fill_geth_trace(main_trace_node, &opts, &mut storage, &mut struct_logs);
 
         DefaultFrame {
@@ -267,7 +267,8 @@ impl<'a> GethTraceBuilder<'a> {
     ) -> Result<PreStateFrame, DB::Error> {
         let account_diffs = state.iter().map(|(addr, acc)| (*addr, acc));
         let mut state_diff = DiffMode::default();
-        let mut account_change_kinds = HashMap::with_capacity(account_diffs.len());
+        let mut account_change_kinds =
+            HashMap::with_capacity_and_hasher(account_diffs.len(), Default::default());
         for (addr, changed_acc) in account_diffs {
             let db_acc = db.basic_ref(addr)?.unwrap_or_default();
 

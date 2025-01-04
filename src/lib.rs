@@ -4,7 +4,7 @@
 //!
 //! - `js-tracer`: Enables a JavaScript tracer implementation. This pulls in extra dependencies
 //!   (such as `boa`, `tokio` and `serde_json`).
-#![cfg_attr(not(feature = "std"), no_std)]
+
 #![doc = include_str!("../README.md")]
 #![doc(
     html_logo_url = "https://raw.githubusercontent.com/paradigmxyz/reth/main/assets/reth-docs.png",
@@ -14,6 +14,7 @@
 #![cfg_attr(not(test), warn(unused_crate_dependencies))]
 #![deny(unused_must_use, rust_2018_idioms)]
 #![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
+#![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
 
