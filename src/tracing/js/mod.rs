@@ -1,20 +1,15 @@
 //! Javascript inspector
 
-use crate::{
-    alloc::string::ToString,
-    tracing::{
-        js::{
-            bindings::{
-                CallFrame, Contract, EvmDbRef, FrameResult, JsEvmContext, MemoryRef, StackRef,
-                StepLog,
-            },
-            builtins::{register_builtins, to_serde_value, PrecompileList},
+use crate::tracing::{
+    js::{
+        bindings::{
+            CallFrame, Contract, EvmDbRef, FrameResult, JsEvmContext, MemoryRef, StackRef, StepLog,
         },
-        types::CallKind,
-        TransactionContext,
+        builtins::{register_builtins, to_serde_value, PrecompileList},
     },
+    types::CallKind,
+    TransactionContext,
 };
-use alloc::{format, string::String, vec::Vec};
 use alloy_primitives::{Address, Bytes, Log, U256};
 pub use boa_engine::vm::RuntimeLimits;
 use boa_engine::{js_string, Context, JsError, JsObject, JsResult, JsValue, Source};
@@ -218,7 +213,7 @@ impl JsInspector {
     ) -> Result<serde_json::Value, JsInspectorError>
     where
         DB: DatabaseRef,
-        <DB as DatabaseRef>::Error: core::fmt::Display,
+        <DB as DatabaseRef>::Error: std::fmt::Display,
     {
         let result = self.result(res, env, db)?;
         Ok(to_serde_value(result, &mut self.ctx)?)
@@ -233,7 +228,7 @@ impl JsInspector {
     ) -> Result<JsValue, JsInspectorError>
     where
         DB: DatabaseRef,
-        <DB as DatabaseRef>::Error: core::fmt::Display,
+        <DB as DatabaseRef>::Error: std::fmt::Display,
     {
         let ResultAndState { result, state } = res;
         let (db, _db_guard) = EvmDbRef::new(&state, db);
@@ -393,7 +388,7 @@ impl JsInspector {
 impl<DB> Inspector<DB> for JsInspector
 where
     DB: Database + DatabaseRef,
-    <DB as DatabaseRef>::Error: core::fmt::Display,
+    <DB as DatabaseRef>::Error: std::fmt::Display,
 {
     fn step(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
         if self.step_fn.is_none() {
