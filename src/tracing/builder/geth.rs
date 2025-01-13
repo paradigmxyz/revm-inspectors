@@ -1,10 +1,14 @@
 //! Geth trace builder
-
 use crate::tracing::{
     types::{CallTraceNode, CallTraceStepStackItem},
     utils::load_account_code,
 };
-use alloy_primitives::{Address, Bytes, B256, U256};
+use alloc::{
+    borrow::Cow,
+    collections::{BTreeMap, VecDeque},
+    vec::Vec,
+};
+use alloy_primitives::{map::HashMap, Address, Bytes, B256, U256};
 use alloy_rpc_types_trace::geth::{
     AccountChangeKind, AccountState, CallConfig, CallFrame, DefaultFrame, DiffMode,
     GethDefaultTracingOptions, PreStateConfig, PreStateFrame, PreStateMode, StructLog,
@@ -12,10 +16,6 @@ use alloy_rpc_types_trace::geth::{
 use revm::{
     db::DatabaseRef,
     primitives::{EvmState, ResultAndState},
-};
-use std::{
-    borrow::Cow,
-    collections::{BTreeMap, HashMap, VecDeque},
 };
 
 /// A type for creating geth style traces
@@ -111,7 +111,7 @@ impl<'a> GethTraceBuilder<'a> {
         let main_trace = &main_trace_node.trace;
 
         let mut struct_logs = Vec::new();
-        let mut storage = HashMap::new();
+        let mut storage = HashMap::default();
         self.fill_geth_trace(main_trace_node, &opts, &mut storage, &mut struct_logs);
 
         DefaultFrame {
@@ -267,7 +267,8 @@ impl<'a> GethTraceBuilder<'a> {
     ) -> Result<PreStateFrame, DB::Error> {
         let account_diffs = state.iter().map(|(addr, acc)| (*addr, acc));
         let mut state_diff = DiffMode::default();
-        let mut account_change_kinds = HashMap::with_capacity(account_diffs.len());
+        let mut account_change_kinds =
+            HashMap::with_capacity_and_hasher(account_diffs.len(), Default::default());
         for (addr, changed_acc) in account_diffs {
             let db_acc = db.basic_ref(addr)?.unwrap_or_default();
 

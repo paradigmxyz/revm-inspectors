@@ -1,3 +1,4 @@
+use alloc::{vec, vec::Vec};
 use alloy_primitives::{address, b256, Address, Log, LogData, B256, U256};
 use alloy_sol_types::SolValue;
 use revm::{

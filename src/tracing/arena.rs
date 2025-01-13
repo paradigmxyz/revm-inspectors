@@ -1,4 +1,5 @@
 use super::types::{CallTrace, CallTraceNode, TraceMemberOrder};
+use alloc::{vec, vec::Vec};
 
 /// An arena of recorded traces.
 ///
