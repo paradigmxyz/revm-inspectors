@@ -418,19 +418,20 @@ impl<W: Write> TraceWriter<W> {
     fn write_trace_footer(&mut self, trace: &CallTrace) -> io::Result<()> {
         write!(
             self.writer,
-            "{style}{RETURN}[{status:?}] {style:#}",
+            "{style}{RETURN}[{status:?}]{style:#}",
             style = self.trace_style(trace),
             status = trace.status,
         )?;
 
         if let Some(decoded) = &trace.decoded.return_data {
+            write!(self.writer, " ")?;
             return self.writer.write_all(decoded.as_bytes());
         }
 
         if !self.config.write_bytecodes && (trace.kind.is_any_create() && trace.status.is_ok()) {
-            write!(self.writer, "{} bytes of code", trace.output.len())?;
+            write!(self.writer, " {} bytes of code", trace.output.len())?;
         } else if !trace.output.is_empty() {
-            write!(self.writer, "{}", trace.output)?;
+            write!(self.writer, " {}", trace.output)?;
         }
 
         Ok(())

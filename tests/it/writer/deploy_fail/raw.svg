@@ -20,7 +20,7 @@
   <text xml:space="preserve" class="container fg">
     <tspan x="10px" y="28px"><tspan>  [18] </tspan><tspan class="fg-yellow">→ new</tspan><tspan> &lt;unknown&gt;@0xBd770416a3345F91E4B34576cb804a576fa48EB1</tspan>
 </tspan>
-    <tspan x="10px" y="46px"><tspan>    └─ </tspan><tspan class="fg-red">← [Revert] </tspan><tspan>0x0000000000000000000000000000000000000000000000000000000000000042</tspan>
+    <tspan x="10px" y="46px"><tspan>    └─ </tspan><tspan class="fg-red">← [Revert]</tspan><tspan> 0x0000000000000000000000000000000000000000000000000000000000000042</tspan>
 </tspan>
     <tspan x="10px" y="64px">
 </tspan>

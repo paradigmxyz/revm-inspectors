@@ -38,15 +38,15 @@
 </tspan>
     <tspan x="10px" y="190px"><tspan>    │   │   │   ├─ [before_return]</tspan>
 </tspan>
-    <tspan x="10px" y="208px"><tspan>    │   │   │   └─ </tspan><tspan class="fg-green">← [Return] </tspan>
+    <tspan x="10px" y="208px"><tspan>    │   │   │   └─ </tspan><tspan class="fg-green">← [Return]</tspan>
 </tspan>
     <tspan x="10px" y="226px"><tspan>    │   │   ├─ emit Log2(</tspan><tspan class="fg-cyan">foo: 0x0000000000000000000000000000000000000000000000000000000000000046, bar: 0x000000000000000000000000000000000000000000000000000000000000007b</tspan><tspan>)</tspan>
 </tspan>
-    <tspan x="10px" y="244px"><tspan>    │   │   └─ </tspan><tspan class="fg-green">← [Return] </tspan>
+    <tspan x="10px" y="244px"><tspan>    │   │   └─ </tspan><tspan class="fg-green">← [Return]</tspan>
 </tspan>
     <tspan x="10px" y="262px"><tspan>    │   └─ ← ret1, ret2</tspan>
 </tspan>
-    <tspan x="10px" y="280px"><tspan>    └─ </tspan><tspan class="fg-green">← [Return] </tspan>
+    <tspan x="10px" y="280px"><tspan>    └─ </tspan><tspan class="fg-green">← [Return]</tspan>
 </tspan>
     <tspan x="10px" y="298px">
 </tspan>

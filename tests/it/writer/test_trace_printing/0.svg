@@ -20,7 +20,7 @@
   <text xml:space="preserve" class="container fg">
     <tspan x="10px" y="28px"><tspan>  [209257] </tspan><tspan class="fg-yellow">→ new</tspan><tspan> &lt;unknown&gt;@0xBd770416a3345F91E4B34576cb804a576fa48EB1</tspan>
 </tspan>
-    <tspan x="10px" y="46px"><tspan>    └─ </tspan><tspan class="fg-green">← [Return] </tspan><tspan>1045 bytes of code</tspan>
+    <tspan x="10px" y="46px"><tspan>    └─ </tspan><tspan class="fg-green">← [Return]</tspan><tspan> 1045 bytes of code</tspan>
 </tspan>
     <tspan x="10px" y="64px">
 </tspan>
