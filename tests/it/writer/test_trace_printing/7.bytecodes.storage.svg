@@ -36,7 +36,7 @@
 </tspan>
     <tspan x="10px" y="172px"><tspan>    │   │   │           data: </tspan><tspan class="fg-cyan">0x0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000968692066726f6d20330000000000000000000000000000000000000000000000</tspan>
 </tspan>
-    <tspan x="10px" y="190px"><tspan>    │   │   └─ </tspan><tspan class="fg-green">← [Return] </tspan>
+    <tspan x="10px" y="190px"><tspan>    │   │   └─ </tspan><tspan class="fg-green">← [Return]</tspan>
 </tspan>
     <tspan x="10px" y="208px"><tspan>    │   ├─  emit topic 0: </tspan><tspan class="fg-cyan">0x5ae719eb0250b8686767e291df04bec55e7f45a5997e120be020424da1896d76</tspan>
 </tspan>
@@ -50,13 +50,13 @@
 </tspan>
     <tspan x="10px" y="298px"><tspan>    │   │   @ 0: 69 → 70</tspan>
 </tspan>
-    <tspan x="10px" y="316px"><tspan>    │   └─ </tspan><tspan class="fg-green">← [Return] </tspan>
+    <tspan x="10px" y="316px"><tspan>    │   └─ </tspan><tspan class="fg-green">← [Return]</tspan>
 </tspan>
     <tspan x="10px" y="334px"><tspan>    ├─  storage changes:</tspan>
 </tspan>
     <tspan x="10px" y="352px"><tspan>    │   @ 0: 70 → 71</tspan>
 </tspan>
-    <tspan x="10px" y="370px"><tspan>    └─ </tspan><tspan class="fg-green">← [Return] </tspan>
+    <tspan x="10px" y="370px"><tspan>    └─ </tspan><tspan class="fg-green">← [Return]</tspan>
 </tspan>
     <tspan x="10px" y="388px">
 </tspan>
