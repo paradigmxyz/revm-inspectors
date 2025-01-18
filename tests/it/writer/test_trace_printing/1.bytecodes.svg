@@ -19,7 +19,7 @@
   <text xml:space="preserve" class="container fg">
     <tspan x="10px" y="28px"><tspan>  [2348] </tspan><tspan class="fg-green">0xBd770416a3345F91E4B34576cb804a576fa48EB1</tspan><tspan>::</tspan><tspan class="fg-green">8381f58a</tspan><tspan>()</tspan>
 </tspan>
-    <tspan x="10px" y="46px"><tspan>    └─ </tspan><tspan class="fg-green">← [Return] </tspan><tspan>0x0000000000000000000000000000000000000000000000000000000000000000</tspan>
+    <tspan x="10px" y="46px"><tspan>    └─ </tspan><tspan class="fg-green">← [Return]</tspan><tspan> 0x0000000000000000000000000000000000000000000000000000000000000000</tspan>
 </tspan>
     <tspan x="10px" y="64px">
 </tspan>

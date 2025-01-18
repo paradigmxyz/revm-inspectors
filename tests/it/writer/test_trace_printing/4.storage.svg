@@ -23,7 +23,7 @@
 </tspan>
     <tspan x="10px" y="64px"><tspan>    │   @ 0: 1 → 69</tspan>
 </tspan>
-    <tspan x="10px" y="82px"><tspan>    └─ </tspan><tspan class="fg-green">← [Return] </tspan><tspan>0x0000000000000000000000000000000000000000000000000000000000000001</tspan>
+    <tspan x="10px" y="82px"><tspan>    └─ </tspan><tspan class="fg-green">← [Return]</tspan><tspan> 0x0000000000000000000000000000000000000000000000000000000000000001</tspan>
 </tspan>
     <tspan x="10px" y="100px">
 </tspan>

@@ -22,7 +22,7 @@
 </tspan>
     <tspan x="10px" y="46px"><tspan>    ├─ emit Log1(</tspan><tspan class="fg-cyan">foo: 0x0000000000000000000000000000000000000000000000000000000000000048</tspan><tspan>)</tspan>
 </tspan>
-    <tspan x="10px" y="64px"><tspan>    └─ </tspan><tspan class="fg-green">← [Stop] </tspan>
+    <tspan x="10px" y="64px"><tspan>    └─ </tspan><tspan class="fg-green">← [Stop]</tspan>
 </tspan>
     <tspan x="10px" y="82px">
 </tspan>
