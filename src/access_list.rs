@@ -1,10 +1,13 @@
-use alloy_primitives::{Address, B256};
+use alloc::collections::BTreeSet;
+use alloy_primitives::{
+    map::{HashMap, HashSet},
+    Address, B256,
+};
 use alloy_rpc_types_eth::{AccessList, AccessListItem};
 use revm::{
     interpreter::{opcode, Interpreter},
     Database, EvmContext, Inspector,
 };
-use std::collections::{BTreeSet, HashMap, HashSet};
 
 /// An [Inspector] that collects touched accounts and storage slots.
 ///

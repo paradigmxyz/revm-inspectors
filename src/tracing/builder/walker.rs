@@ -1,5 +1,5 @@
 use crate::tracing::types::CallTraceNode;
-use std::collections::VecDeque;
+use alloc::{collections::VecDeque, vec::Vec};
 
 /// Traverses the internal tracing structure breadth-first.
 ///
