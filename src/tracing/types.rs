@@ -633,7 +633,7 @@ pub enum DecodedTraceStep {
     /// Keeps decoded internal call data and an index of the step where the internal call execution
     /// ends.
     InternalCall(DecodedInternalCall, usize),
-    /// Arbitrary line reperesenting the step. Might be used for displaying individual opcodes.
+    /// Arbitrary line representing the step. Might be used for displaying individual opcodes.
     Line(String),
 }
 
