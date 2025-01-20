@@ -30,4 +30,7 @@ pub mod tracing;
 /// An inspector for recording internal transfers.
 pub mod transfer;
 
+/// An inspector for tracking edge coverage.
+pub mod edge_cov;
+
 pub use colorchoice::ColorChoice;
