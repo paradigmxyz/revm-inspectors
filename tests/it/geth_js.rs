@@ -51,7 +51,7 @@ fn test_geth_jstracer_revert() {
 
     let result = insp.json_result(res, &env, &evm.db).unwrap();
 
-    // sucessful operation
+    // successful operation
     assert!(!result["error"].as_bool().unwrap());
 
     // test with reverted operation
