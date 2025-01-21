@@ -1,5 +1,5 @@
-use alloy_primitives::{Address, U256};
-use core::hash::{Hash, Hasher};
+use alloy_primitives::{map::DefaultHashBuilder, Address, U256};
+use core::hash::{BuildHasher, Hash, Hasher};
 use revm::{
     interpreter::{opcode::OpCode, Interpreter},
     Database, EvmContext, Inspector,
@@ -14,12 +14,16 @@ const MAX_EDGE_COUNT: usize = 65536;
 pub struct EdgeCovInspector {
     /// Map of hitcounts that can be diffed against to determine if new coverage was reached.
     hitcount: Vec<NeverZeroHitCount>,
+    hash_builder: DefaultHashBuilder,
 }
 
 impl EdgeCovInspector {
     /// Create a new `EdgeCovInspector` with `MAX_EDGE_COUNT` size.
     pub fn new() -> Self {
-        Self { hitcount: vec![NeverZeroHitCount(0); MAX_EDGE_COUNT] }
+        Self {
+            hitcount: vec![NeverZeroHitCount(0); MAX_EDGE_COUNT],
+            hash_builder: DefaultHashBuilder::default(),
+        }
     }
 
     /// Reset the hitcount to zero.
@@ -31,24 +35,23 @@ impl EdgeCovInspector {
     pub fn get_hitcount(&self) -> Vec<u8> {
         self.hitcount.iter().map(|x| x.0).collect()
     }
+
+    /// The edge hash is a combination of the address, the current program counter, and the jump
+    /// destination. The hash is used to index into the hitcount array, so it must be modulo the
+    /// maximum edge count.
+    fn edge_hash(&self, address: Address, pc: usize, jump_dest: U256) -> u32 {
+        let mut hasher = self.hash_builder.build_hasher();
+        address.hash(&mut hasher);
+        pc.hash(&mut hasher);
+        jump_dest.hash(&mut hasher);
+        (hasher.finish() as usize % MAX_EDGE_COUNT) as u32
+    }
 }
 
 impl Default for EdgeCovInspector {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// The edge hash is a combination of the address, the current program counter, and the jump
-/// destination. The hash is used to index into the hitcount array, so it must be modulo the maximum
-/// edge count.
-fn edge_hash(address: Address, pc: usize, jump_dest: U256) -> u32 {
-    // TODO faster hash https://h0mbre.github.io/Lucid_Snapshots_Coverage/
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    address.hash(&mut hasher);
-    pc.hash(&mut hasher);
-    jump_dest.hash(&mut hasher);
-    (hasher.finish() as usize % MAX_EDGE_COUNT) as u32
 }
 
 impl<DB> Inspector<DB> for EdgeCovInspector
@@ -64,7 +67,7 @@ where
                 OpCode::JUMP => {
                     // unconditional jump
                     if let Ok(jump_dest) = interp.stack().peek(0) {
-                        let edge_id = edge_hash(address, current_pc, jump_dest);
+                        let edge_id = self.edge_hash(address, current_pc, jump_dest);
                         self.hitcount[edge_id as usize] += NeverZeroHitCount(1);
                     }
                 }
@@ -77,7 +80,7 @@ where
                             // fall through
                             U256::from(current_pc + 1)
                         };
-                        let edge_id = edge_hash(address, current_pc, jump_dest);
+                        let edge_id = self.edge_hash(address, current_pc, jump_dest);
                         self.hitcount[edge_id as usize] += NeverZeroHitCount(1);
                     }
                 }
