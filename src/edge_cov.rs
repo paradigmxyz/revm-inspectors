@@ -1,42 +1,23 @@
 use alloy_primitives::{Address, U256};
+use core::hash::{Hash, Hasher};
 use revm::{
     interpreter::{opcode::OpCode, Interpreter},
     Database, EvmContext, Inspector,
 };
 
-use std::hash::{Hash, Hasher};
-
-/// A hit count that never goes to zero e.g. the back edge of a loop that iterates 256 times will be
-/// one instead of zero.
-// see https://github.com/AFLplusplus/AFLplusplus/blob/5777ceaf23f48ae4ceae60e4f3a79263802633c6/instrumentation/afl-llvm-pass.so.cc#L810-L829
-#[derive(Clone, Copy, Debug, Default)]
-pub struct NeverZeroHitCount(pub u8);
-
-impl std::ops::Add for NeverZeroHitCount {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self {
-        Self(self.0.checked_add(rhs.0).unwrap_or(1))
-    }
-}
-
-impl std::ops::AddAssign for NeverZeroHitCount {
-    fn add_assign(&mut self, rhs: Self) {
-        *self = *self + rhs;
-    }
-}
-
+// This is the maximum number of edges that can be tracked. There is a tradeoff between performance
+// and precision (less collisions).
 const MAX_EDGE_COUNT: usize = 65536;
 
-/// An Inspector that tracks edge coverage.
+/// An `Inspector` that tracks [edge coverage](https://clang.llvm.org/docs/SanitizerCoverage.html#edge-coverage).
 #[derive(Clone, Debug, Default)]
 pub struct EdgeCovInspector {
-    /// Map of total gas used per opcode.
-    pub hitcount: Vec<NeverZeroHitCount>,
+    /// Map of hitcounts that can be diffed against to determine if new coverage was reached.
+    hitcount: Vec<NeverZeroHitCount>,
 }
 
 impl EdgeCovInspector {
-    /// Create a new EdgeCovInspector.
+    /// Create a new `EdgeCovInspector` with `MAX_EDGE_COUNT` size.
     pub fn new() -> Self {
         Self { hitcount: vec![NeverZeroHitCount(0); MAX_EDGE_COUNT] }
     }
@@ -45,8 +26,16 @@ impl EdgeCovInspector {
     pub fn reset(&mut self) {
         self.hitcount.fill(NeverZeroHitCount(0));
     }
+
+    /// Get the hitcount as a byte vector.
+    pub fn get_hitcount(&self) -> Vec<u8> {
+        self.hitcount.iter().map(|x| x.0).collect()
+    }
 }
 
+/// The edge hash is a combination of the address, the current program counter, and the jump
+/// destination. The hash is used to index into the hitcount array, so it must be modulo the maximum
+/// edge count.
 fn edge_hash(address: Address, pc: usize, jump_dest: U256) -> u32 {
     // TODO faster hash https://h0mbre.github.io/Lucid_Snapshots_Coverage/
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
@@ -91,6 +80,26 @@ where
                 }
             }
         }
+    }
+}
+
+/// A hit count that never goes to zero e.g. the back edge of a loop that iterates 256 times will be
+/// one instead of zero.
+// see https://github.com/AFLplusplus/AFLplusplus/blob/5777ceaf23f48ae4ceae60e4f3a79263802633c6/instrumentation/afl-llvm-pass.so.cc#L810-L829
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NeverZeroHitCount(pub u8);
+
+impl std::ops::Add for NeverZeroHitCount {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self {
+        Self(self.0.checked_add(rhs.0).unwrap_or(1))
+    }
+}
+
+impl std::ops::AddAssign for NeverZeroHitCount {
+    fn add_assign(&mut self, rhs: Self) {
+        *self = *self + rhs;
     }
 }
 
