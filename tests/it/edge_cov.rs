@@ -82,8 +82,6 @@ fn test_edge_coverage() {
     assert!(res.result.is_success());
 
     let counts = insp.get_hitcount();
-    // The `break` statement prevents the post-increment of the loop counter, so we expect 1 less
-    // edge to be hit.
     assert_eq!(counts.iter().filter(|&x| *x != 0).count(), 11);
     assert_eq!(counts.iter().filter(|&x| *x == 1).count(), 11);
 
@@ -101,10 +99,10 @@ fn test_edge_coverage() {
     let (res, _) = inspect(&mut db, env, &mut insp).unwrap();
     assert!(res.result.is_success());
 
-    // There should be 12 non-zero counts and that two edges have been hit 255 times.
-    let mut counts = insp.get_hitcount();
+    // There should be 13 non-zero counts and two edges that have been hit 255 times.
+    let mut counts = insp.get_hitcount().to_owned();
     counts.sort();
     assert_eq!(counts[counts.len() - 1], 255);
     assert_eq!(counts[counts.len() - 2], 255);
-    assert_eq!(counts.iter().filter(|&x| *x != 0).count(), 12);
+    assert_eq!(counts.iter().filter(|&x| *x != 0).count(), 13);
 }

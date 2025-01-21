@@ -1,7 +1,10 @@
 use alloy_primitives::{map::DefaultHashBuilder, Address, U256};
 use core::hash::{BuildHasher, Hash, Hasher};
 use revm::{
-    interpreter::{opcode::OpCode, Interpreter},
+    interpreter::{
+        opcode::{self},
+        Interpreter,
+    },
     Database, EvmContext, Inspector,
 };
 
@@ -10,30 +13,29 @@ use revm::{
 const MAX_EDGE_COUNT: usize = 65536;
 
 /// An `Inspector` that tracks [edge coverage](https://clang.llvm.org/docs/SanitizerCoverage.html#edge-coverage).
+/// Covered edges will not wrap to zero e.g. a loop edge hit more than 255 will still be retained.
+// see https://github.com/AFLplusplus/AFLplusplus/blob/5777ceaf23f48ae4ceae60e4f3a79263802633c6/instrumentation/afl-llvm-pass.so.cc#L810-L829
 #[derive(Clone, Debug)]
 pub struct EdgeCovInspector {
     /// Map of hitcounts that can be diffed against to determine if new coverage was reached.
-    hitcount: Vec<NeverZeroHitCount>,
+    hitcount: Vec<u8>,
     hash_builder: DefaultHashBuilder,
 }
 
 impl EdgeCovInspector {
     /// Create a new `EdgeCovInspector` with `MAX_EDGE_COUNT` size.
     pub fn new() -> Self {
-        Self {
-            hitcount: vec![NeverZeroHitCount(0); MAX_EDGE_COUNT],
-            hash_builder: DefaultHashBuilder::default(),
-        }
+        Self { hitcount: vec![0; MAX_EDGE_COUNT], hash_builder: DefaultHashBuilder::default() }
     }
 
     /// Reset the hitcount to zero.
     pub fn reset(&mut self) {
-        self.hitcount.fill(NeverZeroHitCount(0));
+        self.hitcount.fill(0);
     }
 
     /// Get the hitcount as a byte vector.
-    pub fn get_hitcount(&self) -> Vec<u8> {
-        self.hitcount.iter().map(|x| x.0).collect()
+    pub fn get_hitcount(&self) -> &[u8] {
+        self.hitcount.as_slice()
     }
 
     /// The edge hash is a combination of the address, the current program counter, and the jump
@@ -61,65 +63,32 @@ where
     fn step(&mut self, interp: &mut Interpreter, _context: &mut EvmContext<DB>) {
         let address = interp.contract.target_address; // TODO track context for delegatecall?
         let current_pc = interp.program_counter();
-        let opcode_value = interp.current_opcode();
-        if let Some(op) = OpCode::new(opcode_value) {
-            match op {
-                OpCode::JUMP => {
-                    // unconditional jump
-                    if let Ok(jump_dest) = interp.stack().peek(0) {
-                        let edge_id = self.edge_hash(address, current_pc, jump_dest);
-                        self.hitcount[edge_id as usize] += NeverZeroHitCount(1);
-                    }
-                }
-                OpCode::JUMPI => {
-                    if let Ok(stack_value) = interp.stack().peek(0) {
-                        let jump_dest = if stack_value == U256::from(1) {
-                            // branch taken
-                            interp.stack().peek(1).unwrap()
-                        } else {
-                            // fall through
-                            U256::from(current_pc + 1)
-                        };
-                        let edge_id = self.edge_hash(address, current_pc, jump_dest);
-                        self.hitcount[edge_id as usize] += NeverZeroHitCount(1);
-                    }
-                }
-                _ => {
-                    // no-op
+
+        match interp.current_opcode() {
+            opcode::JUMP => {
+                // unconditional jump
+                if let Ok(jump_dest) = interp.stack().peek(0) {
+                    let edge_id = self.edge_hash(address, current_pc, jump_dest) as usize;
+                    self.hitcount[edge_id] = self.hitcount[edge_id].checked_add(1).unwrap_or(1);
                 }
             }
+            opcode::JUMPI => {
+                if let Ok(stack_value) = interp.stack().peek(0) {
+                    if let Ok(jump_dest) = if stack_value != U256::from(0) {
+                        // branch taken
+                        interp.stack().peek(1)
+                    } else {
+                        // fall through
+                        Ok(U256::from(current_pc + 1))
+                    } {
+                        let edge_id = self.edge_hash(address, current_pc, jump_dest) as usize;
+                        self.hitcount[edge_id] = self.hitcount[edge_id].checked_add(1).unwrap_or(1);
+                    }
+                }
+            }
+            _ => {
+                // no-op
+            }
         }
-    }
-}
-
-/// A hit count that never goes to zero e.g. the back edge of a loop that iterates 256 times will be
-/// one instead of zero.
-// see https://github.com/AFLplusplus/AFLplusplus/blob/5777ceaf23f48ae4ceae60e4f3a79263802633c6/instrumentation/afl-llvm-pass.so.cc#L810-L829
-#[derive(Clone, Copy, Debug, Default)]
-pub struct NeverZeroHitCount(pub u8);
-
-impl std::ops::Add for NeverZeroHitCount {
-    type Output = Self;
-
-    fn add(self, rhs: Self) -> Self {
-        Self(self.0.checked_add(rhs.0).unwrap_or(1))
-    }
-}
-
-impl std::ops::AddAssign for NeverZeroHitCount {
-    fn add_assign(&mut self, rhs: Self) {
-        *self = *self + rhs;
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_nonzero_hitcount() {
-        let mut hitcount = NeverZeroHitCount(255);
-        hitcount += NeverZeroHitCount(1);
-        assert_eq!(hitcount.0, 1);
     }
 }
