@@ -10,7 +10,7 @@ use revm::{
 const MAX_EDGE_COUNT: usize = 65536;
 
 /// An `Inspector` that tracks [edge coverage](https://clang.llvm.org/docs/SanitizerCoverage.html#edge-coverage).
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct EdgeCovInspector {
     /// Map of hitcounts that can be diffed against to determine if new coverage was reached.
     hitcount: Vec<NeverZeroHitCount>,
@@ -30,6 +30,12 @@ impl EdgeCovInspector {
     /// Get the hitcount as a byte vector.
     pub fn get_hitcount(&self) -> Vec<u8> {
         self.hitcount.iter().map(|x| x.0).collect()
+    }
+}
+
+impl Default for EdgeCovInspector {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
