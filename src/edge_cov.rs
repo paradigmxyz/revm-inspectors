@@ -38,15 +38,16 @@ impl EdgeCovInspector {
         self.hitcount.as_slice()
     }
 
-    /// The edge hash is a combination of the address, the current program counter, and the jump
-    /// destination. The hash is used to index into the hitcount array, so it must be modulo the
-    /// maximum edge count.
-    fn edge_hash(&self, address: Address, pc: usize, jump_dest: U256) -> u32 {
+    /// Mark the edge, H(address, pc, jump_dest), as hit.
+    fn store_hit(&mut self, address: Address, pc: usize, jump_dest: U256) {
         let mut hasher = self.hash_builder.build_hasher();
         address.hash(&mut hasher);
         pc.hash(&mut hasher);
         jump_dest.hash(&mut hasher);
-        (hasher.finish() as usize % MAX_EDGE_COUNT) as u32
+        // The hash is used to index into the hitcount array, so it must be modulo the maximum edge
+        // count.
+        let edge_id = (hasher.finish() as usize % MAX_EDGE_COUNT) as u32 as usize;
+        self.hitcount[edge_id] = self.hitcount[edge_id].checked_add(1).unwrap_or(1);
     }
 }
 
@@ -68,21 +69,21 @@ where
             opcode::JUMP => {
                 // unconditional jump
                 if let Ok(jump_dest) = interp.stack().peek(0) {
-                    let edge_id = self.edge_hash(address, current_pc, jump_dest) as usize;
-                    self.hitcount[edge_id] = self.hitcount[edge_id].checked_add(1).unwrap_or(1);
+                    self.store_hit(address, current_pc, jump_dest);
                 }
             }
             opcode::JUMPI => {
                 if let Ok(stack_value) = interp.stack().peek(0) {
-                    if let Ok(jump_dest) = if stack_value != U256::from(0) {
+                    let jump_dest = if stack_value != U256::from(0) {
                         // branch taken
                         interp.stack().peek(1)
                     } else {
                         // fall through
                         Ok(U256::from(current_pc + 1))
-                    } {
-                        let edge_id = self.edge_hash(address, current_pc, jump_dest) as usize;
-                        self.hitcount[edge_id] = self.hitcount[edge_id].checked_add(1).unwrap_or(1);
+                    };
+
+                    if let Ok(jump_dest) = jump_dest {
+                        self.store_hit(address, current_pc, jump_dest);
                     }
                 }
             }
