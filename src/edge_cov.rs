@@ -46,7 +46,7 @@ impl EdgeCovInspector {
         jump_dest.hash(&mut hasher);
         // The hash is used to index into the hitcount array, so it must be modulo the maximum edge
         // count.
-        let edge_id = (hasher.finish() as usize % MAX_EDGE_COUNT) as u32 as usize;
+        let edge_id = (hasher.finish() % MAX_EDGE_COUNT as u64) as usize;
         self.hitcount[edge_id] = self.hitcount[edge_id].checked_add(1).unwrap_or(1);
     }
 }
