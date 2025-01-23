@@ -38,7 +38,7 @@ impl EdgeCovInspector {
         self.hitcount.as_slice()
     }
 
-    /// Consume the inspector and take ownership of the hitcount..
+    /// Consume the inspector and take ownership of the hitcount.
     pub fn take_hitcount(&mut self) -> Vec<u8> {
         std::mem::take(&mut self.hitcount)
     }
