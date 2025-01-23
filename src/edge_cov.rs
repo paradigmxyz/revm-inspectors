@@ -1,9 +1,6 @@
 use alloc::{vec, vec::Vec};
 use alloy_primitives::{map::DefaultHashBuilder, Address, U256};
-use core::{
-    hash::{BuildHasher, Hash, Hasher},
-    mem,
-};
+use core::hash::{BuildHasher, Hash, Hasher};
 use revm::{
     interpreter::{
         opcode::{self},
@@ -43,8 +40,8 @@ impl EdgeCovInspector {
     }
 
     /// Consume the inspector and take ownership of the hitcount.
-    pub fn take_hitcount(&mut self) -> Vec<u8> {
-        mem::take(&mut self.hitcount)
+    pub fn into_hitcount(self) -> Vec<u8> {
+        self.hitcount
     }
 
     /// Mark the edge, H(address, pc, jump_dest), as hit.
