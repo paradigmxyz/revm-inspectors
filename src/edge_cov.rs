@@ -33,9 +33,14 @@ impl EdgeCovInspector {
         self.hitcount.fill(0);
     }
 
-    /// Get the hitcount as a byte vector.
+    /// Get an immutable reference to the hitcount.
     pub fn get_hitcount(&self) -> &[u8] {
         self.hitcount.as_slice()
+    }
+
+    /// Consume the inspector and take ownership of the hitcount..
+    pub fn take_hitcount(&mut self) -> Vec<u8> {
+        std::mem::take(&mut self.hitcount)
     }
 
     /// Mark the edge, H(address, pc, jump_dest), as hit.
