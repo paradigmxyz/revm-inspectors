@@ -38,7 +38,7 @@ impl ParityTraceBuilder {
         self.nodes.iter().map(|node| node.trace.caller).collect()
     }
 
-    /// Manually the gas used of the root trace.
+    /// Manually set the gas used of the root trace.
     ///
     /// The root trace's gasUsed should mirror the actual gas used by the transaction.
     ///
