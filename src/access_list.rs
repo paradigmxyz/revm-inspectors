@@ -1,3 +1,4 @@
+use alloc::collections::BTreeSet;
 use alloy_primitives::{
     map::{HashMap, HashSet},
     Address, TxKind, B256,
@@ -7,7 +8,6 @@ use revm::{
     interpreter::{opcode, Interpreter},
     Database, EvmContext, Inspector,
 };
-use std::collections::BTreeSet;
 
 /// An [Inspector] that collects touched accounts and storage slots.
 ///
