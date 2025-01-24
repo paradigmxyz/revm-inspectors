@@ -1,4 +1,5 @@
 use crate::tracing::{FourByteInspector, TracingInspector, TracingInspectorConfig};
+use alloc::vec::Vec;
 use alloy_primitives::{map::HashMap, Address, Log, U256};
 use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::geth::{

@@ -1,6 +1,7 @@
 //! Builtin functions
 
-use alloy_primitives::{hex, Address, FixedBytes, B256, U256};
+use alloc::{format, string::ToString, vec::Vec};
+use alloy_primitives::{hex, map::HashSet, Address, FixedBytes, B256, U256};
 use boa_engine::{
     builtins::{array_buffer::ArrayBuffer, typed_array::TypedArray},
     js_string,

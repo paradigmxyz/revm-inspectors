@@ -9,6 +9,7 @@ use crate::{
         utils::gas_used,
     },
 };
+use alloc::vec::Vec;
 use alloy_primitives::{Address, Bytes, Log, B256, U256};
 use revm::{
     bytecode::opcode::{self, OpCode},
@@ -49,7 +50,9 @@ use types::{CallLog, CallTrace, CallTraceStep};
 
 mod utils;
 
+#[cfg(feature = "std")]
 mod writer;
+#[cfg(feature = "std")]
 pub use writer::{TraceWriter, TraceWriterConfig};
 
 #[cfg(feature = "js-tracer")]

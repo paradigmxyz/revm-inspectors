@@ -4,9 +4,11 @@ use crate::tracing::{
     utils::load_account_code,
     TracingInspectorConfig,
 };
+use alloc::{collections::VecDeque, string::ToString, vec, vec::Vec};
 use alloy_primitives::{map::HashSet, Address, U256, U64};
 use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::parity::*;
+use core::iter::Peekable;
 use revm::{
     context_interface::result::{ExecutionResult, HaltReasonTrait, ResultAndState},
     primitives::KECCAK_EMPTY,
@@ -14,7 +16,6 @@ use revm::{
     state::Account,
     DatabaseRef,
 };
-use std::{collections::VecDeque, iter::Peekable};
 
 /// A type for creating parity style traces
 ///
@@ -40,7 +41,7 @@ impl ParityTraceBuilder {
         self.nodes.iter().map(|node| node.trace.caller).collect()
     }
 
-    /// Manually the gas used of the root trace.
+    /// Manually set the gas used of the root trace.
     ///
     /// The root trace's gasUsed should mirror the actual gas used by the transaction.
     ///
@@ -414,9 +415,11 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         // ensure the selfdestruct trace is emitted just at the ending of the same depth
         if let Some(selfdestruct) = &self.next_selfdestruct {
-            if self.iter.peek().map_or(true, |(next_trace, _)| {
-                selfdestruct.trace_address < next_trace.trace_address
-            }) {
+            if self
+                .iter
+                .peek()
+                .is_none_or(|(next_trace, _)| selfdestruct.trace_address < next_trace.trace_address)
+            {
                 return self.next_selfdestruct.take();
             }
         }

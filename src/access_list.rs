@@ -1,15 +1,20 @@
-use alloy_primitives::{Address, B256};
+use alloc::collections::BTreeSet;
+use alloy_primitives::{
+    map::{HashMap, HashSet},
+    Address, TxKind, B256,
+};
 use alloy_rpc_types_eth::{AccessList, AccessListItem};
 use revm::{
     bytecode::opcode,
+    context_interface::{Journal, JournalGetter, TransactionGetter},
     interpreter::{
         interpreter::EthInterpreter,
         interpreter_types::{InputsTrait, Jumps},
         Interpreter,
     },
+    Database,
 };
-use revm_inspector::Inspector;
-use std::collections::{BTreeSet, HashMap, HashSet};
+use revm_inspector::{Inspector, JournalExtGetter};
 
 /// An [Inspector] that collects touched accounts and storage slots.
 ///
@@ -22,18 +27,19 @@ pub struct AccessListInspector {
     access_list: HashMap<Address, BTreeSet<B256>>,
 }
 
+impl From<AccessList> for AccessListInspector {
+    fn from(access_list: AccessList) -> Self {
+        Self::new(access_list)
+    }
+}
+
 impl AccessListInspector {
     /// Creates a new inspector instance
     ///
     /// The `access_list` is the provided access list from the call request
-    pub fn new(
-        access_list: AccessList,
-        from: Address,
-        to: Address,
-        precompiles: impl IntoIterator<Item = Address>,
-    ) -> Self {
+    pub fn new(access_list: AccessList) -> Self {
         Self {
-            excluded: [from, to].into_iter().chain(precompiles).collect(),
+            excluded: Default::default(),
             access_list: access_list
                 .0
                 .into_iter()
@@ -61,9 +67,71 @@ impl AccessListInspector {
         });
         AccessList(items.collect())
     }
+
+    /// Collects addresses which should be excluded from the access list. Must be called before the
+    /// top-level call.
+    ///
+    /// Those include caller, callee and precompiles.
+    fn collect_excluded_addresses<CTX: JournalExtGetter + TransactionGetter>(
+        &mut self,
+        context: &CTX,
+    ) {
+        // TODO(rakita) bump with new Revm.
+        // let from = context.tx().caller();
+        // let to = if let TxKind::Call(to) = context.tx().transact_to() {
+        //     to
+        // } else {
+        //     // We need to exclude the created address if this is a CREATE frame.
+        //     //
+        //     // This assumes that caller has already been loaded but nonce was not increased yet.
+        //     let nonce = context.journal_ref().state().account(from).info.nonce;
+        //     from.create(nonce)
+        // };
+        // let precompiles = context.journal_ext().addresses().copied();
+        // self.excluded = [from, to].into_iter().chain(precompiles).collect();
+    }
 }
 
-impl<CTX> Inspector<CTX, EthInterpreter> for AccessListInspector {
+impl<CTX> Inspector<CTX, EthInterpreter> for AccessListInspector
+where
+    CTX: JournalExtGetter + JournalGetter + TransactionGetter,
+{
+    fn call(
+        &mut self,
+        context: &mut CTX,
+        _inputs: &mut revm::interpreter::CallInputs,
+    ) -> Option<revm::interpreter::CallOutcome> {
+        // At the top-level frame, fill the excluded addresses
+        if context.journal().depth() == 0 {
+            self.collect_excluded_addresses(context)
+        }
+        None
+    }
+
+    fn create(
+        &mut self,
+        context: &mut CTX,
+        _inputs: &mut revm::interpreter::CreateInputs,
+    ) -> Option<revm::interpreter::CreateOutcome> {
+        // At the top-level frame, fill the excluded addresses
+        if context.journal().depth() == 0 {
+            self.collect_excluded_addresses(context)
+        }
+        None
+    }
+
+    fn eofcreate(
+        &mut self,
+        context: &mut CTX,
+        _inputs: &mut revm::interpreter::EOFCreateInputs,
+    ) -> Option<revm::interpreter::CreateOutcome> {
+        // At the top-level frame, fill the excluded addresses
+        if context.journal().depth() == 0 {
+            self.collect_excluded_addresses(context)
+        }
+        None
+    }
+
     fn step(&mut self, interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX) {
         match interp.bytecode.opcode() {
             opcode::SLOAD | opcode::SSTORE => {

@@ -5,13 +5,11 @@ use super::{
     },
     CallTraceArena,
 };
-use alloy_primitives::{address, hex, Address, B256, U256};
+use alloc::{format, string::String, vec::Vec};
+use alloy_primitives::{address, hex, map::HashMap, Address, B256, U256};
 use anstyle::{AnsiColor, Color, Style};
 use colorchoice::ColorChoice;
-use std::{
-    collections::HashMap,
-    io::{self, Write},
-};
+use std::io::{self, Write};
 
 const CHEATCODE_ADDRESS: Address = address!("7109709ECfa91a80626fF3989D68f67F5b1DD12D");
 
@@ -418,19 +416,20 @@ impl<W: Write> TraceWriter<W> {
     fn write_trace_footer(&mut self, trace: &CallTrace) -> io::Result<()> {
         write!(
             self.writer,
-            "{style}{RETURN}[{status:?}] {style:#}",
+            "{style}{RETURN}[{status:?}]{style:#}",
             style = self.trace_style(trace),
             status = trace.status,
         )?;
 
         if let Some(decoded) = &trace.decoded.return_data {
+            write!(self.writer, " ")?;
             return self.writer.write_all(decoded.as_bytes());
         }
 
         if !self.config.write_bytecodes && (trace.kind.is_any_create() && trace.status.is_ok()) {
-            write!(self.writer, "{} bytes of code", trace.output.len())?;
+            write!(self.writer, " {} bytes of code", trace.output.len())?;
         } else if !trace.output.is_empty() {
-            write!(self.writer, "{}", trace.output)?;
+            write!(self.writer, " {}", trace.output)?;
         }
 
         Ok(())

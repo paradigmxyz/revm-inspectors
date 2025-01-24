@@ -19,7 +19,7 @@
   <text xml:space="preserve" class="container fg">
     <tspan x="10px" y="28px"><tspan>  [2348] </tspan><tspan class="fg-green">Counter</tspan><tspan>::</tspan><tspan class="fg-green">number</tspan><tspan>()</tspan>
 </tspan>
-    <tspan x="10px" y="46px"><tspan>    └─ </tspan><tspan class="fg-green">← [Return] </tspan><tspan>0</tspan>
+    <tspan x="10px" y="46px"><tspan>    └─ </tspan><tspan class="fg-green">← [Return]</tspan><tspan> 0</tspan>
 </tspan>
     <tspan x="10px" y="64px">
 </tspan>

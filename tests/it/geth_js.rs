@@ -67,7 +67,7 @@ fn test_geth_jstracer_revert() {
 
     let result = insp.json_result(res, context.tx(), context.block(), context.db_ref()).unwrap();
 
-    // sucessful operation
+    // successful operation
     assert!(!result["error"].as_bool().unwrap());
 
     // test with reverted operation

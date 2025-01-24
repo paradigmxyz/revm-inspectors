@@ -1,6 +1,6 @@
 //! Fourbyte tracing inspector
 //!
-//! Solidity contract functions are addressed using the first four byte of the Keccak-256 hash of
+//! Solidity contract functions are addressed using the first four bytes of the Keccak-256 hash of
 //! their signature. Therefore when calling the function of a contract, the caller must send this
 //! function selector as well as the ABI-encoded arguments as call data.
 //!
@@ -20,12 +20,11 @@
 //! ```
 //!
 //! See also <https://geth.ethereum.org/docs/developers/evm-tracing/built-in-tracers>
-
-use alloy_primitives::{hex, Selector};
+use alloc::format;
+use alloy_primitives::{hex, map::HashMap, Selector};
 use alloy_rpc_types_trace::geth::FourByteFrame;
 use revm::interpreter::{interpreter::EthInterpreter, CallInputs, CallOutcome};
 use revm_inspector::Inspector;
-use std::collections::HashMap;
 
 /// Fourbyte tracing inspector that records all function selectors and their calldata sizes.
 #[derive(Clone, Debug, Default)]
