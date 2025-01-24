@@ -20,6 +20,12 @@ pub struct AccessListInspector {
     access_list: HashMap<Address, BTreeSet<B256>>,
 }
 
+impl From<AccessList> for AccessListInspector {
+    fn from(access_list: AccessList) -> Self {
+        Self::new(access_list)
+    }
+}
+
 impl AccessListInspector {
     /// Creates a new inspector instance
     ///
@@ -55,7 +61,8 @@ impl AccessListInspector {
         AccessList(items.collect())
     }
 
-    /// Collects addresses which should be excluded from the access list.
+    /// Collects addresses which should be excluded from the access list. Must be called before the
+    /// top-level call.
     ///
     /// Those include caller, callee and precompiles.
     fn collect_excluded_addresses<DB: Database>(&mut self, context: &EvmContext<DB>) {
@@ -63,6 +70,9 @@ impl AccessListInspector {
         let to = if let TxKind::Call(to) = context.env.tx.transact_to {
             to
         } else {
+            // We need to exclude the created address if this is a CREATE frame.
+            //
+            // This assumes that caller has already been loaded but nonce was not increased yet.
             let nonce = context.journaled_state.account(from).info.nonce;
             from.create(nonce)
         };
