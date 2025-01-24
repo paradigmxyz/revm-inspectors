@@ -1,13 +1,13 @@
-use alloc::collections::BTreeSet;
 use alloy_primitives::{
     map::{HashMap, HashSet},
-    Address, B256,
+    Address, TxKind, B256,
 };
 use alloy_rpc_types_eth::{AccessList, AccessListItem};
 use revm::{
     interpreter::{opcode, Interpreter},
     Database, EvmContext, Inspector,
 };
+use std::collections::BTreeSet;
 
 /// An [Inspector] that collects touched accounts and storage slots.
 ///
@@ -24,14 +24,9 @@ impl AccessListInspector {
     /// Creates a new inspector instance
     ///
     /// The `access_list` is the provided access list from the call request
-    pub fn new(
-        access_list: AccessList,
-        from: Address,
-        to: Address,
-        precompiles: impl IntoIterator<Item = Address>,
-    ) -> Self {
+    pub fn new(access_list: AccessList) -> Self {
         Self {
-            excluded: [from, to].into_iter().chain(precompiles).collect(),
+            excluded: Default::default(),
             access_list: access_list
                 .0
                 .into_iter()
@@ -59,12 +54,63 @@ impl AccessListInspector {
         });
         AccessList(items.collect())
     }
+
+    /// Collects addresses which should be excluded from the access list.
+    ///
+    /// Those include caller, callee and precompiles.
+    fn collect_excluded_addresses<DB: Database>(&mut self, context: &EvmContext<DB>) {
+        let from = context.env.tx.caller;
+        let to = if let TxKind::Call(to) = context.env.tx.transact_to {
+            to
+        } else {
+            let nonce = context.journaled_state.account(from).info.nonce;
+            from.create(nonce)
+        };
+        let precompiles = context.precompiles.addresses().copied();
+        self.excluded = [from, to].into_iter().chain(precompiles).collect();
+    }
 }
 
 impl<DB> Inspector<DB> for AccessListInspector
 where
     DB: Database,
 {
+    fn call(
+        &mut self,
+        context: &mut EvmContext<DB>,
+        _inputs: &mut revm::interpreter::CallInputs,
+    ) -> Option<revm::interpreter::CallOutcome> {
+        // At the top-level frame, fill the excluded addresses
+        if context.journaled_state.depth() == 0 {
+            self.collect_excluded_addresses(context)
+        }
+        None
+    }
+
+    fn create(
+        &mut self,
+        context: &mut EvmContext<DB>,
+        _inputs: &mut revm::interpreter::CreateInputs,
+    ) -> Option<revm::interpreter::CreateOutcome> {
+        // At the top-level frame, fill the excluded addresses
+        if context.journaled_state.depth() == 0 {
+            self.collect_excluded_addresses(context)
+        }
+        None
+    }
+
+    fn eofcreate(
+        &mut self,
+        context: &mut EvmContext<DB>,
+        _inputs: &mut revm::interpreter::EOFCreateInputs,
+    ) -> Option<revm::interpreter::CreateOutcome> {
+        // At the top-level frame, fill the excluded addresses
+        if context.journaled_state.depth() == 0 {
+            self.collect_excluded_addresses(context)
+        }
+        None
+    }
+
     fn step(&mut self, interp: &mut Interpreter, _context: &mut EvmContext<DB>) {
         match interp.current_opcode() {
             opcode::SLOAD | opcode::SSTORE => {
