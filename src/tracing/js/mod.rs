@@ -293,7 +293,7 @@ impl JsInspector {
                 .try_into()
                 .unwrap_or(u64::MAX),
             value: tx.value(),
-            block: block.number().try_into().unwrap_or(u64::MAX),
+            block: block.number(),
             coinbase: block.beneficiary(),
             output: output_bytes.unwrap_or_default(),
             time: block.timestamp().to_string(),

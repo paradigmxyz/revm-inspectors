@@ -61,7 +61,7 @@ revm-database = { git = "https://github.com/bluealloy/revm.git", rev = "a8f9824"
 ] }
 
 [features]
-default = ["std", "js-tracer"]
+default = ["std"]
 std = [
     "alloy-primitives/std",
     "anstyle/std",

@@ -584,8 +584,6 @@ where
             .exclude_precompile_calls
             .then(|| self.is_precompile_call(context, &to, &value));
 
-        println!("maybe_precompile: {:?}", maybe_precompile);
-
         self.start_trace_on_call(
             context,
             to,
@@ -617,9 +615,6 @@ where
             inputs.gas_limit,
             Some(false),
         );
-
-        println!("CREATE");
-
         None
     }
 
@@ -645,8 +640,6 @@ where
             inputs.caller.create(nonce)
         };
 
-
-        println!("CREATE");
         self.start_trace_on_call(
             context,
             address,

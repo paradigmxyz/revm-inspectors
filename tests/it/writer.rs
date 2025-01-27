@@ -211,7 +211,6 @@ fn patch_traces(patch: usize, t: &mut TracingInspector) {
                 node.trace.steps[87].decoded = Some(DecodedTraceStep::Line("[mstore]".to_string()));
                 node.trace.steps[90].decoded =
                     Some(DecodedTraceStep::Line("[before_return]".to_string()));
-                println!("{:?}", node.ordering);
             }
             7 if node.trace.depth == 0 => {
                 node.trace.steps[10].decoded = Some(DecodedTraceStep::InternalCall(
@@ -222,7 +221,6 @@ fn patch_traces(patch: usize, t: &mut TracingInspector) {
                     },
                     150,
                 ));
-                println!("{:?}", node.ordering);
             }
             _ => continue,
         }
