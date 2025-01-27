@@ -31,7 +31,10 @@ use revm::{
     },
     Database, DatabaseRef,
 };
-use revm_inspector::{Inspector, JournalExt, JournalExtGetter};
+use revm_inspector::{
+    journal::{JournalExt, JournalExtGetter},
+    Inspector,
+};
 
 pub(crate) mod bindings;
 pub(crate) mod builtins;
@@ -280,15 +283,18 @@ impl JsInspector {
                 TransactTo::Create => "CREATE",
             }
             .to_string(),
-            from: tx.common_fields().caller(),
+            from: tx.caller(),
             to,
-            input: tx.common_fields().input().clone(),
-            gas: tx.common_fields().gas_limit(),
+            input: tx.input().clone(),
+            gas: tx.gas_limit(),
             gas_used,
-            gas_price: tx.effective_gas_price(*block.basefee()).try_into().unwrap_or(u64::MAX),
-            value: tx.common_fields().value(),
+            gas_price: tx
+                .effective_gas_price(block.basefee() as u128)
+                .try_into()
+                .unwrap_or(u64::MAX),
+            value: tx.value(),
             block: block.number().try_into().unwrap_or(u64::MAX),
-            coinbase: *block.beneficiary(),
+            coinbase: block.beneficiary(),
             output: output_bytes.unwrap_or_default(),
             time: block.timestamp().to_string(),
             intrinsic_gas: 0,
@@ -404,7 +410,6 @@ where
     CTX: JournalGetter + JournalExtGetter + DatabaseGetter<Database: Database + DatabaseRef>,
     //DB: Database + DatabaseRef,
     //<DB as DatabaseRef>::Error: core::fmt::Display,
-
 {
     fn step(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut CTX) {
         if self.step_fn.is_none() {
@@ -646,10 +651,10 @@ mod tests {
         database_interface::EmptyDB,
         specification::hardfork::SpecId,
         state::{AccountInfo, Bytecode},
-        EvmExec,
     };
     use revm_database::CacheDB;
-    use revm_inspector::{inspector_handler, InspectorContext, InspectorMainEvm};
+    use revm_inspector::exec::InspectEvm;
+    //use revm_inspector::{inspector_handler, InspectorContext, InspectorMainEvm};
     use serde_json::json;
 
     #[test]
@@ -705,17 +710,20 @@ mod tests {
 
         let mut context = revm::Context::default()
             .modify_cfg_chained(|cfg| cfg.spec = SpecId::CANCUN)
-            .with_db(db)
-            .with_tx(TxEnv {
-                gas_price: U256::from(1024),
-                gas_limit: 1_000_000,
-                transact_to: TransactTo::Call(addr),
-                ..Default::default()
-            });
+            .with_db(db);
 
-        let ctx = InspectorContext::new(&mut context, &mut insp);
-        let mut evm = InspectorMainEvm::new(ctx, inspector_handler());
-        let res = evm.exec().expect("pass without error");
+        let res = context
+            .inspect(
+                TxEnv {
+                    gas_price: 1024,
+                    gas_limit: 1_000_000,
+                    gas_priority_fee: None,
+                    kind: TransactTo::Call(addr),
+                    ..Default::default()
+                },
+                &mut insp,
+            )
+            .expect("pass without error");
 
         assert_eq!(res.result.is_success(), success);
         insp.json_result(res, context.tx(), context.block(), context.db_ref()).unwrap()

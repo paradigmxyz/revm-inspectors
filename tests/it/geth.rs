@@ -1,6 +1,5 @@
 //! Geth tests
-
-use crate::utils::{deploy_contract, inspect};
+use crate::utils::deploy_contract;
 use alloy_primitives::{hex, map::HashMap, Address, Bytes};
 use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::geth::{
@@ -15,6 +14,7 @@ use revm::{
     Context,
 };
 use revm_database::CacheDB;
+use revm_inspector::exec::InspectEvm;
 use revm_inspectors::tracing::{MuxInspector, TracingInspector, TracingInspectorConfig};
 
 #[test]
@@ -64,13 +64,13 @@ fn test_geth_calltracer_logs() {
     context.set_tx(TxEnv {
         caller: deployer,
         gas_limit: 1000000,
-        transact_to: TransactTo::Call(addr),
+        kind: TransactTo::Call(addr),
         data: Bytes::default(), // call fallback
         nonce: 1,
         ..Default::default()
     });
 
-    let res = inspect(&mut context, &mut insp).unwrap();
+    let res = context.inspect_previous(&mut insp).unwrap();
     assert!(res.result.is_success());
 
     let call_frame = insp
@@ -171,13 +171,13 @@ fn test_geth_mux_tracer() {
     context.set_tx(TxEnv {
         caller: deployer,
         gas_limit: 1000000,
-        transact_to: TransactTo::Call(addr),
+        kind: TransactTo::Call(addr),
         data: Bytes::default(), // call fallback
         nonce: 1,
         ..Default::default()
     });
 
-    let res = inspect(&mut context, &mut insp).unwrap();
+    let res = context.inspect_previous(&mut insp).unwrap();
     assert!(res.result.is_success());
 
     let frame = insp.try_into_mux_frame(&res, &context.db(), TransactionInfo::default()).unwrap();
@@ -247,13 +247,13 @@ fn test_geth_inspector_reset() {
             tx.caller = Address::ZERO;
             tx.gas_limit = 1000000;
             tx.gas_price = Default::default();
-            tx.transact_to = TransactTo::Call(Address::ZERO);
+            tx.kind = TransactTo::Call(Address::ZERO);
         });
 
     assert_eq!(insp.traces().nodes().first().unwrap().trace.gas_limit, 0);
 
     // first run inspector
-    let res = inspect(&mut context, &mut insp).unwrap();
+    let res = context.inspect_previous(&mut insp).unwrap();
     assert!(res.result.is_success());
     assert_eq!(
         insp.clone()
@@ -272,7 +272,7 @@ fn test_geth_inspector_reset() {
     assert_eq!(insp.traces().nodes().first().unwrap().trace.gas_limit, 0);
 
     // second run inspector after reset
-    let res = inspect(&mut context, &mut insp).unwrap();
+    let res = context.inspect_previous(&mut insp).unwrap();
     assert!(res.result.is_success());
     assert_eq!(
         insp.with_transaction_gas_limit(context.tx.gas_limit)

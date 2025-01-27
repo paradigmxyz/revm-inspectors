@@ -67,7 +67,6 @@ impl Default for EdgeCovInspector {
 
 impl<CTX> Inspector<CTX, EthInterpreter> for EdgeCovInspector {
     fn step(&mut self, interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX) {
-        //fn step(&mut self, interp: &mut Interpreter, _context: &mut EvmContext<DB>) {
         let address = interp.input.target_address(); // TODO track context for delegatecall?
         let current_pc = interp.bytecode.pc();
 
@@ -80,7 +79,7 @@ impl<CTX> Inspector<CTX, EthInterpreter> for EdgeCovInspector {
             }
             opcode::JUMPI => {
                 if let Ok(stack_value) = interp.stack.peek(0) {
-                    let jump_dest = if stack_value != U256::from(0) {
+                    let jump_dest = if !stack_value.is_zero() {
                         // branch taken
                         interp.stack.peek(1)
                     } else {

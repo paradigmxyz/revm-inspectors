@@ -45,7 +45,10 @@ mod opcount;
 pub use opcount::OpcodeCountInspector;
 
 pub mod types;
-use revm_inspector::{Inspector, JournalExt, JournalExtGetter};
+use revm_inspector::{
+    journal::{JournalExt, JournalExtGetter},
+    Inspector,
+};
 use types::{CallLog, CallTrace, CallTraceStep};
 
 mod utils;
@@ -581,6 +584,8 @@ where
             .exclude_precompile_calls
             .then(|| self.is_precompile_call(context, &to, &value));
 
+        println!("maybe_precompile: {:?}", maybe_precompile);
+
         self.start_trace_on_call(
             context,
             to,
@@ -613,6 +618,8 @@ where
             Some(false),
         );
 
+        println!("CREATE");
+
         None
     }
 
@@ -637,6 +644,9 @@ where
             let nonce = context.journal().load_account(inputs.caller).ok()?.info.nonce;
             inputs.caller.create(nonce)
         };
+
+
+        println!("CREATE");
         self.start_trace_on_call(
             context,
             address,

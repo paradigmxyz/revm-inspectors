@@ -18,7 +18,7 @@ use revm::{
     },
     DatabaseRef,
 };
-use revm_inspector::{Inspector, JournalExtGetter};
+use revm_inspector::{journal::JournalExtGetter, Inspector};
 use thiserror::Error;
 
 /// Mux tracing inspector that runs and collects results of multiple inspectors at once.

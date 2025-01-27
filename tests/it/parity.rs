@@ -1,6 +1,6 @@
 //! Parity tests
 
-use crate::utils::{deploy_contract, inspect, inspect_deploy_contract, print_traces};
+use crate::utils::{deploy_contract, inspect_deploy_contract, print_traces};
 use alloy_primitives::{address, hex, map::HashSet, Address, U256};
 use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::parity::{
@@ -20,6 +20,7 @@ use revm::{
     Context, DatabaseCommit,
 };
 use revm_database::CacheDB;
+use revm_inspector::exec::InspectEvm;
 use revm_inspectors::tracing::{
     parity::populate_state_diff, TracingInspector, TracingInspectorConfig,
 };
@@ -65,14 +66,14 @@ fn test_parity_selfdestruct(spec_id: SpecId) {
         *tx = TxEnv {
             caller: deployer,
             gas_limit: 1000000,
-            transact_to: TransactTo::Call(addr),
+            kind: TransactTo::Call(addr),
             data: hex!("43d726d6").into(),
             nonce: 1,
             ..Default::default()
         }
     });
 
-    let res = inspect(&mut context, &mut insp).unwrap();
+    let res = context.inspect_previous(&mut insp).unwrap();
     assert!(res.result.is_success(), "{res:#?}");
 
     assert_eq!(insp.traces().nodes().len(), 1);
@@ -136,13 +137,13 @@ fn test_parity_constructor_selfdestruct() {
     context.set_tx(TxEnv {
         caller: deployer,
         gas_limit: 1000000,
-        transact_to: TransactTo::Call(addr),
+        kind: TransactTo::Call(addr),
         data: hex!("43d726d6").into(),
         nonce: 1,
         ..Default::default()
     });
 
-    let res = inspect(&mut context, &mut insp).unwrap();
+    let res = context.inspect_previous(&mut insp).unwrap();
     assert!(res.result.is_success());
     print_traces(&insp);
 
@@ -191,7 +192,7 @@ fn test_parity_call_selfdestruct() {
         *tx = TxEnv {
             caller,
             gas_limit: 100000000,
-            transact_to: TransactTo::Call(to),
+            kind: TransactTo::Call(to),
             data: input.to_vec().into(),
             nonce: 0,
             ..Default::default()
@@ -202,7 +203,7 @@ fn test_parity_call_selfdestruct() {
     // evm.env.tx.caller = caller;
     // let res = evm.call(to, input.to_vec().into(), &mut insp).unwrap();
 
-    let res = inspect(&mut context, &mut insp).unwrap();
+    let res = context.inspect_previous(&mut insp).unwrap();
     match &res.result {
         ExecutionResult::Success { output, .. } => match output {
             Output::Call(_) => {}
@@ -252,24 +253,24 @@ fn test_parity_statediff_blob_commit() {
             cfg.spec = SpecId::CANCUN;
         })
         .modify_block_chained(|b| {
-            b.basefee = U256::from(100);
-            b.blob_excess_gas_and_price = Some(BlobExcessGasAndPrice::new(100));
+            b.basefee = 100;
+            b.blob_excess_gas_and_price = Some(BlobExcessGasAndPrice::new(100, false));
         })
         .with_tx(TxEnv {
             caller,
             gas_limit: 1000000,
-            transact_to: TransactTo::Call(to),
-            gas_price: U256::from(150),
+            kind: TransactTo::Call(to),
+            gas_price: 150,
             blob_hashes: vec!["0x01af2fd94f17364bc8ef371c4c90c3a33855ff972d10b9c03d0445b3fca063ea"
                 .parse()
                 .unwrap()],
-            max_fee_per_blob_gas: Some(U256::from(1000000000)),
+            max_fee_per_blob_gas: 1000000000,
             ..Default::default()
         });
 
     let trace_types = HashSet::from_iter([TraceType::StateDiff]);
     let mut insp = TracingInspector::new(TracingInspectorConfig::from_parity_config(&trace_types));
-    let res = inspect(&mut context, &mut insp).unwrap();
+    let res = context.inspect_previous(&mut insp).unwrap();
     let mut full_trace = insp.into_parity_builder().into_trace_results(&res.result, &trace_types);
 
     let state_diff = full_trace.state_diff.as_mut().unwrap();
@@ -328,13 +329,13 @@ fn test_parity_delegatecall_selfdestruct() {
     context.set_tx(TxEnv {
         caller: deployer,
         gas_limit: 1000000,
-        transact_to: TransactTo::Call(delegate_addr),
+        kind: TransactTo::Call(delegate_addr),
         data: input_data.into(),
         nonce: 0,
         ..Default::default()
     });
 
-    let res = inspect(&mut context, &mut insp).unwrap();
+    let res = context.inspect_previous(&mut insp).unwrap();
     assert!(res.result.is_success());
 
     let traces =

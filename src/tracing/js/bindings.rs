@@ -758,7 +758,7 @@ impl EvmDbRef {
     pub(crate) fn new<'a, 'b, DB>(state: &'a EvmState, db: &'b DB) -> (Self, EvmDbGuard<'a, 'b>)
     where
         DB: DatabaseRef,
-        DB::Error: core::fmt::Display,
+        <DB as DatabaseRef>::Error: core::fmt::Display,
     {
         let (state, state_guard) = StateRef::new(state);
 
@@ -771,8 +771,8 @@ impl EvmDbRef {
         let db = JsDb(db);
         let js_db = unsafe {
             core::mem::transmute::<
-                Box<dyn DatabaseRef<Error = String> + '_>,
-                Box<dyn DatabaseRef<Error = String> + 'static>,
+                Box<dyn DatabaseRef<Error = StringError> + '_>,
+                Box<dyn DatabaseRef<Error = StringError> + 'static>,
             >(Box::new(db))
         };
 

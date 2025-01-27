@@ -6,15 +6,17 @@ use alloy_primitives::{
 use alloy_rpc_types_eth::{AccessList, AccessListItem};
 use revm::{
     bytecode::opcode,
-    context_interface::{Journal, JournalGetter, TransactionGetter},
+    context_interface::{Journal, JournalGetter, Transaction, TransactionGetter},
     interpreter::{
         interpreter::EthInterpreter,
         interpreter_types::{InputsTrait, Jumps},
         Interpreter,
     },
-    Database,
 };
-use revm_inspector::{Inspector, JournalExtGetter};
+use revm_inspector::{
+    journal::{JournalExt, JournalExtGetter},
+    Inspector,
+};
 
 /// An [Inspector] that collects touched accounts and storage slots.
 ///
@@ -72,23 +74,23 @@ impl AccessListInspector {
     /// top-level call.
     ///
     /// Those include caller, callee and precompiles.
-    fn collect_excluded_addresses<CTX: JournalExtGetter + TransactionGetter>(
+    fn collect_excluded_addresses<CTX: JournalGetter + JournalExtGetter + TransactionGetter>(
         &mut self,
         context: &CTX,
     ) {
-        // TODO(rakita) bump with new Revm.
-        // let from = context.tx().caller();
-        // let to = if let TxKind::Call(to) = context.tx().transact_to() {
-        //     to
-        // } else {
-        //     // We need to exclude the created address if this is a CREATE frame.
-        //     //
-        //     // This assumes that caller has already been loaded but nonce was not increased yet.
-        //     let nonce = context.journal_ref().state().account(from).info.nonce;
-        //     from.create(nonce)
-        // };
-        // let precompiles = context.journal_ext().addresses().copied();
-        // self.excluded = [from, to].into_iter().chain(precompiles).collect();
+        //TODO(rakita) bump with new Revm.
+        let from = context.tx().caller();
+        let to = if let TxKind::Call(to) = context.tx().kind() {
+            to
+        } else {
+            // We need to exclude the created address if this is a CREATE frame.
+            //
+            // This assumes that caller has already been loaded but nonce was not increased yet.
+            let nonce = context.journal_ext().evm_state().get(&from).unwrap().info.nonce;
+            from.create(nonce)
+        };
+        let precompiles = context.journal_ref().precompile_addresses().clone();
+        self.excluded = [from, to].into_iter().chain(precompiles).collect();
     }
 }
 

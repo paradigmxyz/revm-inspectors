@@ -1,17 +1,16 @@
 //! Geth Js tracer tests
 
-use crate::utils::{deploy_contract, inspect};
+use crate::utils::deploy_contract;
 use alloy_primitives::{address, hex, Address};
 use revm::{
     context::TxEnv,
-    context_interface::{
-        transaction::TransactionSetter, BlockGetter, DatabaseGetter, TransactTo, TransactionGetter,
-    },
+    context_interface::{BlockGetter, DatabaseGetter, TransactTo, TransactionGetter},
     database_interface::EmptyDB,
     specification::hardfork::SpecId,
     Context,
 };
 use revm_database::CacheDB;
+use revm_inspector::exec::InspectEvm;
 use revm_inspectors::tracing::js::JsInspector;
 use serde_json::json;
 
@@ -51,18 +50,20 @@ fn test_geth_jstracer_revert() {
     result: function(ctx) { return { error: !!ctx.error }; },
 }"#;
 
-    // test with normal operation
-    context.set_tx(TxEnv {
-        caller: deployer,
-        gas_limit: 1000000,
-        transact_to: TransactTo::Call(addr),
-        data: hex!("c2985578").into(), // call foo
-        nonce: 1,
-        ..Default::default()
-    });
-
     let mut insp = JsInspector::new(code.to_string(), serde_json::Value::Null).unwrap();
-    let res = inspect(&mut context, &mut insp).unwrap();
+    let res = context
+        .inspect(
+            TxEnv {
+                caller: deployer,
+                gas_limit: 1000000,
+                kind: TransactTo::Call(addr),
+                data: hex!("c2985578").into(), // call foo
+                nonce: 1,
+                ..Default::default()
+            },
+            &mut insp,
+        )
+        .unwrap();
     assert!(res.result.is_success());
 
     let result = insp.json_result(res, context.tx(), context.block(), context.db_ref()).unwrap();
@@ -71,16 +72,20 @@ fn test_geth_jstracer_revert() {
     assert!(!result["error"].as_bool().unwrap());
 
     // test with reverted operation
-    context.set_tx(TxEnv {
-        caller: deployer,
-        gas_limit: 1000000,
-        transact_to: TransactTo::Call(addr),
-        data: hex!("febb0f7e").into(), // call bar
-        nonce: 1,
-        ..Default::default()
-    });
     let mut insp = JsInspector::new(code.to_string(), serde_json::Value::Null).unwrap();
-    let res = inspect(&mut context, &mut insp).unwrap();
+    let res = context
+        .inspect(
+            TxEnv {
+                caller: deployer,
+                gas_limit: 1000000,
+                kind: TransactTo::Call(addr),
+                data: hex!("febb0f7e").into(), // call bar
+                nonce: 1,
+                ..Default::default()
+            },
+            &mut insp,
+        )
+        .unwrap();
     assert!(!res.result.is_success());
 
     let result = insp.json_result(res, context.tx(), context.block(), context.db_ref()).unwrap();
@@ -156,15 +161,19 @@ fn test_geth_jstracer_proxy_contract() {
     result: function() { return this.data; }
 }"#;
     let mut insp = JsInspector::new(code.to_string(), serde_json::Value::Null).unwrap();
-    context.set_tx(TxEnv {
-        caller: deployer,
-        gas_limit: 1000000,
-        transact_to: TransactTo::Call(proxy_addr),
-        data: input_data.into(),
-        ..Default::default()
-    });
 
-    let res = inspect(&mut context, &mut insp).unwrap();
+    let res = context
+        .inspect(
+            TxEnv {
+                caller: deployer,
+                gas_limit: 1000000,
+                kind: TransactTo::Call(proxy_addr),
+                data: input_data.into(),
+                ..Default::default()
+            },
+            &mut insp,
+        )
+        .unwrap();
     assert!(res.result.is_success());
 
     let result = insp.json_result(res, context.tx(), context.block(), context.db_ref()).unwrap();

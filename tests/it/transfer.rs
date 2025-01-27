@@ -12,8 +12,7 @@ use revm::{
     Context, DatabaseCommit,
 };
 use revm_database::CacheDB;
-
-use crate::utils::inspect;
+use revm_inspector::exec::InspectEvm;
 use revm_inspectors::{
     tracing::{TracingInspector, TracingInspectorConfig},
     transfer::{TransferInspector, TransferKind, TransferOperation},
@@ -41,7 +40,7 @@ fn test_internal_transfers() {
         .with_tx(TxEnv {
             caller: deployer,
             gas_limit: 1000000,
-            transact_to: TransactTo::Create,
+            kind: TransactTo::Create,
             data: code.into(),
             ..Default::default()
         });
@@ -49,7 +48,7 @@ fn test_internal_transfers() {
     let mut insp = TracingInspector::new(TracingInspectorConfig::default_geth());
 
     // Create contract
-    let res = inspect(&mut context, &mut insp).unwrap();
+    let res = context.inspect_previous(&mut insp).unwrap();
     let addr = match res.result {
         ExecutionResult::Success { output, .. } => match output {
             Output::Create(_, addr) => addr.unwrap(),
@@ -65,7 +64,7 @@ fn test_internal_transfers() {
     let tx_env = TxEnv {
         caller: deployer,
         gas_limit: 100000000,
-        transact_to: TransactTo::Call(addr),
+        kind: TransactTo::Call(addr),
         data: hex!("830c29ae0000000000000000000000000000000000000000000000000000000000000000")
             .into(),
         value: U256::from(10),
@@ -79,7 +78,7 @@ fn test_internal_transfers() {
         *tx = tx_env.clone();
         tx.nonce = 1;
     });
-    let res = inspect(&mut context, &mut insp).unwrap();
+    let res = context.inspect_previous(&mut insp).unwrap();
     assert!(res.result.is_success());
 
     assert_eq!(insp.transfers().len(), 2);
@@ -108,7 +107,7 @@ fn test_internal_transfers() {
         *tx = tx_env.clone();
         tx.nonce = 1;
     });
-    let res = inspect(&mut context, &mut insp).unwrap();
+    let res = context.inspect_previous(&mut insp).unwrap();
     assert!(res.result.is_success());
 
     assert_eq!(insp.transfers().len(), 1);

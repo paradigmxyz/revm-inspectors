@@ -101,7 +101,7 @@ mod tests {
     use revm::{
         bytecode::Bytecode,
         database_interface::EmptyDB,
-        interpreter::{InputsImpl, SharedMemory},
+        interpreter::{interpreter::ExtBytecode, InputsImpl, SharedMemory},
         primitives::Bytes,
         specification::hardfork::SpecId,
         Context,
@@ -118,7 +118,7 @@ mod tests {
         let bytecode = Bytecode::new_raw(Bytes::from(opcodes));
         let mut interpreter = Interpreter::<EthInterpreter>::new(
             Rc::new(RefCell::new(SharedMemory::new())),
-            bytecode,
+            ExtBytecode::new(bytecode),
             InputsImpl::default(),
             false,
             false,
@@ -149,7 +149,7 @@ mod tests {
         let bytecode = Bytecode::new_raw(Bytes::from(opcodes));
         let mut interpreter = Interpreter::<EthInterpreter>::new(
             Rc::new(RefCell::new(SharedMemory::new())),
-            bytecode,
+            ExtBytecode::new(bytecode),
             InputsImpl::default(),
             false,
             false,

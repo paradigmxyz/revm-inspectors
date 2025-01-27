@@ -54,7 +54,6 @@ impl CallTraceArena {
         kind: PushTraceKind,
         new_trace: CallTrace,
     ) -> usize {
-        println!("entry: {:?} kind {kind:?}, new_trace: {new_trace:?}", entry);
         loop {
             match new_trace.depth {
                 // The entry node, just update it

@@ -1,4 +1,4 @@
-use crate::utils::{inspect, inspect_deploy_contract, write_traces_with};
+use crate::utils::{inspect_deploy_contract, write_traces_with};
 use alloy_primitives::{address, b256, bytes, hex, Address, B256, U256};
 use alloy_sol_types::{sol, SolCall};
 use colorchoice::ColorChoice;
@@ -9,6 +9,7 @@ use revm::{
     Context, DatabaseCommit,
 };
 use revm_database::CacheDB;
+use revm_inspector::exec::InspectEvm;
 use revm_inspectors::tracing::{
     types::{DecodedCallData, DecodedInternalCall, DecodedTraceStep},
     TraceWriterConfig, TracingInspector, TracingInspectorConfig,
@@ -49,10 +50,11 @@ fn test_trace_printing() {
         let mut tracer = TracingInspector::new(TracingInspectorConfig::all());
         context.modify_tx(|tx| {
             tx.data = data.into();
-            tx.transact_to = TransactTo::Call(address);
+            tx.kind = TransactTo::Call(address);
+            tx.gas_priority_fee = None;
             tx.nonce = index as u64;
         });
-        let r = inspect(&mut context, &mut tracer).unwrap();
+        let r = context.inspect_previous(&mut tracer).unwrap();
         context.db().commit(r.state);
         let r = r.result;
         assert!(r.is_success(), "evm.call reverted: {r:#?}");

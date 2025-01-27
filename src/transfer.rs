@@ -138,7 +138,7 @@ where
         inputs: &mut revm::interpreter::EOFCreateInputs,
     ) -> Option<CreateOutcome> {
         let address = match inputs.kind {
-            EOFCreateKind::Tx { .. } => inputs.caller.create(context.tx().common_fields().nonce()),
+            EOFCreateKind::Tx { .. } => inputs.caller.create(context.tx().nonce()),
             EOFCreateKind::Opcode { created_address, .. } => created_address,
         };
 
