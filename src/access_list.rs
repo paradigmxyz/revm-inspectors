@@ -78,7 +78,6 @@ impl AccessListInspector {
         &mut self,
         context: &CTX,
     ) {
-        //TODO(rakita) bump with new Revm.
         let from = context.tx().caller();
         let to = if let TxKind::Call(to) = context.tx().kind() {
             to
