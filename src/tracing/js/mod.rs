@@ -355,7 +355,7 @@ impl JsInspector {
     /// Returns true if there's an exit function and the active call is not the root call.
     #[inline]
     fn can_call_exit(&mut self) -> bool {
-        self.enter_fn.is_some() && !self.is_root_call_active()
+        self.exit_fn.is_some() && !self.is_root_call_active()
     }
 
     /// Pushes a new call to the stack
