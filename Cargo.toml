@@ -30,8 +30,8 @@ clippy.lint_groups_priority = "allow"
 
 [dependencies]
 # eth
-alloy-rpc-types-eth = "0.9"
-alloy-rpc-types-trace = "0.9"
+alloy-rpc-types-eth = "0.11"
+alloy-rpc-types-trace = "0.11"
 alloy-sol-types = "0.8"
 alloy-primitives = { version = "0.8", features = ["map"] }
 revm = { version = "19.0.0", default-features = false, features = ["std"] }
@@ -56,3 +56,7 @@ default = ["std"]
 std = ["alloy-primitives/std", "anstyle/std", "serde/std", "serde_json/std", "revm/std", "thiserror/std"]
 serde = ["dep:serde", "revm/serde"]
 js-tracer = ["dep:boa_engine", "dep:boa_gc"]
+
+[patch.crates-io]
+#alloy-rpc-types-eth = { git = "https://github.com/alloy-rs/alloy", rev = "cfb13aa" }
+#alloy-rpc-types-trace = { git = "https://github.com/alloy-rs/alloy", rev = "cfb13aa" }
