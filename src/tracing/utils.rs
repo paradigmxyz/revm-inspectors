@@ -52,7 +52,7 @@ pub(crate) fn load_account_code<DB: DatabaseRef>(
     })
 }
 
-/// Returns a non empty revert reason if the output is a revert/error.
+/// Returns a non-empty revert reason if the output is a revert/error.
 #[inline]
 pub(crate) fn maybe_revert_reason(output: &[u8]) -> Option<String> {
     let reason = match GenericRevertReason::decode(output)? {
