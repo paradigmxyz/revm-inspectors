@@ -5,8 +5,17 @@ use alloy_primitives::{
 };
 use alloy_rpc_types_eth::{AccessList, AccessListItem};
 use revm::{
-    interpreter::{opcode, Interpreter},
-    Database, EvmContext, Inspector,
+    bytecode::opcode,
+    context_interface::{Journal, JournalGetter, Transaction, TransactionGetter},
+    interpreter::{
+        interpreter::EthInterpreter,
+        interpreter_types::{InputsTrait, Jumps},
+        Interpreter,
+    },
+};
+use revm_inspector::{
+    journal::{JournalExt, JournalExtGetter},
+    Inspector,
 };
 
 /// An [Inspector] that collects touched accounts and storage slots.
@@ -65,33 +74,36 @@ impl AccessListInspector {
     /// top-level call.
     ///
     /// Those include caller, callee and precompiles.
-    fn collect_excluded_addresses<DB: Database>(&mut self, context: &EvmContext<DB>) {
-        let from = context.env.tx.caller;
-        let to = if let TxKind::Call(to) = context.env.tx.transact_to {
+    fn collect_excluded_addresses<CTX: JournalGetter + JournalExtGetter + TransactionGetter>(
+        &mut self,
+        context: &CTX,
+    ) {
+        let from = context.tx().caller();
+        let to = if let TxKind::Call(to) = context.tx().kind() {
             to
         } else {
             // We need to exclude the created address if this is a CREATE frame.
             //
             // This assumes that caller has already been loaded but nonce was not increased yet.
-            let nonce = context.journaled_state.account(from).info.nonce;
+            let nonce = context.journal_ext().evm_state().get(&from).unwrap().info.nonce;
             from.create(nonce)
         };
-        let precompiles = context.precompiles.addresses().copied();
+        let precompiles = context.journal_ref().precompile_addresses().clone();
         self.excluded = [from, to].into_iter().chain(precompiles).collect();
     }
 }
 
-impl<DB> Inspector<DB> for AccessListInspector
+impl<CTX> Inspector<CTX, EthInterpreter> for AccessListInspector
 where
-    DB: Database,
+    CTX: JournalExtGetter + JournalGetter + TransactionGetter,
 {
     fn call(
         &mut self,
-        context: &mut EvmContext<DB>,
+        context: &mut CTX,
         _inputs: &mut revm::interpreter::CallInputs,
     ) -> Option<revm::interpreter::CallOutcome> {
         // At the top-level frame, fill the excluded addresses
-        if context.journaled_state.depth() == 0 {
+        if context.journal().depth() == 0 {
             self.collect_excluded_addresses(context)
         }
         None
@@ -99,11 +111,11 @@ where
 
     fn create(
         &mut self,
-        context: &mut EvmContext<DB>,
+        context: &mut CTX,
         _inputs: &mut revm::interpreter::CreateInputs,
     ) -> Option<revm::interpreter::CreateOutcome> {
         // At the top-level frame, fill the excluded addresses
-        if context.journaled_state.depth() == 0 {
+        if context.journal().depth() == 0 {
             self.collect_excluded_addresses(context)
         }
         None
@@ -111,21 +123,21 @@ where
 
     fn eofcreate(
         &mut self,
-        context: &mut EvmContext<DB>,
+        context: &mut CTX,
         _inputs: &mut revm::interpreter::EOFCreateInputs,
     ) -> Option<revm::interpreter::CreateOutcome> {
         // At the top-level frame, fill the excluded addresses
-        if context.journaled_state.depth() == 0 {
+        if context.journal().depth() == 0 {
             self.collect_excluded_addresses(context)
         }
         None
     }
 
-    fn step(&mut self, interp: &mut Interpreter, _context: &mut EvmContext<DB>) {
-        match interp.current_opcode() {
+    fn step(&mut self, interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX) {
+        match interp.bytecode.opcode() {
             opcode::SLOAD | opcode::SSTORE => {
-                if let Ok(slot) = interp.stack().peek(0) {
-                    let cur_contract = interp.contract.target_address;
+                if let Ok(slot) = interp.stack.peek(0) {
+                    let cur_contract = interp.input.target_address();
                     self.access_list
                         .entry(cur_contract)
                         .or_default()
@@ -137,7 +149,7 @@ where
             | opcode::EXTCODESIZE
             | opcode::BALANCE
             | opcode::SELFDESTRUCT => {
-                if let Ok(slot) = interp.stack().peek(0) {
+                if let Ok(slot) = interp.stack.peek(0) {
                     let addr = Address::from_word(B256::from(slot.to_be_bytes()));
                     if !self.excluded.contains(&addr) {
                         self.access_list.entry(addr).or_default();
@@ -145,7 +157,7 @@ where
                 }
             }
             opcode::DELEGATECALL | opcode::CALL | opcode::STATICCALL | opcode::CALLCODE => {
-                if let Ok(slot) = interp.stack().peek(1) {
+                if let Ok(slot) = interp.stack.peek(1) {
                     let addr = Address::from_word(B256::from(slot.to_be_bytes()));
                     if !self.excluded.contains(&addr) {
                         self.access_list.entry(addr).or_default();

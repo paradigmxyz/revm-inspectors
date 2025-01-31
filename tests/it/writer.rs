@@ -1,7 +1,15 @@
-use crate::utils::{write_traces_with, TestEvm};
+use crate::utils::{inspect_deploy_contract, write_traces_with};
 use alloy_primitives::{address, b256, bytes, hex, Address, B256, U256};
 use alloy_sol_types::{sol, SolCall};
 use colorchoice::ColorChoice;
+use revm::{
+    context_interface::{DatabaseGetter, TransactTo},
+    database_interface::EmptyDB,
+    specification::hardfork::SpecId,
+    Context, DatabaseCommit,
+};
+use revm_database::CacheDB;
+use revm_inspector::exec::InspectEvm;
 use revm_inspectors::tracing::{
     types::{DecodedCallData, DecodedInternalCall, DecodedTraceStep},
     TraceWriterConfig, TracingInspector, TracingInspectorConfig,
@@ -19,10 +27,19 @@ fn test_trace_printing() {
 
     let base_path = &Path::new(OUT_DIR).join("test_trace_printing");
 
-    let mut evm = TestEvm::new();
+    let mut context = Context::default().with_db(CacheDB::new(EmptyDB::default()));
 
     let mut tracer = TracingInspector::new(TracingInspectorConfig::all());
-    let address = evm.deploy(CREATION_CODE.parse().unwrap(), &mut tracer).unwrap();
+    //let address = evm.deploy(CREATION_CODE.parse().unwrap(), &mut tracer).unwrap();
+    let address = inspect_deploy_contract(
+        &mut context,
+        CREATION_CODE.parse().unwrap(),
+        Address::default(),
+        SpecId::CANCUN,
+        &mut tracer,
+    )
+    .created_address()
+    .unwrap();
 
     let mut index = 0;
 
@@ -31,7 +48,15 @@ fn test_trace_printing() {
 
     let mut call = |data: Vec<u8>| {
         let mut tracer = TracingInspector::new(TracingInspectorConfig::all());
-        let r = evm.call(address, data.into(), &mut tracer).unwrap();
+        context.modify_tx(|tx| {
+            tx.data = data.into();
+            tx.kind = TransactTo::Call(address);
+            tx.gas_priority_fee = None;
+            tx.nonce = index as u64;
+        });
+        let r = context.inspect_previous(&mut tracer).unwrap();
+        context.db().commit(r.state);
+        let r = r.result;
         assert!(r.is_success(), "evm.call reverted: {r:#?}");
 
         assert_traces(base_path, None, Some(index), &mut tracer);
@@ -68,9 +93,16 @@ fn test_trace_printing() {
 fn deploy_fail() {
     let base_path = &Path::new(OUT_DIR).join("deploy_fail");
 
-    let mut evm = TestEvm::new();
+    let mut context = Context::default().with_db(CacheDB::new(EmptyDB::default()));
     let mut tracer = TracingInspector::new(TracingInspectorConfig::all());
-    let _ = evm.try_deploy(bytes!("604260005260206000fd"), &mut tracer).unwrap();
+
+    inspect_deploy_contract(
+        &mut context,
+        bytes!("604260005260206000fd"),
+        Address::default(),
+        SpecId::LONDON,
+        &mut tracer,
+    );
 
     assert_traces(base_path, Some("raw"), None, &mut tracer);
 
@@ -179,7 +211,6 @@ fn patch_traces(patch: usize, t: &mut TracingInspector) {
                 node.trace.steps[87].decoded = Some(DecodedTraceStep::Line("[mstore]".to_string()));
                 node.trace.steps[90].decoded =
                     Some(DecodedTraceStep::Line("[before_return]".to_string()));
-                println!("{:?}", node.ordering);
             }
             7 if node.trace.depth == 0 => {
                 node.trace.steps[10].decoded = Some(DecodedTraceStep::InternalCall(
@@ -190,7 +221,6 @@ fn patch_traces(patch: usize, t: &mut TracingInspector) {
                     },
                     150,
                 ));
-                println!("{:?}", node.ordering);
             }
             _ => continue,
         }
