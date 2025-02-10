@@ -179,7 +179,7 @@ pub struct TransferOperation {
 /// The kind of transfer operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TransferKind {
-    /// A non zero value transfer CALL
+    /// A non-zero value transfer CALL
     Call,
     /// A CREATE operation
     Create,

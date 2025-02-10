@@ -24,9 +24,9 @@ use thiserror::Error;
 /// Mux tracing inspector that runs and collects results of multiple inspectors at once.
 #[derive(Clone, Debug)]
 pub struct MuxInspector {
-    /// A instance of FourByteInspector that can be reused
+    /// An instance of FourByteInspector that can be reused
     four_byte: Option<FourByteInspector>,
-    /// A instance of TracingInspector that can be reused
+    /// An instance of TracingInspector that can be reused
     tracing: Option<TracingInspector>,
     /// Configurations for different Geth trace types
     configs: Vec<(GethDebugBuiltInTracerType, TraceConfig)>,
