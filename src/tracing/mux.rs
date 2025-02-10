@@ -10,15 +10,15 @@ use alloy_rpc_types_trace::geth::{
 use revm::{
     context_interface::{
         result::{HaltReasonTrait, ResultAndState},
-        JournalGetter,
+        ContextTrait,
     },
+    handler::{Inspector, JournalExt},
     interpreter::{
         interpreter::EthInterpreter, CallInputs, CallOutcome, CreateInputs, CreateOutcome,
         EOFCreateInputs, Interpreter,
     },
     DatabaseRef,
 };
-use revm_inspector::{journal::JournalExtGetter, Inspector};
 use thiserror::Error;
 
 /// Mux tracing inspector that runs and collects results of multiple inspectors at once.
@@ -163,7 +163,7 @@ impl MuxInspector {
 
 impl<CTX> Inspector<CTX, EthInterpreter> for MuxInspector
 where
-    CTX: JournalExtGetter + JournalGetter,
+    CTX: ContextTrait<Journal: JournalExt>,
 {
     #[inline]
     fn initialize_interp(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut CTX) {
@@ -196,9 +196,9 @@ where
     }
 
     #[inline]
-    fn log(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut CTX, log: &Log) {
+    fn log(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut CTX, log: Log) {
         if let Some(ref mut inspector) = self.four_byte {
-            inspector.log(interp, context, log);
+            inspector.log(interp, context, log.clone());
         }
         if let Some(ref mut inspector) = self.tracing {
             inspector.log(interp, context, log);

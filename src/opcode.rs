@@ -3,13 +3,13 @@ use alloy_primitives::map::HashMap;
 use alloy_rpc_types_trace::opcode::OpcodeGas;
 use revm::{
     bytecode::opcode::{self, OpCode},
+    handler::Inspector,
     interpreter::{
         interpreter::EthInterpreter,
         interpreter_types::{Immediates, Jumps, LoopControl},
         Interpreter,
     },
 };
-use revm_inspector::Inspector;
 
 /// An Inspector that counts opcodes and measures gas usage per opcode.
 #[derive(Clone, Debug, Default)]
@@ -104,7 +104,7 @@ mod tests {
         interpreter::{interpreter::ExtBytecode, InputsImpl, SharedMemory},
         primitives::Bytes,
         specification::hardfork::SpecId,
-        Context,
+        Context, MainContext,
     };
     use revm_database::CacheDB;
     use std::{cell::RefCell, rc::Rc};
@@ -127,7 +127,7 @@ mod tests {
         );
         let db = CacheDB::new(EmptyDB::default());
 
-        let mut context = Context::default().with_db(db);
+        let mut context = Context::mainnet().with_db(db);
         for _ in &opcodes {
             opcode_counter.step(&mut interpreter, &mut context);
         }
@@ -158,7 +158,7 @@ mod tests {
         );
         let db = CacheDB::new(EmptyDB::default());
 
-        let mut context = Context::default().with_db(db);
+        let mut context = Context::mainnet().with_db(db);
         for _ in opcodes.iter() {
             opcode_counter.step(&mut interpreter, &mut context);
         }

@@ -6,16 +6,13 @@ use alloy_primitives::{
 use alloy_rpc_types_eth::{AccessList, AccessListItem};
 use revm::{
     bytecode::opcode,
-    context_interface::{Journal, JournalGetter, Transaction, TransactionGetter},
+    context_interface::{ContextTrait, Journal, Transaction},
+    handler::{Inspector, JournalExt},
     interpreter::{
         interpreter::EthInterpreter,
         interpreter_types::{InputsTrait, Jumps},
         Interpreter,
     },
-};
-use revm_inspector::{
-    journal::{JournalExt, JournalExtGetter},
-    Inspector,
 };
 
 /// An [Inspector] that collects touched accounts and storage slots.
@@ -74,7 +71,7 @@ impl AccessListInspector {
     /// top-level call.
     ///
     /// Those include caller, callee and precompiles.
-    fn collect_excluded_addresses<CTX: JournalGetter + JournalExtGetter + TransactionGetter>(
+    fn collect_excluded_addresses<CTX: ContextTrait<Journal: JournalExt>>(
         &mut self,
         context: &CTX,
     ) {
@@ -85,7 +82,7 @@ impl AccessListInspector {
             // We need to exclude the created address if this is a CREATE frame.
             //
             // This assumes that caller has already been loaded but nonce was not increased yet.
-            let nonce = context.journal_ext().evm_state().get(&from).unwrap().info.nonce;
+            let nonce = context.journal_ref().evm_state().get(&from).unwrap().info.nonce;
             from.create(nonce)
         };
         let precompiles = context.journal_ref().precompile_addresses().clone();
@@ -95,7 +92,7 @@ impl AccessListInspector {
 
 impl<CTX> Inspector<CTX, EthInterpreter> for AccessListInspector
 where
-    CTX: JournalExtGetter + JournalGetter + TransactionGetter,
+    CTX: ContextTrait<Journal: JournalExt>,
 {
     fn call(
         &mut self,

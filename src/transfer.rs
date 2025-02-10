@@ -2,14 +2,14 @@ use alloc::{vec, vec::Vec};
 use alloy_primitives::{address, b256, Address, Log, LogData, B256, U256};
 use alloy_sol_types::SolValue;
 use revm::{
-    context_interface::{Journal, JournalGetter, Transaction, TransactionGetter},
+    context_interface::{ContextTrait, Journal, Transaction},
+    handler::Inspector,
     interpreter::{
         interpreter::EthInterpreter, CallInputs, CallOutcome, CreateInputs, CreateOutcome,
         CreateScheme, EOFCreateKind,
     },
     Database,
 };
-use revm_inspector::Inspector;
 
 /// Sender of ETH transfer log per `eth_simulateV1` spec.
 ///
@@ -102,7 +102,7 @@ impl TransferInspector {
 
 impl<CTX> Inspector<CTX, EthInterpreter> for TransferInspector
 where
-    CTX: TransactionGetter + JournalGetter,
+    CTX: ContextTrait,
 {
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         if let Some(value) = inputs.transfer_value() {

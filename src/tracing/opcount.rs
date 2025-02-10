@@ -2,8 +2,10 @@
 //!
 //! See also <https://geth.ethereum.org/docs/developers/evm-tracing/built-in-tracers>
 
-use revm::interpreter::{interpreter::EthInterpreter, Interpreter};
-use revm_inspector::Inspector;
+use revm::{
+    handler::Inspector,
+    interpreter::{interpreter::EthInterpreter, Interpreter},
+};
 
 /// An inspector that counts all opcodes.
 #[derive(Clone, Copy, Debug, Default)]

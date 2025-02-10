@@ -21,19 +21,16 @@ use boa_engine::{js_string, Context, JsError, JsObject, JsResult, JsValue, Sourc
 use revm::{
     context_interface::{
         result::{ExecutionResult, HaltReasonTrait, Output, ResultAndState},
-        Block, DatabaseGetter, Journal, JournalGetter, TransactTo, Transaction,
+        Block, ContextTrait, Journal, TransactTo, Transaction,
     },
+    handler::{Inspector, JournalExt},
     interpreter::{
         interpreter::EthInterpreter,
         interpreter_types::{Jumps, LoopControl},
         CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, Gas, InstructionResult,
         Interpreter, InterpreterResult,
     },
-    Database, DatabaseRef,
-};
-use revm_inspector::{
-    journal::{JournalExt, JournalExtGetter},
-    Inspector,
+    DatabaseCommit, DatabaseRef,
 };
 
 pub(crate) mod bindings;
@@ -393,7 +390,7 @@ impl JsInspector {
     }
 
     /// Registers the precompiles in the JS context
-    fn register_precompiles<CTX: JournalGetter>(&mut self, context: &mut CTX) {
+    fn register_precompiles<CTX: ContextTrait<Journal: JournalExt>>(&mut self, context: &mut CTX) {
         if !self.precompiles_registered {
             return;
         }
@@ -407,16 +404,14 @@ impl JsInspector {
 
 impl<CTX> Inspector<CTX, EthInterpreter> for JsInspector
 where
-    CTX: JournalGetter + JournalExtGetter + DatabaseGetter<Database: Database + DatabaseRef>,
-    //DB: Database + DatabaseRef,
-    //<DB as DatabaseRef>::Error: core::fmt::Display,
+    CTX: ContextTrait<Journal: JournalExt, Db: DatabaseRef + DatabaseCommit>,
 {
     fn step(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut CTX) {
         if self.step_fn.is_none() {
             return;
         }
 
-        let (db, _db_guard) = EvmDbRef::new(context.journal_ext().evm_state(), context.db_ref());
+        let (db, _db_guard) = EvmDbRef::new(context.journal_ref().evm_state(), context.db_ref());
 
         let (stack, _stack_guard) = StackRef::new(&interp.stack);
         let evm_memory = interp.memory.borrow();
@@ -446,7 +441,7 @@ where
 
         if interp.control.instruction_result().is_revert() {
             let (db, _db_guard) =
-                EvmDbRef::new(context.journal_ext().evm_state(), context.db_ref());
+                EvmDbRef::new(context.journal_ref().evm_state(), context.db_ref());
 
             let (stack, _stack_guard) = StackRef::new(&interp.stack);
             let mem = interp.memory.borrow();
@@ -468,7 +463,7 @@ where
         }
     }
 
-    fn log(&mut self, _interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX, _log: &Log) {}
+    fn log(&mut self, _interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX, _log: Log) {}
 
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         self.register_precompiles(context);
@@ -647,13 +642,13 @@ mod tests {
     use alloy_primitives::{hex, Address};
     use revm::{
         context::TxEnv,
-        context_interface::{BlockGetter, TransactionGetter},
         database_interface::EmptyDB,
+        handler::EvmTrait,
         specification::hardfork::SpecId,
         state::{AccountInfo, Bytecode},
+        InspectEvm, MainBuilder, MainContext,
     };
     use revm_database::CacheDB;
-    use revm_inspector::exec::InspectEvm;
     //use revm_inspector::{inspector_handler, InspectorContext, InspectorMainEvm};
     use serde_json::json;
 
@@ -706,27 +701,26 @@ mod tests {
             },
         );
 
-        let mut insp = JsInspector::new(code.to_string(), serde_json::Value::Null).unwrap();
+        let insp = JsInspector::new(code.to_string(), serde_json::Value::Null).unwrap();
 
-        let mut context = revm::Context::default()
+        let mut evm = revm::Context::mainnet()
             .modify_cfg_chained(|cfg| cfg.spec = SpecId::CANCUN)
-            .with_db(db);
+            .with_db(db)
+            .build_mainnet_with_inspector(insp);
 
-        let res = context
-            .inspect(
-                TxEnv {
-                    gas_price: 1024,
-                    gas_limit: 1_000_000,
-                    gas_priority_fee: None,
-                    kind: TransactTo::Call(addr),
-                    ..Default::default()
-                },
-                &mut insp,
-            )
+        let res = evm
+            .inspect_previous_with_tx(TxEnv {
+                gas_price: 1024,
+                gas_limit: 1_000_000,
+                gas_priority_fee: None,
+                kind: TransactTo::Call(addr),
+                ..Default::default()
+            })
             .expect("pass without error");
 
         assert_eq!(res.result.is_success(), success);
-        insp.json_result(res, context.tx(), context.block(), context.db_ref()).unwrap()
+        let (ctx, inspector) = evm.ctx_inspector();
+        inspector.json_result(res, ctx.tx(), ctx.block(), ctx.db_ref()).unwrap()
     }
 
     #[test]

@@ -23,8 +23,10 @@
 use alloc::format;
 use alloy_primitives::{hex, map::HashMap, Selector};
 use alloy_rpc_types_trace::geth::FourByteFrame;
-use revm::interpreter::{interpreter::EthInterpreter, CallInputs, CallOutcome};
-use revm_inspector::Inspector;
+use revm::{
+    handler::Inspector,
+    interpreter::{interpreter::EthInterpreter, CallInputs, CallOutcome},
+};
 
 /// Fourbyte tracing inspector that records all function selectors and their calldata sizes.
 #[derive(Clone, Debug, Default)]

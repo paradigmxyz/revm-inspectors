@@ -3,13 +3,13 @@ use alloy_primitives::{map::DefaultHashBuilder, Address, U256};
 use core::hash::{BuildHasher, Hash, Hasher};
 use revm::{
     bytecode::opcode::{self},
+    handler::Inspector,
     interpreter::{
         interpreter::EthInterpreter,
         interpreter_types::{InputsTrait, Jumps},
         Interpreter,
     },
 };
-use revm_inspector::Inspector;
 
 // This is the maximum number of edges that can be tracked. There is a tradeoff between performance
 // and precision (less collisions).

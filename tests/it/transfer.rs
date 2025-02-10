@@ -5,14 +5,14 @@ use revm::{
     context::TxEnv,
     context_interface::{
         result::{ExecutionResult, Output},
-        DatabaseGetter, TransactTo,
+        ContextTrait, TransactTo,
     },
     database_interface::EmptyDB,
+    handler::EvmTrait,
     specification::hardfork::SpecId,
-    Context, DatabaseCommit,
+    Context, DatabaseCommit, InspectEvm, MainBuilder, MainContext,
 };
 use revm_database::CacheDB;
-use revm_inspector::exec::InspectEvm;
 use revm_inspectors::{
     tracing::{TracingInspector, TracingInspectorConfig},
     transfer::{TransferInspector, TransferKind, TransferOperation},
@@ -34,7 +34,7 @@ fn test_internal_transfers() {
 
     let db = CacheDB::new(EmptyDB::default());
 
-    let mut context = Context::default()
+    let context = Context::mainnet()
         .with_db(db)
         .modify_cfg_chained(|c| c.spec = SpecId::LONDON)
         .with_tx(TxEnv {
@@ -48,7 +48,8 @@ fn test_internal_transfers() {
     let mut insp = TracingInspector::new(TracingInspectorConfig::default_geth());
 
     // Create contract
-    let res = context.inspect_previous(&mut insp).unwrap();
+    let mut evm = context.build_mainnet_with_inspector(&mut insp);
+    let res = evm.inspect_previous().unwrap();
     let addr = match res.result {
         ExecutionResult::Success { output, .. } => match output {
             Output::Create(_, addr) => addr.unwrap(),
@@ -56,9 +57,9 @@ fn test_internal_transfers() {
         },
         _ => panic!("Execution failed"),
     };
-    context.db().commit(res.state);
+    evm.ctx().db().commit(res.state);
 
-    let acc = context.db().load_account(deployer).unwrap();
+    let acc = evm.ctx().db().load_account(deployer).unwrap();
     acc.info.balance = U256::from(u64::MAX);
 
     let tx_env = TxEnv {
@@ -72,18 +73,17 @@ fn test_internal_transfers() {
         ..Default::default()
     };
 
-    let mut insp = TransferInspector::new(false);
-
-    context.modify_tx(|tx| {
+    let mut evm = evm.with_inspector(TransferInspector::new(false));
+    evm.ctx().modify_tx(|tx| {
         *tx = tx_env.clone();
         tx.nonce = 1;
     });
-    let res = context.inspect_previous(&mut insp).unwrap();
+    let res = evm.inspect_previous().unwrap();
     assert!(res.result.is_success());
 
-    assert_eq!(insp.transfers().len(), 2);
+    assert_eq!(evm.inspector().transfers().len(), 2);
     assert_eq!(
-        insp.transfers()[0],
+        evm.inspector().transfers()[0],
         TransferOperation {
             kind: TransferKind::Call,
             from: deployer,
@@ -92,7 +92,7 @@ fn test_internal_transfers() {
         }
     );
     assert_eq!(
-        insp.transfers()[1],
+        evm.inspector().transfers()[1],
         TransferOperation {
             kind: TransferKind::Call,
             from: addr,
@@ -101,18 +101,17 @@ fn test_internal_transfers() {
         }
     );
 
-    let mut insp = TransferInspector::internal_only();
-
-    context.modify_tx(|tx| {
+    let mut evm = evm.with_inspector(TransferInspector::internal_only());
+    evm.ctx().modify_tx(|tx| {
         *tx = tx_env.clone();
         tx.nonce = 1;
     });
-    let res = context.inspect_previous(&mut insp).unwrap();
+    let res = evm.inspect_previous().unwrap();
     assert!(res.result.is_success());
 
-    assert_eq!(insp.transfers().len(), 1);
+    assert_eq!(evm.inspector().transfers().len(), 1);
     assert_eq!(
-        insp.transfers()[0],
+        evm.inspector().transfers()[0],
         TransferOperation {
             kind: TransferKind::Call,
             from: addr,

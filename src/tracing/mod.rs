@@ -10,10 +10,10 @@ use crate::{
     },
 };
 use alloc::vec::Vec;
-use alloy_primitives::{Address, Bytes, Log, B256, U256};
 use revm::{
     bytecode::opcode::{self, OpCode},
-    context_interface::{Journal, JournalGetter},
+    context_interface::{ContextTrait, Journal},
+    handler::{Inspector, JournalExt},
     interpreter::{
         interpreter::EthInterpreter,
         interpreter_types::{
@@ -22,6 +22,7 @@ use revm::{
         CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, EOFCreateInputs,
         InstructionResult, Interpreter, InterpreterResult,
     },
+    primitives::{Address, Bytes, Log, B256, U256},
     specification::hardfork::SpecId,
     JournalEntry,
 };
@@ -45,10 +46,6 @@ mod opcount;
 pub use opcount::OpcodeCountInspector;
 
 pub mod types;
-use revm_inspector::{
-    journal::{JournalExt, JournalExtGetter},
-    Inspector,
-};
 use types::{CallLog, CallTrace, CallTraceStep};
 
 mod utils;
@@ -245,7 +242,7 @@ impl TracingInspector {
     ///
     /// Returns true if the `to` address is a precompile contract and the value is zero.
     #[inline]
-    fn is_precompile_call<CTX: JournalGetter>(
+    fn is_precompile_call<CTX: ContextTrait<Journal: JournalExt>>(
         &self,
         context: &CTX,
         to: &Address,
@@ -302,7 +299,7 @@ impl TracingInspector {
     ///
     /// Invoked on [Inspector::call].
     #[allow(clippy::too_many_arguments)]
-    fn start_trace_on_call<CTX: JournalGetter>(
+    fn start_trace_on_call<CTX: ContextTrait>(
         &mut self,
         context: &mut CTX,
         address: Address,
@@ -380,7 +377,7 @@ impl TracingInspector {
     /// This expects an existing [CallTrace], in other words, this panics if not within the context
     /// of a call.
     #[cold]
-    fn start_step<CTX: JournalGetter>(
+    fn start_step<CTX: ContextTrait>(
         &mut self,
         interp: &mut Interpreter<EthInterpreter>,
         context: &mut CTX,
@@ -474,7 +471,7 @@ impl TracingInspector {
     ///
     /// Invoked on [Inspector::step_end].
     #[cold]
-    fn fill_step_on_step_end<CTX: JournalExtGetter>(
+    fn fill_step_on_step_end<CTX: ContextTrait<Journal: JournalExt>>(
         &mut self,
         interp: &mut Interpreter<EthInterpreter>,
         context: &mut CTX,
@@ -498,7 +495,7 @@ impl TracingInspector {
         if self.config.record_state_diff {
             let op = step.op.get();
 
-            let journal_entry = context.journal_ext().last_journal().last();
+            let journal_entry = context.journal_ref().last_journal().last();
 
             step.storage_change = match (op, journal_entry) {
                 (
@@ -507,7 +504,7 @@ impl TracingInspector {
                 ) => {
                     // SAFETY: (Address,key) exists if part if StorageChange
                     let value =
-                        context.journal_ext().evm_state()[address].storage[key].present_value();
+                        context.journal_ref().evm_state()[address].storage[key].present_value();
                     let reason = match op {
                         opcode::SLOAD => StorageChangeReason::SLOAD,
                         opcode::SSTORE => StorageChangeReason::SSTORE,
@@ -533,7 +530,7 @@ impl TracingInspector {
 
 impl<CTX> Inspector<CTX, EthInterpreter> for TracingInspector
 where
-    CTX: JournalExtGetter + JournalGetter,
+    CTX: ContextTrait<Journal: JournalExt>,
 {
     #[inline]
     fn step(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut CTX) {
@@ -549,7 +546,7 @@ where
         }
     }
 
-    fn log(&mut self, _interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX, log: &Log) {
+    fn log(&mut self, _interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX, log: Log) {
         if self.config.record_logs {
             let trace = self.last_trace();
             trace.ordering.push(TraceMemberOrder::Log(trace.logs.len()));
