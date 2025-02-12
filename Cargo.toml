@@ -52,7 +52,7 @@ boa_gc = { version = "0.20", optional = true }
 
 [dev-dependencies]
 snapbox = { version = "0.6", features = ["term-svg"] }
-revm-database = { git = "https://github.com/bluealloy/revm.git", rev = "c12a95e8", default-features = false, features = [
+revm-database = { git = "https://github.com/bluealloy/revm.git", rev = "b67ca3e", default-features = false, features = [
     "std",
 ] }
 
