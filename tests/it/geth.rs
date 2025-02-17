@@ -8,13 +8,14 @@ use alloy_rpc_types_trace::geth::{
 };
 use revm::{
     context::{setters::ContextSetters, TxEnv},
-    context_interface::{ContextTrait, TransactTo},
+    context_interface::{ContextTr, TransactTo},
+    database::CacheDB,
     database_interface::EmptyDB,
-    handler::EvmTrait,
+    handler::EvmTr,
+    inspector::InspectorEvmTr,
     specification::hardfork::SpecId,
     Context, InspectEvm, MainBuilder, MainContext,
 };
-use revm_database::CacheDB;
 use revm_inspectors::tracing::{MuxInspector, TracingInspector, TracingInspectorConfig};
 
 #[test]

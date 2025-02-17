@@ -11,15 +11,16 @@ use revm::{
     context_interface::{
         block::BlobExcessGasAndPrice,
         result::{ExecutionResult, Output},
-        ContextTrait, TransactTo,
+        ContextTr, TransactTo,
     },
+    database::CacheDB,
     database_interface::EmptyDB,
-    handler::EvmTrait,
+    handler::EvmTr,
+    inspector::InspectorEvmTr,
     specification::hardfork::SpecId,
     state::AccountInfo,
     Context, DatabaseCommit, InspectEvm, MainBuilder, MainContext,
 };
-use revm_database::CacheDB;
 use revm_inspectors::tracing::{
     parity::populate_state_diff, TracingInspector, TracingInspectorConfig,
 };

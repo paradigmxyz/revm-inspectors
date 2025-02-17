@@ -3,12 +3,11 @@ use alloy_primitives::{map::DefaultHashBuilder, Address, U256};
 use core::hash::{BuildHasher, Hash, Hasher};
 use revm::{
     bytecode::opcode::{self},
-    handler::Inspector,
     interpreter::{
-        interpreter::EthInterpreter,
-        interpreter_types::{InputsTrait, Jumps},
+        interpreter_types::{InputsTr, Jumps},
         Interpreter,
     },
+    Inspector,
 };
 
 // This is the maximum number of edges that can be tracked. There is a tradeoff between performance
@@ -65,8 +64,8 @@ impl Default for EdgeCovInspector {
     }
 }
 
-impl<CTX> Inspector<CTX, EthInterpreter> for EdgeCovInspector {
-    fn step(&mut self, interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX) {
+impl<CTX> Inspector<CTX> for EdgeCovInspector {
+    fn step(&mut self, interp: &mut Interpreter, _context: &mut CTX) {
         let address = interp.input.target_address(); // TODO track context for delegatecall?
         let current_pc = interp.bytecode.pc();
 

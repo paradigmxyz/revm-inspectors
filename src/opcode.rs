@@ -3,12 +3,11 @@ use alloy_primitives::map::HashMap;
 use alloy_rpc_types_trace::opcode::OpcodeGas;
 use revm::{
     bytecode::opcode::{self, OpCode},
-    handler::Inspector,
     interpreter::{
-        interpreter::EthInterpreter,
         interpreter_types::{Immediates, Jumps, LoopControl},
         Interpreter,
     },
+    Inspector,
 };
 
 /// An Inspector that counts opcodes and measures gas usage per opcode.
@@ -60,8 +59,8 @@ impl OpcodeGasInspector {
     }
 }
 
-impl<CTX> Inspector<CTX, EthInterpreter> for OpcodeGasInspector {
-    fn step(&mut self, interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX) {
+impl<CTX> Inspector<CTX> for OpcodeGasInspector {
+    fn step(&mut self, interp: &mut Interpreter, _context: &mut CTX) {
         let opcode_value = interp.bytecode.opcode();
         if let Some(opcode) = OpCode::new(opcode_value) {
             // keep track of opcode counts
@@ -72,7 +71,7 @@ impl<CTX> Inspector<CTX, EthInterpreter> for OpcodeGasInspector {
         }
     }
 
-    fn step_end(&mut self, interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX) {
+    fn step_end(&mut self, interp: &mut Interpreter, _context: &mut CTX) {
         // update gas usage for the last opcode
         if let Some((opcode, gas_remaining)) = self.last_opcode_gas_remaining.take() {
             let gas_cost = gas_remaining.saturating_sub(interp.control.gas().remaining());
@@ -100,13 +99,13 @@ mod tests {
     use super::*;
     use revm::{
         bytecode::Bytecode,
+        database::CacheDB,
         database_interface::EmptyDB,
         interpreter::{interpreter::ExtBytecode, InputsImpl, SharedMemory},
         primitives::Bytes,
         specification::hardfork::SpecId,
         Context, MainContext,
     };
-    use revm_database::CacheDB;
     use std::{cell::RefCell, rc::Rc};
 
     #[test]
@@ -116,7 +115,7 @@ mod tests {
         let opcodes = [opcode::ADD, opcode::ADD, opcode::ADD, opcode::BYTE];
 
         let bytecode = Bytecode::new_raw(Bytes::from(opcodes));
-        let mut interpreter = Interpreter::<EthInterpreter>::new(
+        let mut interpreter = Interpreter::new(
             Rc::new(RefCell::new(SharedMemory::new())),
             ExtBytecode::new(bytecode),
             InputsImpl::default(),
@@ -147,7 +146,7 @@ mod tests {
         ];
 
         let bytecode = Bytecode::new_raw(Bytes::from(opcodes));
-        let mut interpreter = Interpreter::<EthInterpreter>::new(
+        let mut interpreter = Interpreter::new(
             Rc::new(RefCell::new(SharedMemory::new())),
             ExtBytecode::new(bytecode),
             InputsImpl::default(),

@@ -10,7 +10,7 @@ use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::parity::*;
 use core::iter::Peekable;
 use revm::{
-    context_interface::result::{ExecutionResult, HaltReasonTrait, ResultAndState},
+    context_interface::result::{ExecutionResult, HaltReasonTr, ResultAndState},
     primitives::KECCAK_EMPTY,
     specification::hardfork::SpecId,
     state::Account,
@@ -152,7 +152,7 @@ impl ParityTraceBuilder {
     /// using the [DatabaseRef].
     pub fn into_trace_results(
         self,
-        res: &ExecutionResult<impl HaltReasonTrait>,
+        res: &ExecutionResult<impl HaltReasonTr>,
         trace_types: &HashSet<TraceType>,
     ) -> TraceResults {
         let output = res.output().cloned().unwrap_or_default();
@@ -173,7 +173,7 @@ impl ParityTraceBuilder {
     /// with the [TracingInspector](crate::tracing::TracingInspector).
     pub fn into_trace_results_with_state<DB: DatabaseRef>(
         self,
-        res: &ResultAndState<impl HaltReasonTrait>,
+        res: &ResultAndState<impl HaltReasonTr>,
         trace_types: &HashSet<TraceType>,
         db: DB,
     ) -> Result<TraceResults, DB::Error> {

@@ -1000,8 +1000,7 @@ mod tests {
         json_stringify, register_builtins, to_serde_value, BIG_INT_JS,
     };
     use boa_engine::{property::Attribute, Source};
-    use revm::database_interface::EmptyDB;
-    use revm_database::CacheDB;
+    use revm::{database::CacheDB, database_interface::EmptyDB};
 
     #[test]
     fn test_contract() {

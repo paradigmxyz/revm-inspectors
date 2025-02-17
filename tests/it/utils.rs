@@ -6,10 +6,11 @@ use revm::{
         result::{ExecutionResult, HaltReason},
         TransactTo,
     },
-    handler::{instructions::EthInstructions, EthPrecompiles, EvmTrait, Inspector},
+    handler::{instructions::EthInstructions, EthPrecompiles, EvmTr},
     interpreter::interpreter::EthInterpreter,
     specification::hardfork::SpecId,
-    Context, Database, DatabaseCommit, ExecuteCommitEvm, InspectCommitEvm, JournaledState,
+    Context, Database, DatabaseCommit, ExecuteCommitEvm, InspectCommitEvm, Inspector,
+    JournaledState,
 };
 use revm_inspectors::tracing::{TraceWriter, TraceWriterConfig, TracingInspector};
 
@@ -38,11 +39,8 @@ pub type EvmDb<DB, INSP> = Evm<
 >;
 
 /// Deploys a contract with the given code and deployer address.
-pub fn deploy_contract<
-    DB: Database + DatabaseCommit,
-    INSP: Inspector<ContextDb<DB>, EthInterpreter>,
->(
-    evm: &mut EvmDb<DB, INSP>,
+pub fn deploy_contract<DB: Database + DatabaseCommit>(
+    evm: &mut EvmDb<DB, ()>,
     code: Bytes,
     deployer: Address,
     spec: SpecId,
@@ -63,10 +61,7 @@ pub fn deploy_contract<
 }
 
 /// Deploys a contract with the given code and deployer address.
-pub fn inspect_deploy_contract<
-    DB: Database + DatabaseCommit,
-    INSP: Inspector<ContextDb<DB>, EthInterpreter>,
->(
+pub fn inspect_deploy_contract<DB: Database + DatabaseCommit, INSP: Inspector<ContextDb<DB>>>(
     evm: &mut EvmDb<DB, INSP>,
     code: Bytes,
     deployer: Address,

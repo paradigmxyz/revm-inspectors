@@ -34,9 +34,7 @@ alloy-rpc-types-eth = "0.11"
 alloy-rpc-types-trace = "0.11"
 alloy-sol-types = "0.8"
 alloy-primitives = { version = "0.8", features = ["map"] }
-revm = { git = "https://github.com/bluealloy/revm.git", rev = "3a4acd4", default-features = false, features = [
-    "std",
-] }
+revm = { git = "https://github.com/bluealloy/revm.git", rev = "a8b9b1e", default-features = false }
 
 anstyle = { version = "1.0", optional = true }
 colorchoice = "1.0"
@@ -52,9 +50,6 @@ boa_gc = { version = "0.20", optional = true }
 
 [dev-dependencies]
 snapbox = { version = "0.6", features = ["term-svg"] }
-revm-database = { git = "https://github.com/bluealloy/revm.git", rev = "3a4acd4", default-features = false, features = [
-    "std",
-] }
 
 [features]
 default = ["std"]

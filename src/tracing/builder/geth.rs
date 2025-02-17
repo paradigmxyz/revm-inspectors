@@ -14,7 +14,7 @@ use alloy_rpc_types_trace::geth::{
     GethDefaultTracingOptions, PreStateConfig, PreStateFrame, PreStateMode, StructLog,
 };
 use revm::{
-    context_interface::result::{HaltReasonTrait, ResultAndState},
+    context_interface::result::{HaltReasonTr, ResultAndState},
     state::EvmState,
     DatabaseRef,
 };
@@ -219,7 +219,7 @@ impl<'a> GethTraceBuilder<'a> {
     /// * `db` - The database to fetch state pre-transaction execution.
     pub fn geth_prestate_traces<DB: DatabaseRef>(
         &self,
-        ResultAndState { state, .. }: &ResultAndState<impl HaltReasonTrait>,
+        ResultAndState { state, .. }: &ResultAndState<impl HaltReasonTr>,
         prestate_config: &PreStateConfig,
         db: DB,
     ) -> Result<PreStateFrame, DB::Error> {

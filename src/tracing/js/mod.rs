@@ -20,17 +20,16 @@ pub use boa_engine::vm::RuntimeLimits;
 use boa_engine::{js_string, Context, JsError, JsObject, JsResult, JsValue, Source};
 use revm::{
     context_interface::{
-        result::{ExecutionResult, HaltReasonTrait, Output, ResultAndState},
-        Block, ContextTrait, Journal, TransactTo, Transaction,
+        result::{ExecutionResult, HaltReasonTr, Output, ResultAndState},
+        Block, ContextTr, Journal, TransactTo, Transaction,
     },
-    handler::{Inspector, JournalExt},
+    inspector::JournalExt,
     interpreter::{
-        interpreter::EthInterpreter,
         interpreter_types::{Jumps, LoopControl},
         CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, Gas, InstructionResult,
         Interpreter, InterpreterResult,
     },
-    DatabaseCommit, DatabaseRef,
+    DatabaseCommit, DatabaseRef, Inspector,
 };
 
 pub(crate) mod bindings;
@@ -218,7 +217,7 @@ impl JsInspector {
     /// Note: This is supposed to be called after the inspection has finished.
     pub fn json_result<DB>(
         &mut self,
-        res: ResultAndState<impl HaltReasonTrait>,
+        res: ResultAndState<impl HaltReasonTr>,
         tx: &impl Transaction,
         block: &impl Block,
         db: &DB,
@@ -234,7 +233,7 @@ impl JsInspector {
     /// Calls the result function and returns the result.
     pub fn result<TX, DB>(
         &mut self,
-        res: ResultAndState<impl HaltReasonTrait>,
+        res: ResultAndState<impl HaltReasonTr>,
         tx: &TX,
         block: &impl Block,
         db: &DB,
@@ -390,7 +389,7 @@ impl JsInspector {
     }
 
     /// Registers the precompiles in the JS context
-    fn register_precompiles<CTX: ContextTrait<Journal: JournalExt>>(&mut self, context: &mut CTX) {
+    fn register_precompiles<CTX: ContextTr<Journal: JournalExt>>(&mut self, context: &mut CTX) {
         if !self.precompiles_registered {
             return;
         }
@@ -402,11 +401,11 @@ impl JsInspector {
     }
 }
 
-impl<CTX> Inspector<CTX, EthInterpreter> for JsInspector
+impl<CTX> Inspector<CTX> for JsInspector
 where
-    CTX: ContextTrait<Journal: JournalExt, Db: DatabaseRef + DatabaseCommit>,
+    CTX: ContextTr<Journal: JournalExt, Db: DatabaseRef + DatabaseCommit>,
 {
-    fn step(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut CTX) {
+    fn step(&mut self, interp: &mut Interpreter, context: &mut CTX) {
         if self.step_fn.is_none() {
             return;
         }
@@ -434,7 +433,7 @@ where
         }
     }
 
-    fn step_end(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut CTX) {
+    fn step_end(&mut self, interp: &mut Interpreter, context: &mut CTX) {
         if self.step_fn.is_none() {
             return;
         }
@@ -463,7 +462,7 @@ where
         }
     }
 
-    fn log(&mut self, _interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX, _log: Log) {}
+    fn log(&mut self, _interp: &mut Interpreter, _context: &mut CTX, _log: Log) {}
 
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         self.register_precompiles(context);
@@ -642,13 +641,13 @@ mod tests {
     use alloy_primitives::{hex, Address};
     use revm::{
         context::TxEnv,
+        database::CacheDB,
         database_interface::EmptyDB,
-        handler::EvmTrait,
+        inspector::InspectorEvmTr,
         specification::hardfork::SpecId,
         state::{AccountInfo, Bytecode},
         InspectEvm, MainBuilder, MainContext,
     };
-    use revm_database::CacheDB;
     //use revm_inspector::{inspector_handler, InspectorContext, InspectorMainEvm};
     use serde_json::json;
 

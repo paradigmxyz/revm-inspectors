@@ -24,8 +24,8 @@ use alloc::format;
 use alloy_primitives::{hex, map::HashMap, Selector};
 use alloy_rpc_types_trace::geth::FourByteFrame;
 use revm::{
-    handler::Inspector,
-    interpreter::{interpreter::EthInterpreter, CallInputs, CallOutcome},
+    interpreter::{CallInputs, CallOutcome},
+    Inspector,
 };
 
 /// Fourbyte tracing inspector that records all function selectors and their calldata sizes.
@@ -42,7 +42,7 @@ impl FourByteInspector {
     }
 }
 
-impl<CTX> Inspector<CTX, EthInterpreter> for FourByteInspector {
+impl<CTX> Inspector<CTX> for FourByteInspector {
     fn call(&mut self, _context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         if inputs.input.len() >= 4 {
             let selector =

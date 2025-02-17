@@ -4,13 +4,13 @@ use crate::utils::deploy_contract;
 use alloy_primitives::{address, hex, Address};
 use revm::{
     context::TxEnv,
-    context_interface::{ContextTrait, TransactTo},
+    context_interface::{ContextTr, TransactTo},
+    database::CacheDB,
     database_interface::EmptyDB,
-    handler::EvmTrait,
+    inspector::InspectorEvmTr,
     specification::hardfork::SpecId,
     Context, InspectEvm, MainBuilder, MainContext,
 };
-use revm_database::CacheDB;
 use revm_inspectors::tracing::js::JsInspector;
 use serde_json::json;
 

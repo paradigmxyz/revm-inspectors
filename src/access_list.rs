@@ -6,13 +6,13 @@ use alloy_primitives::{
 use alloy_rpc_types_eth::{AccessList, AccessListItem};
 use revm::{
     bytecode::opcode,
-    context_interface::{ContextTrait, Journal, Transaction},
-    handler::{Inspector, JournalExt},
+    context_interface::{ContextTr, Journal, Transaction},
+    inspector::JournalExt,
     interpreter::{
-        interpreter::EthInterpreter,
-        interpreter_types::{InputsTrait, Jumps},
+        interpreter_types::{InputsTr, Jumps},
         Interpreter,
     },
+    Inspector,
 };
 
 /// An [Inspector] that collects touched accounts and storage slots.
@@ -71,10 +71,7 @@ impl AccessListInspector {
     /// top-level call.
     ///
     /// Those include caller, callee and precompiles.
-    fn collect_excluded_addresses<CTX: ContextTrait<Journal: JournalExt>>(
-        &mut self,
-        context: &CTX,
-    ) {
+    fn collect_excluded_addresses<CTX: ContextTr<Journal: JournalExt>>(&mut self, context: &CTX) {
         let from = context.tx().caller();
         let to = if let TxKind::Call(to) = context.tx().kind() {
             to
@@ -90,9 +87,9 @@ impl AccessListInspector {
     }
 }
 
-impl<CTX> Inspector<CTX, EthInterpreter> for AccessListInspector
+impl<CTX> Inspector<CTX> for AccessListInspector
 where
-    CTX: ContextTrait<Journal: JournalExt>,
+    CTX: ContextTr<Journal: JournalExt>,
 {
     fn call(
         &mut self,
@@ -130,7 +127,7 @@ where
         None
     }
 
-    fn step(&mut self, interp: &mut Interpreter<EthInterpreter>, _context: &mut CTX) {
+    fn step(&mut self, interp: &mut Interpreter, _context: &mut CTX) {
         match interp.bytecode.opcode() {
             opcode::SLOAD | opcode::SSTORE => {
                 if let Ok(slot) = interp.stack.peek(0) {

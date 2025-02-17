@@ -3,11 +3,10 @@ use alloy_primitives::{address, b256, bytes, hex, Address, B256, U256};
 use alloy_sol_types::{sol, SolCall};
 use colorchoice::ColorChoice;
 use revm::{
-    context_interface::TransactTo, database_interface::EmptyDB, handler::EvmTrait,
-    specification::hardfork::SpecId, Context, InspectCommitEvm, InspectEvm, MainBuilder,
-    MainContext,
+    context_interface::TransactTo, database::CacheDB, database_interface::EmptyDB, handler::EvmTr,
+    inspector::InspectorEvmTr, specification::hardfork::SpecId, Context, InspectCommitEvm,
+    InspectEvm, MainBuilder, MainContext,
 };
-use revm_database::CacheDB;
 use revm_inspectors::tracing::{
     types::{DecodedCallData, DecodedInternalCall, DecodedTraceStep},
     TraceWriterConfig, TracingInspector, TracingInspectorConfig,

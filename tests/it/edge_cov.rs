@@ -5,14 +5,15 @@ use revm::{
     context::{setters::ContextSetters, TxEnv},
     context_interface::{
         result::{ExecutionResult, Output},
-        ContextTrait, TransactTo,
+        ContextTr, TransactTo,
     },
+    database::CacheDB,
     database_interface::EmptyDB,
-    handler::EvmTrait,
+    handler::EvmTr,
+    inspector::InspectorEvmTr,
     specification::hardfork::SpecId,
     Context, DatabaseCommit, InspectEvm, MainBuilder, MainContext,
 };
-use revm_database::CacheDB;
 use revm_inspectors::{
     edge_cov::EdgeCovInspector,
     tracing::{TracingInspector, TracingInspectorConfig},

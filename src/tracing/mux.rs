@@ -9,15 +9,14 @@ use alloy_rpc_types_trace::geth::{
 };
 use revm::{
     context_interface::{
-        result::{HaltReasonTrait, ResultAndState},
-        ContextTrait,
+        result::{HaltReasonTr, ResultAndState},
+        ContextTr,
     },
-    handler::{Inspector, JournalExt},
+    inspector::JournalExt,
     interpreter::{
-        interpreter::EthInterpreter, CallInputs, CallOutcome, CreateInputs, CreateOutcome,
-        EOFCreateInputs, Interpreter,
+        CallInputs, CallOutcome, CreateInputs, CreateOutcome, EOFCreateInputs, Interpreter,
     },
-    DatabaseRef,
+    DatabaseRef, Inspector,
 };
 use thiserror::Error;
 
@@ -104,7 +103,7 @@ impl MuxInspector {
     /// Try converting this [MuxInspector] into a [MuxFrame].
     pub fn try_into_mux_frame<DB: DatabaseRef>(
         &self,
-        result: &ResultAndState<impl HaltReasonTrait>,
+        result: &ResultAndState<impl HaltReasonTr>,
         db: &DB,
         tx_info: TransactionInfo,
     ) -> Result<MuxFrame, DB::Error> {
@@ -161,12 +160,12 @@ impl MuxInspector {
     }
 }
 
-impl<CTX> Inspector<CTX, EthInterpreter> for MuxInspector
+impl<CTX> Inspector<CTX> for MuxInspector
 where
-    CTX: ContextTrait<Journal: JournalExt>,
+    CTX: ContextTr<Journal: JournalExt>,
 {
     #[inline]
-    fn initialize_interp(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut CTX) {
+    fn initialize_interp(&mut self, interp: &mut Interpreter, context: &mut CTX) {
         if let Some(ref mut inspector) = self.four_byte {
             inspector.initialize_interp(interp, context);
         }
@@ -176,7 +175,7 @@ where
     }
 
     #[inline]
-    fn step(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut CTX) {
+    fn step(&mut self, interp: &mut Interpreter, context: &mut CTX) {
         if let Some(ref mut inspector) = self.four_byte {
             inspector.step(interp, context);
         }
@@ -186,7 +185,7 @@ where
     }
 
     #[inline]
-    fn step_end(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut CTX) {
+    fn step_end(&mut self, interp: &mut Interpreter, context: &mut CTX) {
         if let Some(ref mut inspector) = self.four_byte {
             inspector.step_end(interp, context);
         }
@@ -196,7 +195,7 @@ where
     }
 
     #[inline]
-    fn log(&mut self, interp: &mut Interpreter<EthInterpreter>, context: &mut CTX, log: Log) {
+    fn log(&mut self, interp: &mut Interpreter, context: &mut CTX, log: Log) {
         if let Some(ref mut inspector) = self.four_byte {
             inspector.log(interp, context, log.clone());
         }
@@ -285,14 +284,10 @@ where
     #[inline]
     fn selfdestruct(&mut self, contract: Address, target: Address, value: U256) {
         if let Some(ref mut inspector) = self.four_byte {
-            <FourByteInspector as Inspector<CTX, EthInterpreter>>::selfdestruct(
-                inspector, contract, target, value,
-            );
+            <FourByteInspector as Inspector<CTX>>::selfdestruct(inspector, contract, target, value);
         }
         if let Some(ref mut inspector) = self.tracing {
-            <TracingInspector as Inspector<CTX, EthInterpreter>>::selfdestruct(
-                inspector, contract, target, value,
-            );
+            <TracingInspector as Inspector<CTX>>::selfdestruct(inspector, contract, target, value);
         }
     }
 }
