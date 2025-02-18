@@ -758,7 +758,7 @@ impl EvmDbRef {
     pub(crate) fn new<'a, 'b, DB>(state: &'a EvmState, db: &'b DB) -> (Self, EvmDbGuard<'a, 'b>)
     where
         DB: DatabaseRef,
-        <DB as DatabaseRef>::Error: core::fmt::Display,
+        DB::Error: core::fmt::Display,
     {
         let (state, state_guard) = StateRef::new(state);
 
