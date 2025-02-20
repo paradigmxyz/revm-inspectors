@@ -1,4 +1,4 @@
-//! Util functions for revm related ops
+//! Utility functions for revm related ops
 use alloc::{
     string::{String, ToString},
     vec::Vec,
