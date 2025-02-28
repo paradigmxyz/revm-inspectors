@@ -132,7 +132,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features
 
-- [tests] Make the test code more clear and reuseable ([#225](https://github.com/paradigmxyz/revm-inspectors/issues/225))
+- [tests] Make the test code more clear and reusable ([#225](https://github.com/paradigmxyz/revm-inspectors/issues/225))
 - [tracing] Js-tracer add coinbase into context ([#223](https://github.com/paradigmxyz/revm-inspectors/issues/223))
 - Tweak write_bytecodes output ([#217](https://github.com/paradigmxyz/revm-inspectors/issues/217))
 - Add TraceWriterConfig ([#216](https://github.com/paradigmxyz/revm-inspectors/issues/216))
@@ -314,7 +314,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Bug Fixes
 
-- Geth trace inconsistence with selfdestruct ([#173](https://github.com/paradigmxyz/revm-inspectors/issues/173))
+- Geth trace inconsistency with selfdestruct ([#173](https://github.com/paradigmxyz/revm-inspectors/issues/173))
 - Parity state diff when creating SC with balance ([#172](https://github.com/paradigmxyz/revm-inspectors/issues/172))
 
 ### Miscellaneous Tasks
