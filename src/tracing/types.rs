@@ -135,6 +135,12 @@ impl CallTrace {
             InstructionResult::OutOfGas | InstructionResult::PrecompileOOG => {
                 if kind.is_parity() { "Out of gas" } else { "out of gas" }.to_string()
             }
+            InstructionResult::OutOfFunds => if kind.is_parity() {
+                "Insufficient balance for transfer"
+            } else {
+                "insufficient balance for transfer"
+            }
+            .to_string(),
             InstructionResult::MemoryOOG => {
                 if kind.is_parity() { "Out of gas" } else { "out of gas: out of memory" }
                     .to_string()
