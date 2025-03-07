@@ -1,7 +1,7 @@
 [package]
 name = "revm-inspectors"
 description = "Revm inspector implementations"
-version = "0.15.0"
+version = "0.16.0"
 edition = "2021"
 rust-version = "1.82.0"
 license = "MIT OR Apache-2.0"
@@ -30,8 +30,8 @@ clippy.lint_groups_priority = "allow"
 
 [dependencies]
 # eth
-alloy-rpc-types-eth = "0.11"
-alloy-rpc-types-trace = "0.11"
+alloy-rpc-types-eth = "0.12"
+alloy-rpc-types-trace = "0.12"
 alloy-sol-types = "0.8"
 alloy-primitives = { version = "0.8", features = ["map"] }
 revm = { git = "https://github.com/bluealloy/revm.git", rev = "19a5f3b", default-features = false }
