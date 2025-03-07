@@ -34,7 +34,7 @@ alloy-rpc-types-eth = "0.12"
 alloy-rpc-types-trace = "0.12"
 alloy-sol-types = "0.8"
 alloy-primitives = { version = "0.8", features = ["map"] }
-revm = { version = "19.0.0", default-features = false, features = ["std"] }
+revm = { git = "https://github.com/bluealloy/revm.git", rev = "19a5f3b", default-features = false }
 
 anstyle = { version = "1.0", optional = true }
 colorchoice = "1.0"
@@ -53,7 +53,14 @@ snapbox = { version = "0.6", features = ["term-svg"] }
 
 [features]
 default = ["std"]
-std = ["alloy-primitives/std", "anstyle/std", "serde/std", "serde_json/std", "revm/std", "thiserror/std"]
+std = [
+    "alloy-primitives/std",
+    "anstyle/std",
+    "serde/std",
+    "serde_json/std",
+    "revm/std",
+    "thiserror/std",
+]
 serde = ["dep:serde", "revm/serde"]
 js-tracer = ["dep:boa_engine", "dep:boa_gc"]
 

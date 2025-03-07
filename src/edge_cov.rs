@@ -2,11 +2,12 @@ use alloc::{vec, vec::Vec};
 use alloy_primitives::{map::DefaultHashBuilder, Address, U256};
 use core::hash::{BuildHasher, Hash, Hasher};
 use revm::{
+    bytecode::opcode::{self},
     interpreter::{
-        opcode::{self},
+        interpreter_types::{InputsTr, Jumps},
         Interpreter,
     },
-    Database, EvmContext, Inspector,
+    Inspector,
 };
 
 // This is the maximum number of edges that can be tracked. There is a tradeoff between performance
@@ -63,26 +64,23 @@ impl Default for EdgeCovInspector {
     }
 }
 
-impl<DB> Inspector<DB> for EdgeCovInspector
-where
-    DB: Database,
-{
-    fn step(&mut self, interp: &mut Interpreter, _context: &mut EvmContext<DB>) {
-        let address = interp.contract.target_address; // TODO track context for delegatecall?
-        let current_pc = interp.program_counter();
+impl<CTX> Inspector<CTX> for EdgeCovInspector {
+    fn step(&mut self, interp: &mut Interpreter, _context: &mut CTX) {
+        let address = interp.input.target_address(); // TODO track context for delegatecall?
+        let current_pc = interp.bytecode.pc();
 
-        match interp.current_opcode() {
+        match interp.bytecode.opcode() {
             opcode::JUMP => {
                 // unconditional jump
-                if let Ok(jump_dest) = interp.stack().peek(0) {
+                if let Ok(jump_dest) = interp.stack.peek(0) {
                     self.store_hit(address, current_pc, jump_dest);
                 }
             }
             opcode::JUMPI => {
-                if let Ok(stack_value) = interp.stack().peek(0) {
-                    let jump_dest = if stack_value != U256::from(0) {
+                if let Ok(stack_value) = interp.stack.peek(0) {
+                    let jump_dest = if !stack_value.is_zero() {
                         // branch taken
-                        interp.stack().peek(1)
+                        interp.stack.peek(1)
                     } else {
                         // fall through
                         Ok(U256::from(current_pc + 1))
