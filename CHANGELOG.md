@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.16.0) - 2025-03-07
+
+### Dependencies
+
+- Bump alloy 0.12 ([#266](https://github.com/paradigmxyz/revm-inspectors/issues/266))
+
+### Other
+
+- Added additional match arm for OutOfFunds ([#265](https://github.com/paradigmxyz/revm-inspectors/issues/265))
+- Update utils.rs ([#262](https://github.com/paradigmxyz/revm-inspectors/issues/262))
+
 ## [0.15.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.15.0) - 2025-01-31
 
 ### Bug Fixes
@@ -24,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Miscellaneous Tasks
 
+- Release 0.15.0
 - Fix incorrect function check in mod.rs ([#257](https://github.com/paradigmxyz/revm-inspectors/issues/257))
 - [tracer] No whitespace at the end of a line ([#252](https://github.com/paradigmxyz/revm-inspectors/issues/252))
 
