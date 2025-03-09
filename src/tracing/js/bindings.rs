@@ -44,6 +44,8 @@ macro_rules! js_value_getter {
     };
 }
 
+pub(crate) use js_value_getter;
+
 /// A macro that creates a native function that returns a captured JsValue
 macro_rules! js_value_capture_getter {
     ($value:ident, $ctx:ident) => {
@@ -241,9 +243,15 @@ impl StepLog {
 pub(crate) struct MemoryRef(GuardedNullableGc<SharedMemory>);
 
 impl MemoryRef {
-    /// Creates a new stack reference
+    /// Creates a new memory reference
     pub(crate) fn new(mem: &SharedMemory) -> (Self, GcGuard<'_, SharedMemory>) {
         let (inner, guard) = GuardedNullableGc::new_ref(mem);
+        (Self(inner), guard)
+    }
+
+    /// Creates a new owned memory
+    pub(crate) fn new_owned(mem: SharedMemory) -> (Self, GcGuard<'static, SharedMemory>) {
+        let (inner, guard) = GuardedNullableGc::new_owned(mem);
         (Self(inner), guard)
     }
 
@@ -431,6 +439,12 @@ impl StackRef {
     /// Creates a new stack reference
     pub(crate) fn new(stack: &Stack) -> (Self, GcGuard<'_, Stack>) {
         let (inner, guard) = GuardedNullableGc::new_ref(stack);
+        (Self(inner), guard)
+    }
+
+    /// Creates a new owned stack
+    pub(crate) fn new_owned(stack: Stack) -> (Self, GcGuard<'static, Stack>) {
+        let (inner, guard) = GuardedNullableGc::new_owned(stack);
         (Self(inner), guard)
     }
 
