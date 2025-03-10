@@ -34,7 +34,7 @@ alloy-rpc-types-eth = "0.12"
 alloy-rpc-types-trace = "0.12"
 alloy-sol-types = "0.8"
 alloy-primitives = { version = "0.8", features = ["map"] }
-revm = { git = "https://github.com/bluealloy/revm.git", rev = "19a5f3b", default-features = false }
+revm = "20.0.0-alpha.3"
 
 anstyle = { version = "1.0", optional = true }
 colorchoice = "1.0"

@@ -12,7 +12,8 @@ use crate::{
 use alloc::vec::Vec;
 use revm::{
     bytecode::opcode::{self, OpCode},
-    context_interface::{ContextTr, Journal},
+    context::JournalTr,
+    context_interface::ContextTr,
     inspector::JournalExt,
     interpreter::{
         interpreter_types::{
@@ -21,8 +22,7 @@ use revm::{
         CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, EOFCreateInputs,
         InstructionResult, Interpreter, InterpreterResult,
     },
-    primitives::{Address, Bytes, Log, B256, U256},
-    specification::hardfork::SpecId,
+    primitives::{hardfork::SpecId, Address, Bytes, Log, B256, U256},
     Inspector, JournalEntry,
 };
 

@@ -11,7 +11,7 @@ use revm::{
     database_interface::EmptyDB,
     handler::EvmTr,
     inspector::InspectorEvmTr,
-    specification::hardfork::SpecId,
+    primitives::hardfork::SpecId,
     Context, DatabaseCommit, InspectEvm, MainBuilder, MainContext,
 };
 use revm_inspectors::{

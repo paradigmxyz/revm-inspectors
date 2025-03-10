@@ -102,8 +102,7 @@ mod tests {
         database::CacheDB,
         database_interface::EmptyDB,
         interpreter::{interpreter::ExtBytecode, InputsImpl, SharedMemory},
-        primitives::Bytes,
-        specification::hardfork::SpecId,
+        primitives::{hardfork::SpecId, Bytes},
         Context, MainContext,
     };
     use std::{cell::RefCell, rc::Rc};

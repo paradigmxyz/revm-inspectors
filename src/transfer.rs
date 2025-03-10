@@ -2,7 +2,8 @@ use alloc::{vec, vec::Vec};
 use alloy_primitives::{address, b256, Address, Log, LogData, B256, U256};
 use alloy_sol_types::SolValue;
 use revm::{
-    context_interface::{ContextTr, Journal, Transaction},
+    context::JournalTr,
+    context_interface::{ContextTr, Transaction},
     interpreter::{
         CallInputs, CallOutcome, CreateInputs, CreateOutcome, CreateScheme, EOFCreateKind,
     },
@@ -67,7 +68,7 @@ impl TransferInspector {
         self.transfers.iter()
     }
 
-    fn on_transfer<DB: Database, JOURNAL: Journal<Database = DB>>(
+    fn on_transfer<DB: Database, JOURNAL: JournalTr<Database = DB>>(
         &mut self,
         from: Address,
         to: Address,

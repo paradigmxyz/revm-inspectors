@@ -17,7 +17,7 @@ use revm::{
     database_interface::EmptyDB,
     handler::EvmTr,
     inspector::InspectorEvmTr,
-    specification::hardfork::SpecId,
+    primitives::hardfork::SpecId,
     state::AccountInfo,
     Context, DatabaseCommit, InspectEvm, MainBuilder, MainContext,
 };
@@ -196,7 +196,7 @@ fn test_parity_call_selfdestruct() {
     let to =
         deploy_contract(&mut evm, code.into(), deployer, SpecId::LONDON).created_address().unwrap();
 
-    evm.ctx().db().accounts.get_mut(&to).unwrap().info.balance = balance;
+    evm.ctx().db().cache.accounts.get_mut(&to).unwrap().info.balance = balance;
 
     evm.ctx().modify_tx(|tx| {
         *tx = TxEnv {

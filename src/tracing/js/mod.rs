@@ -19,9 +19,10 @@ use alloy_primitives::{Address, Bytes, Log, U256};
 pub use boa_engine::vm::RuntimeLimits;
 use boa_engine::{js_string, Context, JsError, JsObject, JsResult, JsValue, Source};
 use revm::{
+    context::JournalTr,
     context_interface::{
         result::{ExecutionResult, HaltReasonTr, Output, ResultAndState},
-        Block, ContextTr, Journal, TransactTo, Transaction,
+        Block, ContextTr, TransactTo, Transaction,
     },
     inspector::JournalExt,
     interpreter::{
@@ -644,7 +645,7 @@ mod tests {
         database::CacheDB,
         database_interface::EmptyDB,
         inspector::InspectorEvmTr,
-        specification::hardfork::SpecId,
+        primitives::hardfork::SpecId,
         state::{AccountInfo, Bytecode},
         InspectEvm, MainBuilder, MainContext,
     };

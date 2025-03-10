@@ -11,8 +11,7 @@ use alloy_rpc_types_trace::parity::*;
 use core::iter::Peekable;
 use revm::{
     context_interface::result::{ExecutionResult, HaltReasonTr, ResultAndState},
-    primitives::KECCAK_EMPTY,
-    specification::hardfork::SpecId,
+    primitives::{hardfork::SpecId, KECCAK_EMPTY},
     state::Account,
     DatabaseRef,
 };

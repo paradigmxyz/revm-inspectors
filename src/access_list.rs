@@ -6,7 +6,8 @@ use alloy_primitives::{
 use alloy_rpc_types_eth::{AccessList, AccessListItem};
 use revm::{
     bytecode::opcode,
-    context_interface::{ContextTr, Journal, Transaction},
+    context::JournalTr,
+    context_interface::{ContextTr, Transaction},
     inspector::JournalExt,
     interpreter::{
         interpreter_types::{InputsTr, Jumps},

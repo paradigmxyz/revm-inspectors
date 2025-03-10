@@ -5,7 +5,10 @@ use alloc::{
 };
 use alloy_primitives::{hex, Bytes};
 use alloy_sol_types::{ContractError, GenericRevertReason};
-use revm::{primitives::KECCAK_EMPTY, specification::hardfork::SpecId, DatabaseRef};
+use revm::{
+    primitives::{hardfork::SpecId, KECCAK_EMPTY},
+    DatabaseRef,
+};
 
 /// Formats memory data into a list of 32-byte hex-encoded chunks.
 ///

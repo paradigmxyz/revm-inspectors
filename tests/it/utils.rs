@@ -8,13 +8,12 @@ use revm::{
     },
     handler::{instructions::EthInstructions, EthPrecompiles, EvmTr},
     interpreter::interpreter::EthInterpreter,
-    specification::hardfork::SpecId,
-    Context, Database, DatabaseCommit, ExecuteCommitEvm, InspectCommitEvm, Inspector,
-    JournaledState,
+    primitives::hardfork::SpecId,
+    Context, Database, DatabaseCommit, ExecuteCommitEvm, InspectCommitEvm, Inspector, Journal,
 };
 use revm_inspectors::tracing::{TraceWriter, TraceWriterConfig, TracingInspector};
 
-pub type ContextDb<DB> = Context<BlockEnv, TxEnv, CfgEnv, DB, JournaledState<DB>, ()>;
+pub type ContextDb<DB> = Context<BlockEnv, TxEnv, CfgEnv, DB, Journal<DB>, ()>;
 
 pub fn write_traces(tracer: &TracingInspector) -> String {
     write_traces_with(tracer, TraceWriterConfig::new().color_choice(ColorChoice::Never))
@@ -53,7 +52,7 @@ pub fn deploy_contract<DB: Database + DatabaseCommit>(
     });
     evm.ctx().modify_cfg(|cfg| cfg.spec = spec);
 
-    let out = evm.transact_commit_previous().expect("Expect to be executed");
+    let out = evm.replay_commit().expect("Expect to be executed");
     evm.modify_tx(|tx| {
         tx.nonce += 1;
     });

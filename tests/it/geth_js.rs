@@ -8,7 +8,7 @@ use revm::{
     database::CacheDB,
     database_interface::EmptyDB,
     inspector::InspectorEvmTr,
-    specification::hardfork::SpecId,
+    primitives::hardfork::SpecId,
     Context, InspectEvm, MainBuilder, MainContext,
 };
 use revm_inspectors::tracing::js::JsInspector;

@@ -4,8 +4,8 @@ use alloy_sol_types::{sol, SolCall};
 use colorchoice::ColorChoice;
 use revm::{
     context_interface::TransactTo, database::CacheDB, database_interface::EmptyDB, handler::EvmTr,
-    inspector::InspectorEvmTr, specification::hardfork::SpecId, Context, InspectCommitEvm,
-    InspectEvm, MainBuilder, MainContext,
+    inspector::InspectorEvmTr, primitives::hardfork::SpecId, Context, InspectCommitEvm, InspectEvm,
+    MainBuilder, MainContext,
 };
 use revm_inspectors::tracing::{
     types::{DecodedCallData, DecodedInternalCall, DecodedTraceStep},
