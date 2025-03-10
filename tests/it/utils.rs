@@ -30,12 +30,8 @@ pub fn print_traces(tracer: &TracingInspector) {
     println!("{}", write_traces_with(tracer, TraceWriterConfig::new()));
 }
 
-pub type EvmDb<DB, INSP> = Evm<
-    ContextDb<DB>,
-    INSP,
-    EthInstructions<EthInterpreter, ContextDb<DB>>,
-    EthPrecompiles<ContextDb<DB>>,
->;
+pub type EvmDb<DB, INSP> =
+    Evm<ContextDb<DB>, INSP, EthInstructions<EthInterpreter, ContextDb<DB>>, EthPrecompiles>;
 
 /// Deploys a contract with the given code and deployer address.
 pub fn deploy_contract<DB: Database + DatabaseCommit>(
