@@ -34,7 +34,7 @@ alloy-rpc-types-eth = "0.12"
 alloy-rpc-types-trace = "0.12"
 alloy-sol-types = "0.8"
 alloy-primitives = { version = "0.8", features = ["map"] }
-revm = "20.0.0-alpha.3"
+revm = "20.0.0-alpha.4"
 
 anstyle = { version = "1.0", optional = true }
 colorchoice = "1.0"
@@ -63,8 +63,3 @@ std = [
 ]
 serde = ["dep:serde", "revm/serde"]
 js-tracer = ["dep:boa_engine", "dep:boa_gc"]
-
-[patch.crates-io]
-revm = { git = "https:/github.com/bluealloy/revm", rev = "9e39df5" }
-#alloy-rpc-types-eth = { git = "https://github.com/alloy-rs/alloy", rev = "cfb13aa" }
-#alloy-rpc-types-trace = { git = "https://github.com/alloy-rs/alloy", rev = "cfb13aa" }
