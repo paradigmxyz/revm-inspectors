@@ -448,13 +448,13 @@ impl TracingInspector {
             memory,
             returndata,
             gas_remaining: interp.control.gas().remaining(),
-            gas_refund_counter: interp.control.gas().refunded() as u64,
             gas_used,
             decoded: None,
             immediate_bytes,
 
             // fields will be populated end of call
             gas_cost: 0,
+            gas_refund_counter: 0,
             storage_change: None,
             status: InstructionResult::Continue,
         });
@@ -517,6 +517,8 @@ impl TracingInspector {
         // step the remaining gas here, at the end of the step.
         // TODO: Figure out why this can overflow. https://github.com/paradigmxyz/revm-inspectors/pull/38
         step.gas_cost = step.gas_remaining.saturating_sub(interp.control.gas().remaining());
+
+        step.gas_refund_counter = interp.control.gas().refunded();
 
         // set the status
         step.status = interp.control.instruction_result();
