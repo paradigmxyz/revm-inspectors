@@ -7,7 +7,7 @@ use alloy_rpc_types_trace::parity::{
     Action, CallAction, CallType, CreationMethod, SelfdestructAction, TraceType,
 };
 use revm::{
-    context::{setters::ContextSetters, TxEnv},
+    context::{ContextSetters, TxEnv},
     context_interface::{
         block::BlobExcessGasAndPrice,
         result::{ExecutionResult, Output},
@@ -73,7 +73,7 @@ fn test_parity_selfdestruct(spec_id: SpecId) {
     });
     let mut evm =
         evm.with_inspector(TracingInspector::new(TracingInspectorConfig::default_parity()));
-    let res = evm.inspect_previous().unwrap();
+    let res = evm.inspect_replay().unwrap();
     assert!(res.result.is_success(), "{res:#?}");
 
     assert_eq!(evm.inspector().traces().nodes().len(), 1);
@@ -151,7 +151,7 @@ fn test_parity_constructor_selfdestruct() {
         )
         .unwrap();
 
-    //let res = evm.inspect_previous().unwrap();
+    //let res = evm.inspect_replay().unwrap();
     assert!(res.result.is_success());
     print_traces(evm.inspector());
 
@@ -212,7 +212,7 @@ fn test_parity_call_selfdestruct() {
     let mut evm =
         evm.with_inspector(TracingInspector::new(TracingInspectorConfig::default_parity()));
 
-    let res = evm.inspect_previous().unwrap();
+    let res = evm.inspect_replay().unwrap();
     match &res.result {
         ExecutionResult::Success { output, .. } => match output {
             Output::Call(_) => {}
@@ -283,7 +283,7 @@ fn test_parity_statediff_blob_commit() {
             TracingInspectorConfig::from_parity_config(&trace_types),
         ));
 
-    let res = evm.inspect_previous().unwrap();
+    let res = evm.inspect_replay().unwrap();
     let mut full_trace =
         evm.data.inspector.into_parity_builder().into_trace_results(&res.result, &trace_types);
 
@@ -349,7 +349,7 @@ fn test_parity_delegatecall_selfdestruct() {
     let mut evm =
         evm.with_inspector(TracingInspector::new(TracingInspectorConfig::default_parity()));
 
-    let res = evm.inspect_previous().unwrap();
+    let res = evm.inspect_replay().unwrap();
     assert!(res.result.is_success());
 
     let traces = evm

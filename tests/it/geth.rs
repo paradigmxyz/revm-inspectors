@@ -7,7 +7,7 @@ use alloy_rpc_types_trace::geth::{
     GethTrace, PreStateConfig, PreStateFrame,
 };
 use revm::{
-    context::{setters::ContextSetters, TxEnv},
+    context::{ContextSetters, TxEnv},
     context_interface::{ContextTr, TransactTo},
     database::CacheDB,
     database_interface::EmptyDB,
@@ -71,7 +71,7 @@ fn test_geth_calltracer_logs() {
         ..Default::default()
     });
 
-    let res = evm.inspect_previous().unwrap();
+    let res = evm.inspect_replay().unwrap();
     assert!(res.result.is_success());
 
     let call_frame = insp
@@ -179,7 +179,7 @@ fn test_geth_mux_tracer() {
 
     let mut evm = evm.with_inspector(&mut insp);
 
-    let res = evm.inspect_previous().unwrap();
+    let res = evm.inspect_replay().unwrap();
     assert!(res.result.is_success());
 
     let (ctx, inspector) = evm.ctx_inspector();
@@ -258,7 +258,7 @@ fn test_geth_inspector_reset() {
 
     let mut evm = context.build_mainnet_with_inspector(insp);
     // first run inspector
-    let res = evm.inspect_previous().unwrap();
+    let res = evm.inspect_replay().unwrap();
     assert!(res.result.is_success());
     assert_eq!(
         evm.inspector()
@@ -278,7 +278,7 @@ fn test_geth_inspector_reset() {
     assert_eq!(evm.inspector().traces().nodes().first().unwrap().trace.gas_limit, 0);
 
     // second run inspector after reset
-    let res = evm.inspect_previous().unwrap();
+    let res = evm.inspect_replay().unwrap();
     assert!(res.result.is_success());
     let gas_limit = evm.ctx().tx().gas_limit;
     assert_eq!(

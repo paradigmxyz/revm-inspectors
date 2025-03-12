@@ -709,7 +709,7 @@ mod tests {
             .build_mainnet_with_inspector(insp);
 
         let res = evm
-            .inspect_previous_with_tx(TxEnv {
+            .inspect_replay_with_tx(TxEnv {
                 gas_price: 1024,
                 gas_limit: 1_000_000,
                 gas_priority_fee: None,

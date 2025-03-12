@@ -2,7 +2,7 @@
 
 use alloy_primitives::{hex, Address, U256};
 use revm::{
-    context::{setters::ContextSetters, TxEnv},
+    context::TxEnv,
     context_interface::{
         result::{ExecutionResult, Output},
         ContextTr, TransactTo,
@@ -12,7 +12,7 @@ use revm::{
     handler::EvmTr,
     inspector::InspectorEvmTr,
     primitives::hardfork::SpecId,
-    Context, DatabaseCommit, InspectEvm, MainBuilder, MainContext,
+    Context, DatabaseCommit, ExecuteEvm, InspectEvm, MainBuilder, MainContext,
 };
 use revm_inspectors::{
     edge_cov::EdgeCovInspector,
@@ -52,7 +52,7 @@ fn test_edge_coverage() {
     let mut evm = ctx.build_mainnet_with_inspector(&mut insp);
 
     // Create contract
-    let res = evm.inspect_previous().unwrap();
+    let res = evm.inspect_replay().unwrap();
     let addr = match res.result {
         ExecutionResult::Success { output, .. } => match output {
             Output::Create(_, addr) => addr.unwrap(),
@@ -79,7 +79,7 @@ fn test_edge_coverage() {
     let insp = EdgeCovInspector::new();
     let mut evm = evm.with_inspector(insp);
     evm.set_tx(tx);
-    let res = evm.inspect_previous().unwrap();
+    let res = evm.inspect_replay().unwrap();
     assert!(res.result.is_success());
 
     let counts = evm.inspector().get_hitcount();
@@ -97,7 +97,7 @@ fn test_edge_coverage() {
             .into(),
         ..Default::default()
     });
-    let res = evm.inspect_previous().unwrap();
+    let res = evm.inspect_replay().unwrap();
     assert!(res.result.is_success());
 
     // There should be 13 non-zero counts and two edges that have been hit 255 times.

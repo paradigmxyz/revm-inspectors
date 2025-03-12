@@ -50,7 +50,7 @@ fn test_internal_transfers() {
 
     // Create contract
     let mut evm = context.build_mainnet_with_inspector(&mut insp);
-    let res = evm.inspect_previous().unwrap();
+    let res = evm.inspect_replay().unwrap();
     let addr = match res.result {
         ExecutionResult::Success { output, .. } => match output {
             Output::Create(_, addr) => addr.unwrap(),
@@ -79,7 +79,7 @@ fn test_internal_transfers() {
         *tx = tx_env.clone();
         tx.nonce = 1;
     });
-    let res = evm.inspect_previous().unwrap();
+    let res = evm.inspect_replay().unwrap();
     assert!(res.result.is_success());
 
     assert_eq!(evm.inspector().transfers().len(), 2);
@@ -107,7 +107,7 @@ fn test_internal_transfers() {
         *tx = tx_env.clone();
         tx.nonce = 1;
     });
-    let res = evm.inspect_previous().unwrap();
+    let res = evm.inspect_replay().unwrap();
     assert!(res.result.is_success());
 
     assert_eq!(evm.inspector().transfers().len(), 1);
