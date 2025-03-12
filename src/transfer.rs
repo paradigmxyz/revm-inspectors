@@ -2,10 +2,12 @@ use alloc::{vec, vec::Vec};
 use alloy_primitives::{address, b256, Address, Log, LogData, B256, U256};
 use alloy_sol_types::SolValue;
 use revm::{
+    context::JournalTr,
+    context_interface::{ContextTr, Transaction},
     interpreter::{
         CallInputs, CallOutcome, CreateInputs, CreateOutcome, CreateScheme, EOFCreateKind,
     },
-    Database, EvmContext, Inspector, JournaledState,
+    Database, Inspector,
 };
 
 /// Sender of ETH transfer log per `eth_simulateV1` spec.
@@ -66,13 +68,13 @@ impl TransferInspector {
         self.transfers.iter()
     }
 
-    fn on_transfer(
+    fn on_transfer<DB: Database, JOURNAL: JournalTr<Database = DB>>(
         &mut self,
         from: Address,
         to: Address,
         value: U256,
         kind: TransferKind,
-        journaled_state: &mut JournaledState,
+        journaled_state: &mut JOURNAL,
     ) {
         // skip top level transfers
         if self.internal_only && journaled_state.depth() == 0 {
@@ -97,34 +99,26 @@ impl TransferInspector {
     }
 }
 
-impl<DB> Inspector<DB> for TransferInspector
+impl<CTX> Inspector<CTX> for TransferInspector
 where
-    DB: Database,
+    CTX: ContextTr,
 {
-    fn call(
-        &mut self,
-        context: &mut EvmContext<DB>,
-        inputs: &mut CallInputs,
-    ) -> Option<CallOutcome> {
+    fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         if let Some(value) = inputs.transfer_value() {
             self.on_transfer(
                 inputs.transfer_from(),
                 inputs.transfer_to(),
                 value,
                 TransferKind::Call,
-                &mut context.journaled_state,
+                context.journal(),
             );
         }
 
         None
     }
 
-    fn create(
-        &mut self,
-        context: &mut EvmContext<DB>,
-        inputs: &mut CreateInputs,
-    ) -> Option<CreateOutcome> {
-        let nonce = context.journaled_state.account(inputs.caller).info.nonce;
+    fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
+        let nonce = context.journal().load_account(inputs.caller).ok()?.data.info.nonce;
         let address = inputs.created_address(nonce);
 
         let kind = match inputs.scheme {
@@ -132,24 +126,18 @@ where
             CreateScheme::Create2 { .. } => TransferKind::Create2,
         };
 
-        self.on_transfer(inputs.caller, address, inputs.value, kind, &mut context.journaled_state);
+        self.on_transfer(inputs.caller, address, inputs.value, kind, context.journal());
 
         None
     }
 
     fn eofcreate(
         &mut self,
-        context: &mut EvmContext<DB>,
+        context: &mut CTX,
         inputs: &mut revm::interpreter::EOFCreateInputs,
     ) -> Option<CreateOutcome> {
         let address = match inputs.kind {
-            EOFCreateKind::Tx { .. } => {
-                let nonce =
-                    context.env.tx.nonce.unwrap_or_else(|| {
-                        context.journaled_state.account(inputs.caller).info.nonce
-                    });
-                inputs.caller.create(nonce)
-            }
+            EOFCreateKind::Tx { .. } => inputs.caller.create(context.tx().nonce()),
             EOFCreateKind::Opcode { created_address, .. } => created_address,
         };
 
@@ -158,7 +146,7 @@ where
             address,
             inputs.value,
             TransferKind::EofCreate,
-            &mut context.journaled_state,
+            context.journal(),
         );
 
         None

@@ -10,8 +10,10 @@ use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::parity::*;
 use core::iter::Peekable;
 use revm::{
-    db::DatabaseRef,
-    primitives::{Account, ExecutionResult, ResultAndState, SpecId, KECCAK_EMPTY},
+    context_interface::result::{ExecutionResult, HaltReasonTr, ResultAndState},
+    primitives::{hardfork::SpecId, KECCAK_EMPTY},
+    state::Account,
+    DatabaseRef,
 };
 
 /// A type for creating parity style traces
@@ -149,7 +151,7 @@ impl ParityTraceBuilder {
     /// using the [DatabaseRef].
     pub fn into_trace_results(
         self,
-        res: &ExecutionResult,
+        res: &ExecutionResult<impl HaltReasonTr>,
         trace_types: &HashSet<TraceType>,
     ) -> TraceResults {
         let output = res.output().cloned().unwrap_or_default();
@@ -170,7 +172,7 @@ impl ParityTraceBuilder {
     /// with the [TracingInspector](crate::tracing::TracingInspector).
     pub fn into_trace_results_with_state<DB: DatabaseRef>(
         self,
-        res: &ResultAndState,
+        res: &ResultAndState<impl HaltReasonTr>,
         trace_types: &HashSet<TraceType>,
         db: DB,
     ) -> Result<TraceResults, DB::Error> {
@@ -482,8 +484,9 @@ where
 /// in the [ExecutionResult] state map and compares the balance and nonce against what's in the
 /// `db`, which should point to the beginning of the transaction.
 ///
-/// It's expected that `DB` is a revm [Database](revm::db::Database) which at this point already
-/// contains all the accounts that are in the state map and never has to fetch them from disk.
+/// It's expected that `DB` is a revm [Database](revm::database_interface::Database) which at this
+/// point already contains all the accounts that are in the state map and never has to fetch them
+/// from disk.
 pub fn populate_state_diff<'a, DB, I>(
     state_diff: &mut StateDiff,
     db: DB,

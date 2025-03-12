@@ -34,7 +34,7 @@ alloy-rpc-types-eth = "0.12"
 alloy-rpc-types-trace = "0.12"
 alloy-sol-types = "0.8"
 alloy-primitives = { version = "0.8", features = ["map"] }
-revm = { version = "19.0.0", default-features = false, features = ["std"] }
+revm = "20.0.0-alpha.5"
 
 anstyle = { version = "1.0", optional = true }
 colorchoice = "1.0"
@@ -53,10 +53,13 @@ snapbox = { version = "0.6", features = ["term-svg"] }
 
 [features]
 default = ["std"]
-std = ["alloy-primitives/std", "anstyle/std", "serde/std", "serde_json/std", "revm/std", "thiserror/std"]
+std = [
+    "alloy-primitives/std",
+    "anstyle/std",
+    "serde/std",
+    "serde_json/std",
+    "revm/std",
+    "thiserror/std",
+]
 serde = ["dep:serde", "revm/serde"]
 js-tracer = ["dep:boa_engine", "dep:boa_gc"]
-
-[patch.crates-io]
-#alloy-rpc-types-eth = { git = "https://github.com/alloy-rs/alloy", rev = "cfb13aa" }
-#alloy-rpc-types-trace = { git = "https://github.com/alloy-rs/alloy", rev = "cfb13aa" }

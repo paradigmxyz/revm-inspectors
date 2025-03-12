@@ -1,8 +1,16 @@
 //! Geth Js tracer tests
 
-use crate::utils::{deploy_contract, inspect, TestEvm};
+use crate::utils::deploy_contract;
 use alloy_primitives::{address, hex, Address};
-use revm::primitives::{SpecId, TransactTo, TxEnv};
+use revm::{
+    context::TxEnv,
+    context_interface::{ContextTr, TransactTo},
+    database::CacheDB,
+    database_interface::EmptyDB,
+    inspector::InspectorEvmTr,
+    primitives::hardfork::SpecId,
+    Context, InspectEvm, MainBuilder, MainContext,
+};
 use revm_inspectors::tracing::js::JsInspector;
 use serde_json::json;
 
@@ -28,7 +36,13 @@ fn test_geth_jstracer_revert() {
     let code = hex!("608060405261023e806100115f395ff3fe608060405234801561000f575f80fd5b5060043610610034575f3560e01c8063c298557814610038578063febb0f7e14610042575b5f80fd5b61004061004c565b005b61004a61009c565b005b3373ffffffffffffffffffffffffffffffffffffffff167ff950957d2407bed19dc99b718b46b4ce6090c05589006dfb86fd22c34865b23e5f6040516100929190610177565b60405180910390a2565b3373ffffffffffffffffffffffffffffffffffffffff167ff950957d2407bed19dc99b718b46b4ce6090c05589006dfb86fd22c34865b23e5f6040516100e29190610177565b60405180910390a25f61012a576040517f08c379a0000000000000000000000000000000000000000000000000000000008152600401610121906101ea565b60405180910390fd5b565b5f819050919050565b5f819050919050565b5f819050919050565b5f61016161015c6101578461012c565b61013e565b610135565b9050919050565b61017181610147565b82525050565b5f60208201905061018a5f830184610168565b92915050565b5f82825260208201905092915050565b7f62617262617262617200000000000000000000000000000000000000000000005f82015250565b5f6101d4600983610190565b91506101df826101a0565b602082019050919050565b5f6020820190508181035f830152610201816101c8565b905091905056fea2646970667358221220e058dc2c4bd629d62405850cc8e08e6bfad0eea187260784445dfe8f3ee0bea564736f6c634300081a0033");
     let deployer = Address::ZERO;
 
-    let (addr, mut evm) = deploy_contract(code.into(), deployer, SpecId::CANCUN);
+    let mut evm = Context::mainnet()
+        .with_db(CacheDB::new(EmptyDB::default()))
+        .modify_cfg_chained(|cfg| cfg.spec = SpecId::CANCUN)
+        .build_mainnet();
+
+    let addr =
+        deploy_contract(&mut evm, code.into(), deployer, SpecId::CANCUN).created_address().unwrap();
 
     let code = r#"
 {
@@ -36,37 +50,43 @@ fn test_geth_jstracer_revert() {
     result: function(ctx) { return { error: !!ctx.error }; },
 }"#;
 
-    // test with normal operation
-    let mut env = evm.env_with_tx(TxEnv {
-        caller: deployer,
-        gas_limit: 1000000,
-        transact_to: TransactTo::Call(addr),
-        data: hex!("c2985578").into(), // call foo
-        ..Default::default()
-    });
-
-    let mut insp = JsInspector::new(code.to_string(), serde_json::Value::Null).unwrap();
-    let (res, _) = inspect(&mut evm.db, env.clone(), &mut insp).unwrap();
+    let insp = JsInspector::new(code.to_string(), serde_json::Value::Null).unwrap();
+    let mut evm = evm.with_inspector(insp);
+    let res = evm
+        .inspect_replay_with_tx(TxEnv {
+            caller: deployer,
+            gas_limit: 1000000,
+            kind: TransactTo::Call(addr),
+            data: hex!("c2985578").into(), // call foo
+            nonce: 1,
+            ..Default::default()
+        })
+        .unwrap();
     assert!(res.result.is_success());
 
-    let result = insp.json_result(res, &env, &evm.db).unwrap();
+    let (context, insp) = evm.ctx_inspector();
+    let result = insp.json_result(res, context.tx(), context.block(), context.db_ref()).unwrap();
 
     // successful operation
     assert!(!result["error"].as_bool().unwrap());
 
     // test with reverted operation
-    env.tx = TxEnv {
-        caller: deployer,
-        gas_limit: 1000000,
-        transact_to: TransactTo::Call(addr),
-        data: hex!("febb0f7e").into(), // call bar
-        ..Default::default()
-    };
-    let mut insp = JsInspector::new(code.to_string(), serde_json::Value::Null).unwrap();
-    let (res, _) = inspect(&mut evm.db, env.clone(), &mut insp).unwrap();
+    let insp = JsInspector::new(code.to_string(), serde_json::Value::Null).unwrap();
+    let mut evm = evm.with_inspector(insp);
+    let res = evm
+        .inspect_replay_with_tx(TxEnv {
+            caller: deployer,
+            gas_limit: 1000000,
+            kind: TransactTo::Call(addr),
+            data: hex!("febb0f7e").into(), // call bar
+            nonce: 1,
+            ..Default::default()
+        })
+        .unwrap();
     assert!(!res.result.is_success());
 
-    let result = insp.json_result(res, &env, &evm.db).unwrap();
+    let (context, insp) = evm.ctx_inspector();
+    let result = insp.json_result(res, context.tx(), context.block(), context.db_ref()).unwrap();
 
     // reverted operation
     assert!(result["error"].as_bool().unwrap());
@@ -100,13 +120,21 @@ fn test_geth_jstracer_proxy_contract() {
 
     let deployer = address!("f077b491b355e64048ce21e3a6fc4751eeea77fa");
 
-    let mut evm = TestEvm::new();
+    let mut evm = Context::mainnet()
+        .with_db(CacheDB::new(EmptyDB::default()))
+        .modify_cfg_chained(|cfg| cfg.spec = SpecId::CANCUN)
+        .build_mainnet();
 
     // Deploy Implementation(Token) contract
-    let token_addr = evm.simple_deploy(token_code.into());
+    let token_addr =
+        deploy_contract(&mut evm, token_code.into(), Address::default(), SpecId::CANCUN)
+            .created_address()
+            .unwrap();
 
     // Deploy Proxy contract
-    let proxy_addr = evm.simple_deploy(proxy_code.into());
+    let proxy_addr = deploy_contract(&mut evm, proxy_code.into(), Address::ZERO, SpecId::CANCUN)
+        .created_address()
+        .unwrap();
 
     // Set input data for ProxyFactory.transfer(address)
     let mut input_data = hex!("1a695230").to_vec(); // keccak256("transfer(address)")[:4]
@@ -130,18 +158,21 @@ fn test_geth_jstracer_proxy_contract() {
     },
     result: function() { return this.data; }
 }"#;
-    let mut insp = JsInspector::new(code.to_string(), serde_json::Value::Null).unwrap();
-    let env = evm.env_with_tx(TxEnv {
-        caller: deployer,
-        gas_limit: 1000000,
-        transact_to: TransactTo::Call(proxy_addr),
-        data: input_data.into(),
-        ..Default::default()
-    });
+    let insp = JsInspector::new(code.to_string(), serde_json::Value::Null).unwrap();
 
-    let (res, _) = inspect(&mut evm.db, env.clone(), &mut insp).unwrap();
+    let mut evm = evm.with_inspector(insp);
+    let res = evm
+        .inspect_replay_with_tx(TxEnv {
+            caller: deployer,
+            gas_limit: 1000000,
+            kind: TransactTo::Call(proxy_addr),
+            data: input_data.into(),
+            ..Default::default()
+        })
+        .unwrap();
     assert!(res.result.is_success());
 
-    let result = insp.json_result(res, &env, &evm.db).unwrap();
+    let (context, insp) = evm.ctx_inspector();
+    let result = insp.json_result(res, context.tx(), context.block(), context.db_ref()).unwrap();
     assert_eq!(result, json!([{"event": "Transfer", "token": proxy_addr, "caller": deployer}]));
 }

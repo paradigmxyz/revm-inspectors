@@ -19,12 +19,18 @@ use alloy_primitives::{Address, Bytes, Log, U256};
 pub use boa_engine::vm::RuntimeLimits;
 use boa_engine::{js_string, Context, JsError, JsObject, JsResult, JsValue, Source};
 use revm::{
-    interpreter::{
-        return_revert, CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, Gas,
-        InstructionResult, Interpreter, InterpreterResult,
+    context::JournalTr,
+    context_interface::{
+        result::{ExecutionResult, HaltReasonTr, Output, ResultAndState},
+        Block, ContextTr, TransactTo, Transaction,
     },
-    primitives::{Env, ExecutionResult, Output, ResultAndState, TransactTo},
-    ContextPrecompiles, Database, DatabaseRef, EvmContext, Inspector,
+    inspector::JournalExt,
+    interpreter::{
+        interpreter_types::{Jumps, LoopControl},
+        CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, Gas, InstructionResult,
+        Interpreter, InterpreterResult,
+    },
+    DatabaseCommit, DatabaseRef, Inspector,
 };
 
 pub(crate) mod bindings;
@@ -212,26 +218,29 @@ impl JsInspector {
     /// Note: This is supposed to be called after the inspection has finished.
     pub fn json_result<DB>(
         &mut self,
-        res: ResultAndState,
-        env: &Env,
+        res: ResultAndState<impl HaltReasonTr>,
+        tx: &impl Transaction,
+        block: &impl Block,
         db: &DB,
     ) -> Result<serde_json::Value, JsInspectorError>
     where
         DB: DatabaseRef,
         <DB as DatabaseRef>::Error: core::fmt::Display,
     {
-        let result = self.result(res, env, db)?;
+        let result = self.result(res, tx, block, db)?;
         Ok(to_serde_value(result, &mut self.ctx)?)
     }
 
     /// Calls the result function and returns the result.
-    pub fn result<DB>(
+    pub fn result<TX, DB>(
         &mut self,
-        res: ResultAndState,
-        env: &Env,
+        res: ResultAndState<impl HaltReasonTr>,
+        tx: &TX,
+        block: &impl Block,
         db: &DB,
     ) -> Result<JsValue, JsInspectorError>
     where
+        TX: Transaction,
         DB: DatabaseRef,
         <DB as DatabaseRef>::Error: core::fmt::Display,
     {
@@ -261,27 +270,30 @@ impl JsInspector {
             }
         };
 
-        if let TransactTo::Call(target) = env.tx.transact_to {
+        if let TransactTo::Call(target) = tx.kind() {
             to = Some(target);
         }
 
         let ctx = JsEvmContext {
-            r#type: match env.tx.transact_to {
+            r#type: match tx.kind() {
                 TransactTo::Call(_) => "CALL",
                 TransactTo::Create => "CREATE",
             }
             .to_string(),
-            from: env.tx.caller,
+            from: tx.caller(),
             to,
-            input: env.tx.data.clone(),
-            gas: env.tx.gas_limit,
+            input: tx.input().clone(),
+            gas: tx.gas_limit(),
             gas_used,
-            gas_price: env.tx.gas_price.try_into().unwrap_or(u64::MAX),
-            value: env.tx.value,
-            block: env.block.number.try_into().unwrap_or(u64::MAX),
-            coinbase: env.block.coinbase,
+            gas_price: tx
+                .effective_gas_price(block.basefee() as u128)
+                .try_into()
+                .unwrap_or(u64::MAX),
+            value: tx.value(),
+            block: block.number(),
+            coinbase: block.beneficiary(),
             output: output_bytes.unwrap_or_default(),
-            time: env.block.timestamp.to_string(),
+            time: block.timestamp().to_string(),
             intrinsic_gas: 0,
             transaction_ctx: self.transaction_context,
             error,
@@ -378,11 +390,11 @@ impl JsInspector {
     }
 
     /// Registers the precompiles in the JS context
-    fn register_precompiles<DB: Database>(&mut self, precompiles: &ContextPrecompiles<DB>) {
+    fn register_precompiles<CTX: ContextTr<Journal: JournalExt>>(&mut self, context: &mut CTX) {
         if !self.precompiles_registered {
             return;
         }
-        let precompiles = PrecompileList(precompiles.addresses().copied().collect());
+        let precompiles = PrecompileList(context.journal().precompile_addresses().clone());
 
         let _ = precompiles.register_callable(&mut self.ctx);
 
@@ -390,58 +402,60 @@ impl JsInspector {
     }
 }
 
-impl<DB> Inspector<DB> for JsInspector
+impl<CTX> Inspector<CTX> for JsInspector
 where
-    DB: Database + DatabaseRef,
-    <DB as DatabaseRef>::Error: core::fmt::Display,
+    CTX: ContextTr<Journal: JournalExt, Db: DatabaseRef + DatabaseCommit>,
 {
-    fn step(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
+    fn step(&mut self, interp: &mut Interpreter, context: &mut CTX) {
         if self.step_fn.is_none() {
             return;
         }
 
-        let (db, _db_guard) = EvmDbRef::new(&context.journaled_state.state, &context.db);
+        let (db, _db_guard) = EvmDbRef::new(context.journal_ref().evm_state(), context.db_ref());
 
         let (stack, _stack_guard) = StackRef::new(&interp.stack);
-        let (memory, _memory_guard) = MemoryRef::new(&interp.shared_memory);
+        let evm_memory = interp.memory.borrow();
+        let (memory, _memory_guard) = MemoryRef::new(&evm_memory);
         let step = StepLog {
             stack,
-            op: interp.current_opcode().into(),
+            op: interp.bytecode.opcode().into(),
             memory,
-            pc: interp.program_counter() as u64,
-            gas_remaining: interp.gas.remaining(),
-            cost: interp.gas.spent(),
-            depth: context.journaled_state.depth(),
-            refund: interp.gas.refunded() as u64,
+            pc: interp.bytecode.pc() as u64,
+            gas_remaining: interp.control.gas().remaining(),
+            cost: interp.control.gas().spent(),
+            depth: context.journal_ref().depth() as u64,
+            refund: interp.control.gas().refunded() as u64,
             error: None,
             contract: self.active_call().contract.clone(),
         };
 
         if self.try_step(step, db).is_err() {
-            interp.instruction_result = InstructionResult::Revert;
+            interp.control.set_instruction_result(InstructionResult::Revert);
         }
     }
 
-    fn step_end(&mut self, interp: &mut Interpreter, context: &mut EvmContext<DB>) {
+    fn step_end(&mut self, interp: &mut Interpreter, context: &mut CTX) {
         if self.step_fn.is_none() {
             return;
         }
 
-        if matches!(interp.instruction_result, return_revert!()) {
-            let (db, _db_guard) = EvmDbRef::new(&context.journaled_state.state, &context.db);
+        if interp.control.instruction_result().is_revert() {
+            let (db, _db_guard) =
+                EvmDbRef::new(context.journal_ref().evm_state(), context.db_ref());
 
             let (stack, _stack_guard) = StackRef::new(&interp.stack);
-            let (memory, _memory_guard) = MemoryRef::new(&interp.shared_memory);
+            let mem = interp.memory.borrow();
+            let (memory, _memory_guard) = MemoryRef::new(&mem);
             let step = StepLog {
                 stack,
-                op: interp.current_opcode().into(),
+                op: interp.bytecode.opcode().into(),
                 memory,
-                pc: interp.program_counter() as u64,
-                gas_remaining: interp.gas.remaining(),
-                cost: interp.gas.spent(),
-                depth: context.journaled_state.depth(),
-                refund: interp.gas.refunded() as u64,
-                error: Some(format!("{:?}", interp.instruction_result)),
+                pc: interp.bytecode.pc() as u64,
+                gas_remaining: interp.control.gas().remaining(),
+                cost: interp.control.gas().spent(),
+                depth: context.journal_ref().depth() as u64,
+                refund: interp.control.gas().refunded() as u64,
+                error: Some(format!("{:?}", interp.control.instruction_result())),
                 contract: self.active_call().contract.clone(),
             };
 
@@ -449,14 +463,10 @@ where
         }
     }
 
-    fn log(&mut self, _interp: &mut Interpreter, _context: &mut EvmContext<DB>, _log: &Log) {}
+    fn log(&mut self, _interp: &mut Interpreter, _context: &mut CTX, _log: Log) {}
 
-    fn call(
-        &mut self,
-        context: &mut EvmContext<DB>,
-        inputs: &mut CallInputs,
-    ) -> Option<CallOutcome> {
-        self.register_precompiles(&context.precompiles);
+    fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
+        self.register_precompiles(context);
 
         // determine contract address based on the call scheme
         let contract = match inputs.scheme {
@@ -492,12 +502,7 @@ where
         None
     }
 
-    fn call_end(
-        &mut self,
-        _context: &mut EvmContext<DB>,
-        _inputs: &CallInputs,
-        mut outcome: CallOutcome,
-    ) -> CallOutcome {
+    fn call_end(&mut self, _context: &mut CTX, _inputs: &CallInputs, outcome: &mut CallOutcome) {
         if self.can_call_exit() {
             let frame_result = FrameResult {
                 gas_used: outcome.result.gas.spent(),
@@ -510,19 +515,12 @@ where
         }
 
         self.pop_call();
-
-        outcome
     }
 
-    fn create(
-        &mut self,
-        context: &mut EvmContext<DB>,
-        inputs: &mut CreateInputs,
-    ) -> Option<CreateOutcome> {
-        self.register_precompiles(&context.precompiles);
+    fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
+        self.register_precompiles(context);
 
-        let _ = context.load_account(inputs.caller);
-        let nonce = context.journaled_state.account(inputs.caller).info.nonce;
+        let nonce = context.journal().load_account(inputs.caller).unwrap().info.nonce;
         let contract = inputs.created_address(nonce);
         self.push_call(
             contract,
@@ -547,10 +545,10 @@ where
 
     fn create_end(
         &mut self,
-        _context: &mut EvmContext<DB>,
+        _context: &mut CTX,
         _inputs: &CreateInputs,
-        mut outcome: CreateOutcome,
-    ) -> CreateOutcome {
+        outcome: &mut CreateOutcome,
+    ) {
         if self.can_call_exit() {
             let frame_result = FrameResult {
                 gas_used: outcome.result.gas.spent(),
@@ -563,8 +561,6 @@ where
         }
 
         self.pop_call();
-
-        outcome
     }
 
     fn selfdestruct(&mut self, _contract: Address, _target: Address, _value: U256) {
@@ -645,13 +641,15 @@ mod tests {
 
     use alloy_primitives::{hex, Address};
     use revm::{
-        db::{CacheDB, EmptyDB},
-        inspector_handle_register,
-        primitives::{
-            AccountInfo, BlockEnv, Bytecode, CfgEnv, CfgEnvWithHandlerCfg, EnvWithHandlerCfg,
-            HandlerCfg, SpecId, TransactTo, TxEnv,
-        },
+        context::TxEnv,
+        database::CacheDB,
+        database_interface::EmptyDB,
+        inspector::InspectorEvmTr,
+        primitives::hardfork::SpecId,
+        state::{AccountInfo, Bytecode},
+        InspectEvm, MainBuilder, MainContext,
     };
+    //use revm_inspector::{inspector_handler, InspectorContext, InspectorMainEvm};
     use serde_json::json;
 
     #[test]
@@ -695,7 +693,7 @@ mod tests {
         db.insert_account_info(
             addr,
             AccountInfo {
-                code: Some(Bytecode::LegacyRaw(
+                code: Some(Bytecode::new_legacy(
                     /* PUSH1 1, PUSH1 1, STOP */
                     contract.unwrap_or_else(|| hex!("6001600100").into()),
                 )),
@@ -703,31 +701,26 @@ mod tests {
             },
         );
 
-        let cfg = CfgEnvWithHandlerCfg::new(CfgEnv::default(), HandlerCfg::new(SpecId::CANCUN));
-        let env = EnvWithHandlerCfg::new_with_cfg_env(
-            cfg.clone(),
-            BlockEnv::default(),
-            TxEnv {
-                gas_price: U256::from(1024),
+        let insp = JsInspector::new(code.to_string(), serde_json::Value::Null).unwrap();
+
+        let mut evm = revm::Context::mainnet()
+            .modify_cfg_chained(|cfg| cfg.spec = SpecId::CANCUN)
+            .with_db(db)
+            .build_mainnet_with_inspector(insp);
+
+        let res = evm
+            .inspect_replay_with_tx(TxEnv {
+                gas_price: 1024,
                 gas_limit: 1_000_000,
-                transact_to: TransactTo::Call(addr),
+                gas_priority_fee: None,
+                kind: TransactTo::Call(addr),
                 ..Default::default()
-            },
-        );
-
-        let mut insp = JsInspector::new(code.to_string(), serde_json::Value::Null).unwrap();
-
-        let res = revm::Evm::builder()
-            .with_db(db.clone())
-            .with_external_context(&mut insp)
-            .with_env_with_handler_cfg(env.clone())
-            .append_handler_register(inspector_handle_register)
-            .build()
-            .transact()
-            .unwrap();
+            })
+            .expect("pass without error");
 
         assert_eq!(res.result.is_success(), success);
-        insp.json_result(res, &env, &db).unwrap()
+        let (ctx, inspector) = evm.ctx_inspector();
+        inspector.json_result(res, ctx.tx(), ctx.block(), ctx.db_ref()).unwrap()
     }
 
     #[test]
