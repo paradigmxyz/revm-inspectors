@@ -97,6 +97,8 @@ pub struct CallTrace {
     pub steps: Vec<CallTraceStep>,
     /// Optional complementary decoded call data.
     pub decoded: DecodedCallTrace,
+    /// The total gas refunded in the call.
+    pub gas_refunded: u64
 }
 
 impl CallTrace {
@@ -675,7 +677,7 @@ pub struct CallTraceStep {
     /// Remaining gas before step execution
     pub gas_remaining: u64,
     /// Gas refund counter before step execution
-    pub gas_refund_counter: u64,
+    pub gas_refund_counter: i64,
     /// Total gas used before step execution
     pub gas_used: u64,
     // Fields filled in `step_end`
@@ -707,7 +709,7 @@ impl CallTraceStep {
             gas_cost: self.gas_cost,
             op: self.op.to_string(),
             pc: self.pc as u64,
-            refund_counter: (self.gas_refund_counter > 0).then_some(self.gas_refund_counter),
+            refund_counter: (self.gas_refund_counter > 0).then_some(self.gas_refund_counter as u64),
             // Filled, if not disabled manually
             stack: None,
             // Filled in `CallTraceArena::geth_trace` as a result of compounding all slot changes
