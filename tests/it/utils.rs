@@ -72,7 +72,7 @@ pub fn inspect_deploy_contract<DB: Database + DatabaseCommit, INSP: Inspector<Co
             ..Default::default()
         };
     });
-    let output = evm.inspect_commit_previous().expect("Expect to be executed");
+    let output = evm.inspect_replay_commit().expect("Expect to be executed");
 
     evm.ctx().modify_tx(|tx| {
         tx.nonce += 1;
