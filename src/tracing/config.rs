@@ -129,8 +129,16 @@ impl TracingInspectorConfig {
     ///
     /// Note: the parity statediffs can be populated entirely via the execution result, so we don't
     /// need statediff recording
-    pub fn parity_statediff() -> Self {
+    pub const fn parity_statediff() -> Self {
         Self::default_parity()
+    }
+
+    /// Returns the [`TracingInspectorConfig`] for [`TraceType::VmTrace`].
+    pub const fn parity_vm_trace() -> Self {
+        Self::default_parity()
+            .set_steps(true)
+            .set_stack_snapshots(StackSnapshotType::Pushes)
+            .set_memory_snapshots(true)
     }
 
     /// Returns a config for geth style traces.
