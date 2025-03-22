@@ -51,7 +51,7 @@ fn test_trace_printing() {
             tx.nonce = index as u64;
         });
         evm.set_inspector(TracingInspector::new(TracingInspectorConfig::all()));
-        let r = evm.inspect_commit_previous().unwrap();
+        let r = evm.inspect_replay_commit().unwrap();
         assert!(r.is_success(), "evm.call reverted: {r:#?}");
 
         assert_traces(base_path, None, Some(index), evm.inspector());
