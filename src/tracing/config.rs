@@ -123,6 +123,16 @@ impl TracingInspectorConfig {
         }
     }
 
+    /// Returns the [`TracingInspectorConfig`] for [`TraceType::StateDiff`].
+    ///
+    /// This is the same as [`Self::default_parity`]
+    ///
+    /// Note: the parity statediffs can be populated entirely via the execution result, so we don't
+    /// need statediff recording
+    pub fn parity_statediff() -> Self {
+        Self::default_parity()
+    }
+
     /// Returns a config for geth style traces.
     ///
     /// This config does _not_ record opcode level traces and is suited for `debug_traceTransaction`
