@@ -245,6 +245,64 @@ fn test_parity_call_selfdestruct() {
     );
 }
 
+// Minimal example of <https://github.com/paradigmxyz/reth/issues/15150, <0x0b0c51740c9fa9f6b9120410ccaac2eb51b81200a64b6fe0b886c762eb03f48b>
+#[test]
+fn test_parity_call_selfdestruct_create() {
+    let caller = address!("0x61984a7191314323c2A748538717934e44Fc3FF6");
+    let balance = U256::from(50000000000000000u128);
+
+    let code = hex!("0x60806040526040516102283803806102288339818101604052810190610025919061011c565b335f5f6101000a81548173ffffffffffffffffffffffffffffffffffffffff021916908373ffffffffffffffffffffffffffffffffffffffff1602179055503481604051610072906100b2565b61007c9190610156565b6040518091039082f0905080158015610097573d5f5f3e3d5ffd5b50508073ffffffffffffffffffffffffffffffffffffffff16ff5b60b88061017083390190565b5f5ffd5b5f73ffffffffffffffffffffffffffffffffffffffff82169050919050565b5f6100eb826100c2565b9050919050565b6100fb816100e1565b8114610105575f5ffd5b50565b5f81519050610116816100f2565b92915050565b5f60208284031215610131576101306100be565b5b5f61013e84828501610108565b91505092915050565b610150816100e1565b82525050565b5f6020820190506101695f830184610147565b9291505056fe608060405260405160b838038060b88339818101604052810190602191906091565b8073ffffffffffffffffffffffffffffffffffffffff16ff5b5f5ffd5b5f73ffffffffffffffffffffffffffffffffffffffff82169050919050565b5f606582603e565b9050919050565b607381605d565b8114607c575f5ffd5b50565b5f81519050608b81606c565b92915050565b5f6020828403121560a35760a2603a565b5b5f60ae84828501607f565b9150509291505056fe000000000000000000000000f2719d5f7ec66c38abd64bc5efda6876590b3b30");
+
+    let value = U256::from(1);
+
+    let mut evm = Context::mainnet()
+        .with_db(CacheDB::<EmptyDB>::default())
+        .modify_db_chained(|db| {
+            db.insert_account_info(
+                caller,
+                AccountInfo { balance, nonce: 24, ..Default::default() },
+            );
+        })
+        .modify_tx_chained(|tx| {
+            tx.caller = caller;
+            tx.value = value;
+        })
+        .build_mainnet();
+
+    evm.ctx().modify_tx(|tx| {
+        *tx = TxEnv {
+            caller,
+            gas_limit: 100000000,
+            kind: TransactTo::Create,
+            data: code.to_vec().into(),
+            nonce: 24,
+            ..Default::default()
+        };
+    });
+
+    let mut evm =
+        evm.with_inspector(TracingInspector::new(TracingInspectorConfig::default_parity()));
+
+    let res = evm.inspect_replay().unwrap();
+    match &res.result {
+        ExecutionResult::Success { output, .. } => match output {
+            Output::Create(_, _) => {}
+            _ => panic!("create failed {res:?}"),
+        },
+        err => panic!("Execution failed: {err:?}"),
+    }
+    evm.ctx().db().commit(res.state);
+
+    let traces = evm
+        .into_inspector()
+        .into_parity_builder()
+        .into_localized_transaction_traces(Default::default());
+    // .into_trace_results(&res.result, &HashSet::from_iter([TraceType::Trace]));
+
+    // TODO: ensure we have 2 selfdestructs
+    dbg!(&traces);
+}
+
 // Minimal example of <https://github.com/paradigmxyz/reth/issues/8610>
 // <https://sepolia.etherscan.io/tx/0x19dc9c21232699a274849fac7443be6de819755a07b7175a21d337e223070709>
 #[test]
