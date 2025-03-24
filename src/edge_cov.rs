@@ -77,10 +77,10 @@ impl<CTX> Inspector<CTX> for EdgeCovInspector {
                 }
             }
             opcode::JUMPI => {
-                if let Ok(stack_value) = interp.stack.peek(0) {
+                if let Ok(stack_value) = interp.stack.peek(1) {
                     let jump_dest = if !stack_value.is_zero() {
                         // branch taken
-                        interp.stack.peek(1)
+                        interp.stack.peek(0)
                     } else {
                         // fall through
                         Ok(U256::from(current_pc + 1))
