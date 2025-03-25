@@ -245,7 +245,7 @@ fn test_parity_call_selfdestruct() {
     );
 }
 
-// Minimal example of <https://github.com/paradigmxyz/reth/issues/15150, <0x0b0c51740c9fa9f6b9120410ccaac2eb51b81200a64b6fe0b886c762eb03f48b>
+// Minimal example of <https://github.com/paradigmxyz/reth/issues/15150>, 0x0b0c51740c9fa9f6b9120410ccaac2eb51b81200a64b6fe0b886c762eb03f48b
 #[test]
 fn test_parity_call_selfdestruct_create() {
     let caller = address!("0x61984a7191314323c2A748538717934e44Fc3FF6");
