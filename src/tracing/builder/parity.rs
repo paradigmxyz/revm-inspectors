@@ -427,10 +427,10 @@ where
             // find the next selfdestruct to yield
             if let Some((next_trace, _)) = self.iter.peek() {
                 // find the most recently recorded selfdestruct that has a lower address
-                if let Some(pos) =
-                    self.next_selfdestructs.iter().rev().position(|selfdestruct| {
-                        selfdestruct.trace_address < next_trace.trace_address
-                    })
+                if let Some(pos) = self
+                    .next_selfdestructs
+                    .iter()
+                    .rposition(|selfdestruct| selfdestruct.trace_address < next_trace.trace_address)
                 {
                     return Some(self.next_selfdestructs.remove(pos));
                 }
