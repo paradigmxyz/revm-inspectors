@@ -483,7 +483,8 @@ impl TracingInspector {
         if self.config.record_stack_snapshots.is_all()
             || self.config.record_stack_snapshots.is_pushes()
         {
-            let start = interp.stack.len() - step.op.outputs() as usize;
+            // this can potentially underflow if the stack is malformed
+            let start = interp.stack.len().saturating_sub(step.op.outputs() as usize);
             step.push_stack = Some(interp.stack.data()[start..].to_vec());
         }
 
