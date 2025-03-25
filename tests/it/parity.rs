@@ -276,6 +276,7 @@ fn test_parity_call_selfdestruct_create() {
             kind: TransactTo::Create,
             data: code.to_vec().into(),
             nonce: 24,
+            value: U256::from(1),
             ..Default::default()
         };
     });
@@ -297,10 +298,29 @@ fn test_parity_call_selfdestruct_create() {
         .into_inspector()
         .into_parity_builder()
         .into_localized_transaction_traces(Default::default());
-    // .into_trace_results(&res.result, &HashSet::from_iter([TraceType::Trace]));
 
-    // TODO: ensure we have 2 selfdestructs
-    dbg!(&traces);
+    assert_eq!(traces[0].trace.subtraces, 2);
+
+    // ensure we have two selfdestructs recorded
+
+    let last = traces.len() - 1;
+    let second_sd = Action::Selfdestruct(SelfdestructAction {
+        address: address!("0x076af20059617d9bf2e49f4f19bd3f48d582dcef"),
+        balance: U256::from(0),
+        refund_address: address!("0xf2719d5f7ec66c38abd64bc5efda6876590b3b30"),
+    });
+
+    assert_eq!(&traces[last].trace.action, &second_sd);
+    assert_eq!(traces[last].trace.trace_address, vec![1]);
+
+    let first_sd = Action::Selfdestruct(SelfdestructAction {
+        address: address!("0x9f2e7bebe157dfd9f1322bd252f1a5af37629687"),
+        balance: U256::from(1),
+        refund_address: address!("0xf2719d5f7ec66c38abd64bc5efda6876590b3b30"),
+    });
+
+    assert_eq!(&traces[last - 1].trace.action, &first_sd);
+    assert_eq!(traces[last - 1].trace.trace_address, vec![0, 0]);
 }
 
 // Minimal example of <https://github.com/paradigmxyz/reth/issues/8610>
