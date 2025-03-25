@@ -276,7 +276,7 @@ impl ParityTraceBuilder {
     pub fn into_transaction_traces_iter(self) -> impl Iterator<Item = TransactionTrace> {
         let trace_addresses = self.trace_addresses();
         TransactionTraceIter {
-            next_selfdestruct: Default::default(),
+            next_selfdestructs: Default::default(),
             iter: self
                 .nodes
                 .into_iter()
@@ -412,7 +412,7 @@ struct TransactionTraceIter<Iter: Iterator> {
     /// The selfdestruct objects that are derived from the yielded traces.
     ///
     /// This is a stack because we need to yield them in the correct order.
-    next_selfdestruct: Vec<TransactionTrace>,
+    next_selfdestructs: Vec<TransactionTrace>,
 }
 
 impl<Iter> Iterator for TransactionTraceIter<Iter>
@@ -423,20 +423,20 @@ where
 
     fn next(&mut self) -> Option<Self::Item> {
         // ensure the selfdestruct trace is emitted just at the ending of the same depth
-        if !self.next_selfdestruct.is_empty() {
+        if !self.next_selfdestructs.is_empty() {
             // find the next selfdestruct to yield
             if let Some((next_trace, _)) = self.iter.peek() {
                 // find the most recently recorded selfdestruct that has a lower address
                 if let Some(pos) =
-                    self.next_selfdestruct.iter().rev().position(|selfdestruct| {
+                    self.next_selfdestructs.iter().rev().position(|selfdestruct| {
                         selfdestruct.trace_address < next_trace.trace_address
                     })
                 {
-                    return Some(self.next_selfdestruct.remove(pos));
+                    return Some(self.next_selfdestructs.remove(pos));
                 }
             } else {
                 // drain the recorded selfdestructs
-                return self.next_selfdestruct.pop();
+                return self.next_selfdestructs.pop();
             }
         }
 
@@ -448,7 +448,7 @@ where
             // need to account for the additional selfdestruct trace
             trace.subtraces += 1;
             if let Some(selfdestruct) = node.parity_selfdestruct_trace(addr) {
-                self.next_selfdestruct.push(selfdestruct);
+                self.next_selfdestructs.push(selfdestruct);
             }
         }
         Some(trace)
