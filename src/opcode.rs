@@ -120,7 +120,7 @@ mod tests {
             InputsImpl::default(),
             false,
             false,
-            SpecId::LATEST,
+            SpecId::default(),
             u64::MAX,
         );
         let db = CacheDB::new(EmptyDB::default());
@@ -151,7 +151,7 @@ mod tests {
             InputsImpl::default(),
             false,
             false,
-            SpecId::LATEST,
+            SpecId::default(),
             u64::MAX,
         );
         let db = CacheDB::new(EmptyDB::default());
