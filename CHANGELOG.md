@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.18.0) - 2025-03-28
+
+### Bug Fixes
+
+- Use saturating sub for push stack calc ([#274](https://github.com/paradigmxyz/revm-inspectors/issues/274))
+- Populate selfdestructs in localized parity ([#273](https://github.com/paradigmxyz/revm-inspectors/issues/273))
+- Reversed JUMPI args ([#272](https://github.com/paradigmxyz/revm-inspectors/issues/272))
+
+### Dependencies
+
+- Bump alloy+revm ([#275](https://github.com/paradigmxyz/revm-inspectors/issues/275))
+- Bump revm 20.alpha7 ([#270](https://github.com/paradigmxyz/revm-inspectors/issues/270))
+
+### Features
+
+- Add additional constructors for parity trace config ([#269](https://github.com/paradigmxyz/revm-inspectors/issues/269))
+
+## [0.16.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.16.0) - 2025-03-07
+
+### Dependencies
+
+- Bump alloy 0.12 ([#266](https://github.com/paradigmxyz/revm-inspectors/issues/266))
+
+### Miscellaneous Tasks
+
+- Release 0.16.0
+
+### Other
+
+- Added additional match arm for OutOfFunds ([#265](https://github.com/paradigmxyz/revm-inspectors/issues/265))
+- Update utils.rs ([#262](https://github.com/paradigmxyz/revm-inspectors/issues/262))
+
 ## [0.15.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.15.0) - 2025-01-31
 
 ### Bug Fixes
