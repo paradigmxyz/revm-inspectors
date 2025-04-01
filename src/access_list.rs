@@ -47,7 +47,7 @@ impl AccessListInspector {
                 .collect(),
         }
     }
-    
+
     /// Returns the excluded addresses.
     pub fn excluded(&self) -> &HashSet<Address> {
         &self.excluded

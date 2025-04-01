@@ -2,15 +2,10 @@
 
 use alloy_primitives::{address, hex};
 use revm::{
-    context::TxEnv,
-    context_interface::TransactTo,
-    database::CacheDB,
-    database_interface::EmptyDB,
-    handler::EvmTr,
-    state::AccountInfo,
-    Context, InspectEvm, MainBuilder, MainContext,
+    bytecode::Bytecode, context::TxEnv, context_interface::TransactTo, database::CacheDB,
+    database_interface::EmptyDB, handler::EvmTr, state::AccountInfo, Context, InspectEvm,
+    MainBuilder, MainContext,
 };
-use revm::bytecode::Bytecode;
 use revm_inspectors::access_list::AccessListInspector;
 
 #[test]
@@ -30,11 +25,10 @@ fn test_access_list_precompile() {
 
     let context =
         Context::mainnet().with_db(CacheDB::<EmptyDB>::default()).modify_db_chained(|db| {
-            db.insert_account_info(account, AccountInfo { 
-                code: Some(
-                    Bytecode::new_raw(code.into())
-                ),
-                ..Default::default() });
+            db.insert_account_info(
+                account,
+                AccountInfo { code: Some(Bytecode::new_raw(code.into())), ..Default::default() },
+            );
         });
 
     let mut evm = context.build_mainnet();
@@ -50,12 +44,11 @@ fn test_access_list_precompile() {
         }
     });
     let mut accesslist = AccessListInspector::default();
-    let mut evm =
-        evm.with_inspector(&mut accesslist);
+    let mut evm = evm.with_inspector(&mut accesslist);
     let res = evm.inspect_replay().unwrap();
     assert!(res.result.is_success(), "{res:#?}");
-   
+
     let erecover = address!("0x0000000000000000000000000000000000000001");
     assert!(accesslist.excluded().contains(&erecover));
-   assert!(accesslist.into_access_list().is_empty());
+    assert!(accesslist.into_access_list().is_empty());
 }
