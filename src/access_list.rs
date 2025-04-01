@@ -47,6 +47,11 @@ impl AccessListInspector {
                 .collect(),
         }
     }
+    
+    /// Returns the excluded addresses.
+    pub fn excluded(&self) -> &HashSet<Address> {
+        &self.excluded
+    }
 
     /// Returns list of addresses and storage keys used by the transaction. It gives you the list of
     /// addresses and storage keys that were touched during execution.
@@ -92,6 +97,41 @@ impl<CTX> Inspector<CTX> for AccessListInspector
 where
     CTX: ContextTr<Journal: JournalExt>,
 {
+    fn step(&mut self, interp: &mut Interpreter, _context: &mut CTX) {
+        match interp.bytecode.opcode() {
+            opcode::SLOAD | opcode::SSTORE => {
+                if let Ok(slot) = interp.stack.peek(0) {
+                    let cur_contract = interp.input.target_address();
+                    self.access_list
+                        .entry(cur_contract)
+                        .or_default()
+                        .insert(B256::from(slot.to_be_bytes()));
+                }
+            }
+            opcode::EXTCODECOPY
+            | opcode::EXTCODEHASH
+            | opcode::EXTCODESIZE
+            | opcode::BALANCE
+            | opcode::SELFDESTRUCT => {
+                if let Ok(slot) = interp.stack.peek(0) {
+                    let addr = Address::from_word(B256::from(slot.to_be_bytes()));
+                    if !self.excluded.contains(&addr) {
+                        self.access_list.entry(addr).or_default();
+                    }
+                }
+            }
+            opcode::DELEGATECALL | opcode::CALL | opcode::STATICCALL | opcode::CALLCODE => {
+                if let Ok(slot) = interp.stack.peek(1) {
+                    let addr = Address::from_word(B256::from(slot.to_be_bytes()));
+                    if !self.excluded.contains(&addr) {
+                        self.access_list.entry(addr).or_default();
+                    }
+                }
+            }
+            _ => (),
+        }
+    }
+
     fn call(
         &mut self,
         context: &mut CTX,
@@ -126,40 +166,5 @@ where
             self.collect_excluded_addresses(context)
         }
         None
-    }
-
-    fn step(&mut self, interp: &mut Interpreter, _context: &mut CTX) {
-        match interp.bytecode.opcode() {
-            opcode::SLOAD | opcode::SSTORE => {
-                if let Ok(slot) = interp.stack.peek(0) {
-                    let cur_contract = interp.input.target_address();
-                    self.access_list
-                        .entry(cur_contract)
-                        .or_default()
-                        .insert(B256::from(slot.to_be_bytes()));
-                }
-            }
-            opcode::EXTCODECOPY
-            | opcode::EXTCODEHASH
-            | opcode::EXTCODESIZE
-            | opcode::BALANCE
-            | opcode::SELFDESTRUCT => {
-                if let Ok(slot) = interp.stack.peek(0) {
-                    let addr = Address::from_word(B256::from(slot.to_be_bytes()));
-                    if !self.excluded.contains(&addr) {
-                        self.access_list.entry(addr).or_default();
-                    }
-                }
-            }
-            opcode::DELEGATECALL | opcode::CALL | opcode::STATICCALL | opcode::CALLCODE => {
-                if let Ok(slot) = interp.stack.peek(1) {
-                    let addr = Address::from_word(B256::from(slot.to_be_bytes()));
-                    if !self.excluded.contains(&addr) {
-                        self.access_list.entry(addr).or_default();
-                    }
-                }
-            }
-            _ => (),
-        }
     }
 }
