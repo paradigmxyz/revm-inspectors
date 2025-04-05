@@ -30,7 +30,7 @@ use revm::{
         CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, Gas, InstructionResult,
         Interpreter, InterpreterResult,
     },
-    DatabaseCommit, DatabaseRef, Inspector,
+    DatabaseRef, Inspector,
 };
 
 pub(crate) mod bindings;
@@ -404,7 +404,7 @@ impl JsInspector {
 
 impl<CTX> Inspector<CTX> for JsInspector
 where
-    CTX: ContextTr<Journal: JournalExt, Db: DatabaseRef + DatabaseCommit>,
+    CTX: ContextTr<Journal: JournalExt, Db: DatabaseRef>,
 {
     fn step(&mut self, interp: &mut Interpreter, context: &mut CTX) {
         if self.step_fn.is_none() {
