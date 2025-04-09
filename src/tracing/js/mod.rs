@@ -628,11 +628,8 @@ pub enum JsInspectorError {
 /// Converts a JavaScript error into a [InstructionResult::Revert] [InterpreterResult].
 #[inline]
 fn js_error_to_revert(err: JsError) -> InterpreterResult {
-    InterpreterResult {
-        result: InstructionResult::Revert,
-        output: err.to_string().into(),
-        gas: Gas::new(0),
-    }
+    let output = err.to_string().as_bytes().to_vec();
+    InterpreterResult { result: InstructionResult::Revert, output: output.into(), gas: Gas::new(0) }
 }
 
 #[cfg(test)]
