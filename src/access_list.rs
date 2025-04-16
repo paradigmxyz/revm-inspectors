@@ -91,7 +91,9 @@ impl AccessListInspector {
             from.create(nonce)
         };
         let precompiles = context.journal_ref().precompile_addresses().clone();
-        let auth_addrs = context.tx().authorization_list().map(|a| a.address());
+
+        // 7702 authorities should be excluded because those get loaded anyway
+        let auth_addrs = context.tx().authorization_list().flat_map(|a| a.authority());
 
         self.excluded = [from, to].into_iter().chain(precompiles).chain(auth_addrs).collect();
     }
