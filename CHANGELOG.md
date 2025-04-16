@@ -5,10 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.19.1) - 2025-04-16
+
+### Other
+
+- Excluded valid 7702 authorities from create_accesslist ([#282](https://github.com/paradigmxyz/revm-inspectors/issues/282))
+
 ## [0.19.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.19.0) - 2025-04-09
 
 ### Miscellaneous Tasks
 
+- Release 0.19.0
 - Alloy 0.14 ([#280](https://github.com/paradigmxyz/revm-inspectors/issues/280))
 - Derive `Clone` on `TransferInspector` ([#279](https://github.com/paradigmxyz/revm-inspectors/issues/279))
 
