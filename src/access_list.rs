@@ -3,6 +3,8 @@ use alloy_primitives::{
     map::{HashMap, HashSet},
     Address, TxKind, B256,
 };
+use revm::context::transaction::AuthorizationTr;
+
 use alloy_rpc_types_eth::{AccessList, AccessListItem};
 use revm::{
     bytecode::opcode,
@@ -89,7 +91,9 @@ impl AccessListInspector {
             from.create(nonce)
         };
         let precompiles = context.journal_ref().precompile_addresses().clone();
-        self.excluded = [from, to].into_iter().chain(precompiles).collect();
+        let auth_addrs = context.tx().authorization_list().map(|a| a.address());
+
+        self.excluded = [from, to].into_iter().chain(precompiles).chain(auth_addrs).collect();
     }
 }
 
