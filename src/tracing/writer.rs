@@ -30,6 +30,7 @@ pub struct TraceWriterConfig {
     color_cheatcodes: bool,
     write_bytecodes: bool,
     write_storage_changes: bool,
+    truncate: bool,
 }
 
 impl Default for TraceWriterConfig {
@@ -46,6 +47,7 @@ impl TraceWriterConfig {
             color_cheatcodes: false,
             write_bytecodes: false,
             write_storage_changes: false,
+            truncate: true,
         }
     }
 
@@ -92,6 +94,18 @@ impl TraceWriterConfig {
     /// Returns `true` if storage changes are written to the writer.
     pub fn get_write_storage_changes(&self) -> bool {
         self.write_storage_changes
+    }
+
+    /// Sets whether to truncate inputs in the trace output.
+    /// Default: false
+    pub fn truncate(mut self, yes: bool) -> Self {
+        self.truncate = yes;
+        self
+    }
+
+    /// Returns whether large inputs such as arrays will be truncated or not.
+    pub fn get_truncate(&self) -> bool {
+        self.truncate
     }
 }
 
