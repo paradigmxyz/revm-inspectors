@@ -32,6 +32,7 @@ use revm::{
     },
     DatabaseRef, Inspector,
 };
+use std::borrow::Borrow;
 
 pub(crate) mod bindings;
 pub(crate) mod builtins;
@@ -125,7 +126,7 @@ impl JsInspector {
         register_builtins(&mut ctx)?;
 
         // evaluate the code
-        let code = format!("({})", code);
+        let code = format!("({code})");
         let obj =
             ctx.eval(Source::from_bytes(code.as_bytes())).map_err(JsInspectorError::EvalCode)?;
 
@@ -266,7 +267,7 @@ impl JsInspector {
                 output_bytes = Some(output);
             }
             ExecutionResult::Halt { reason, .. } => {
-                error = Some(format!("execution halted: {:?}", reason));
+                error = Some(format!("execution halted: {reason:?}"));
             }
         };
 
@@ -415,7 +416,7 @@ where
 
         let (stack, _stack_guard) = StackRef::new(&interp.stack);
         let evm_memory = interp.memory.borrow();
-        let (memory, _memory_guard) = MemoryRef::new(&evm_memory);
+        let (memory, _memory_guard) = MemoryRef::new(evm_memory);
         let step = StepLog {
             stack,
             op: interp.bytecode.opcode().into(),
@@ -445,7 +446,7 @@ where
 
             let (stack, _stack_guard) = StackRef::new(&interp.stack);
             let mem = interp.memory.borrow();
-            let (memory, _memory_guard) = MemoryRef::new(&mem);
+            let (memory, _memory_guard) = MemoryRef::new(mem);
             let step = StepLog {
                 stack,
                 op: interp.bytecode.opcode().into(),

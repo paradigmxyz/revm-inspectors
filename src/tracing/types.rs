@@ -178,7 +178,7 @@ impl CallTrace {
             //     "out of gas: not enough gas for reentrancy sentry"
             // }
             // .to_string(),
-            status => format!("{:?}", status),
+            status => format!("{status:?}"),
         })
     }
 }

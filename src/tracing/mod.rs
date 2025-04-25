@@ -25,6 +25,7 @@ use revm::{
     primitives::{hardfork::SpecId, Address, Bytes, Log, B256, U256},
     Inspector, JournalEntry,
 };
+use std::borrow::Borrow;
 
 mod arena;
 pub use arena::CallTraceArena;
@@ -406,7 +407,7 @@ impl TracingInspector {
                     }
                 }
             }
-            RecordedMemory::new(interp.memory.borrow().context_memory())
+            RecordedMemory::new(&interp.memory.borrow().context_memory())
         });
 
         let stack = if self.config.record_stack_snapshots.is_all()
@@ -416,11 +417,11 @@ impl TracingInspector {
         } else {
             None
         };
-        let returndata = self
-            .config
-            .record_returndata_snapshots
-            .then(|| interp.return_data.buffer().to_vec().into())
-            .unwrap_or_default();
+        let returndata = if self.config.record_returndata_snapshots {
+            interp.return_data.buffer().to_vec().into()
+        } else {
+            Default::default()
+        };
 
         let gas_used = gas_used(
             interp.runtime_flag.spec_id(),
@@ -491,7 +492,7 @@ impl TracingInspector {
         if self.config.record_state_diff {
             let op = step.op.get();
 
-            let journal_entry = context.journal_ref().last_journal().last();
+            let journal_entry = context.journal_ref().journal().last();
 
             step.storage_change = match (op, journal_entry) {
                 (

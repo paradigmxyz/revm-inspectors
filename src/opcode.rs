@@ -105,7 +105,6 @@ mod tests {
         primitives::{hardfork::SpecId, Bytes},
         Context, MainContext,
     };
-    use std::{cell::RefCell, rc::Rc};
 
     #[test]
     fn test_opcode_counter_inspector() {
@@ -115,7 +114,7 @@ mod tests {
 
         let bytecode = Bytecode::new_raw(Bytes::from(opcodes));
         let mut interpreter = Interpreter::new(
-            Rc::new(RefCell::new(SharedMemory::new())),
+            SharedMemory::new(),
             ExtBytecode::new(bytecode),
             InputsImpl::default(),
             false,
@@ -146,7 +145,7 @@ mod tests {
 
         let bytecode = Bytecode::new_raw(Bytes::from(opcodes));
         let mut interpreter = Interpreter::new(
-            Rc::new(RefCell::new(SharedMemory::new())),
+            SharedMemory::new(),
             ExtBytecode::new(bytecode),
             InputsImpl::default(),
             false,
