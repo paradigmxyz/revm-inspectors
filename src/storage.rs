@@ -1,4 +1,3 @@
-use alloc::collections::BTreeSet;
 use alloy_primitives::{map::HashMap, Address, B256};
 use revm::{
     bytecode::opcode,
@@ -11,15 +10,20 @@ use revm::{
     Inspector,
 };
 
+/// Tracks storage slot access statistics
+#[derive(Debug, Default)]
+struct SlotStats {
+    /// Number of times this slot was accessed when cold
+    cold_loads: u64,
+    /// Number of times this slot was accessed when warm
+    warm_loads: u64,
+}
+
 /// An Inspector that tracks warm and cold storage slot accesses.
 #[derive(Debug, Default)]
 pub struct StorageInspector {
-    /// Tracks which storage slots have been accessed
-    accessed_slots: HashMap<Address, BTreeSet<B256>>,
-    /// Counter for cold SLOADs
-    cold_loads: u64,
-    /// Counter for warm SLOADs  
-    warm_loads: u64,
+    /// Tracks storage slots and their access statistics per address
+    accessed_slots: HashMap<Address, HashMap<B256, SlotStats>>,
 }
 
 impl StorageInspector {
@@ -30,12 +34,20 @@ impl StorageInspector {
 
     /// Returns the number of cold SLOAD operations
     pub fn cold_loads(&self) -> u64 {
-        self.cold_loads
+        self.accessed_slots
+            .values()
+            .flat_map(|slots| slots.values())
+            .map(|stats| stats.cold_loads)
+            .sum()
     }
 
     /// Returns the number of warm SLOAD operations  
     pub fn warm_loads(&self) -> u64 {
-        self.warm_loads
+        self.accessed_slots
+            .values()
+            .flat_map(|slots| slots.values())
+            .map(|stats| stats.warm_loads)
+            .sum()
     }
 }
 
@@ -49,17 +61,16 @@ where
                 let address = interp.input.target_address();
                 let slot = B256::from(slot.to_be_bytes());
 
-                // Check if this slot was previously accessed
-                if let Some(slots) = self.accessed_slots.get(&address) {
-                    if slots.contains(&slot) {
-                        self.warm_loads += 1;
-                        return;
-                    }
-                }
+                let stats =
+                    self.accessed_slots.entry(address).or_default().entry(slot).or_default();
 
-                // First time access - mark as cold
-                self.cold_loads += 1;
-                self.accessed_slots.entry(address).or_default().insert(slot);
+                // If this is the first time this slot is accessed, it's a cold load
+                if stats.cold_loads == 0 {
+                    stats.cold_loads += 1;
+                } else {
+                    // If this slot has been accessed before, it's a warm load
+                    stats.warm_loads += 1;
+                }
             }
         }
     }
