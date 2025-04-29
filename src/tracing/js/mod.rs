@@ -125,7 +125,7 @@ impl JsInspector {
         register_builtins(&mut ctx)?;
 
         // evaluate the code
-        let code = format!("({})", code);
+        let code = format!("({code})");
         let obj =
             ctx.eval(Source::from_bytes(code.as_bytes())).map_err(JsInspectorError::EvalCode)?;
 
@@ -266,7 +266,7 @@ impl JsInspector {
                 output_bytes = Some(output);
             }
             ExecutionResult::Halt { reason, .. } => {
-                error = Some(format!("execution halted: {:?}", reason));
+                error = Some(format!("execution halted: {reason:?}"));
             }
         };
 

@@ -416,11 +416,11 @@ impl TracingInspector {
         } else {
             None
         };
-        let returndata = self
-            .config
-            .record_returndata_snapshots
-            .then(|| interp.return_data.buffer().to_vec().into())
-            .unwrap_or_default();
+        let returndata = if self.config.record_returndata_snapshots {
+            interp.return_data.buffer().to_vec().into()
+        } else {
+            Default::default()
+        };
 
         let gas_used = gas_used(
             interp.runtime_flag.spec_id(),

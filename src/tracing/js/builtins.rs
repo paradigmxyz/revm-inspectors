@@ -28,12 +28,12 @@ pub(crate) fn to_serde_value(val: JsValue, ctx: &mut Context) -> JsResult<serde_
         let json = json.to_std_string().map_err(|err| {
             JsError::from_native(
                 JsNativeError::error()
-                    .with_message(format!("failed to convert JSON to string: {}", err)),
+                    .with_message(format!("failed to convert JSON to string: {err}")),
             )
         })?;
         serde_json::from_str(&json).map_err(|err| {
             JsError::from_native(
-                JsNativeError::error().with_message(format!("failed to parse JSON: {}", err)),
+                JsNativeError::error().with_message(format!("failed to parse JSON: {err}")),
             )
         })
     } else {
