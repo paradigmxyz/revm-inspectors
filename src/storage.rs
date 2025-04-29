@@ -10,20 +10,11 @@ use revm::{
     Inspector,
 };
 
-/// Tracks storage slot access statistics
-#[derive(Debug, Default)]
-struct SlotStats {
-    /// Number of times this slot was accessed when cold
-    cold_loads: u64,
-    /// Number of times this slot was accessed when warm
-    warm_loads: u64,
-}
-
 /// An Inspector that tracks warm and cold storage slot accesses.
 #[derive(Debug, Default)]
 pub struct StorageInspector {
     /// Tracks storage slots and their access statistics per address
-    accessed_slots: HashMap<Address, HashMap<B256, SlotStats>>,
+    accessed_slots: HashMap<Address, HashMap<B256, u64>>,
 }
 
 impl StorageInspector {
@@ -37,8 +28,8 @@ impl StorageInspector {
         self.accessed_slots
             .values()
             .flat_map(|slots| slots.values())
-            .map(|stats| stats.cold_loads)
-            .sum()
+            .filter(|&&count| count == 1)
+            .count() as u64
     }
 
     /// Returns the number of warm SLOAD operations  
@@ -46,8 +37,13 @@ impl StorageInspector {
         self.accessed_slots
             .values()
             .flat_map(|slots| slots.values())
-            .map(|stats| stats.warm_loads)
+            .map(|&count| count.saturating_sub(1))
             .sum()
+    }
+
+    /// Consumes the inspector and returns the map
+    pub fn into_inner(self) -> HashMap<Address, HashMap<B256, u64>> {
+        self.accessed_slots
     }
 }
 
@@ -61,16 +57,10 @@ where
                 let address = interp.input.target_address();
                 let slot = B256::from(slot.to_be_bytes());
 
-                let stats =
+                let slot_access_count =
                     self.accessed_slots.entry(address).or_default().entry(slot).or_default();
 
-                // If this is the first time this slot is accessed, it's a cold load
-                if stats.cold_loads == 0 {
-                    stats.cold_loads += 1;
-                } else {
-                    // If this slot has been accessed before, it's a warm load
-                    stats.warm_loads += 1;
-                }
+                *slot_access_count += 1;
             }
         }
     }
