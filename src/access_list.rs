@@ -26,7 +26,7 @@ pub struct AccessListInspector {
     /// All addresses that should be excluded from the final accesslist
     excluded: HashSet<Address>,
     /// All addresses and touched slots
-    access_list: HashMap<Address, BTreeSet<B256>>,
+    touched_slots: HashMap<Address, BTreeSet<B256>>,
 }
 
 impl From<AccessList> for AccessListInspector {
@@ -42,7 +42,7 @@ impl AccessListInspector {
     pub fn new(access_list: AccessList) -> Self {
         Self {
             excluded: Default::default(),
-            access_list: access_list
+            touched_slots: access_list
                 .0
                 .into_iter()
                 .map(|v| (v.address, v.storage_keys.into_iter().collect()))
@@ -57,19 +57,19 @@ impl AccessListInspector {
 
     /// Returns a reference to the map of addresses and their corresponding touched storage slots.
     pub fn touched_slots(&self) -> &HashMap<Address, BTreeSet<B256>> {
-        &self.access_list
+        &self.touched_slots
     }
 
     /// Consumes the inspector and returns the map of addresses and their corresponding touched
     /// storage slots.
     pub fn into_touched_slots(self) -> HashMap<Address, BTreeSet<B256>> {
-        self.access_list
+        self.touched_slots
     }
 
     /// Returns list of addresses and storage keys used by the transaction. It gives you the list of
     /// addresses and storage keys that were touched during execution.
     pub fn into_access_list(self) -> AccessList {
-        let items = self.access_list.into_iter().map(|(address, slots)| AccessListItem {
+        let items = self.touched_slots.into_iter().map(|(address, slots)| AccessListItem {
             address,
             storage_keys: slots.into_iter().collect(),
         });
@@ -79,7 +79,7 @@ impl AccessListInspector {
     /// Returns list of addresses and storage keys used by the transaction. It gives you the list of
     /// addresses and storage keys that were touched during execution.
     pub fn access_list(&self) -> AccessList {
-        let items = self.access_list.iter().map(|(address, slots)| AccessListItem {
+        let items = self.touched_slots.iter().map(|(address, slots)| AccessListItem {
             address: *address,
             storage_keys: slots.iter().copied().collect(),
         });
@@ -119,7 +119,7 @@ where
             opcode::SLOAD | opcode::SSTORE => {
                 if let Ok(slot) = interp.stack.peek(0) {
                     let cur_contract = interp.input.target_address();
-                    self.access_list
+                    self.touched_slots
                         .entry(cur_contract)
                         .or_default()
                         .insert(B256::from(slot.to_be_bytes()));
@@ -133,7 +133,7 @@ where
                 if let Ok(slot) = interp.stack.peek(0) {
                     let addr = Address::from_word(B256::from(slot.to_be_bytes()));
                     if !self.excluded.contains(&addr) {
-                        self.access_list.entry(addr).or_default();
+                        self.touched_slots.entry(addr).or_default();
                     }
                 }
             }
@@ -141,7 +141,7 @@ where
                 if let Ok(slot) = interp.stack.peek(1) {
                     let addr = Address::from_word(B256::from(slot.to_be_bytes()));
                     if !self.excluded.contains(&addr) {
-                        self.access_list.entry(addr).or_default();
+                        self.touched_slots.entry(addr).or_default();
                     }
                 }
             }
