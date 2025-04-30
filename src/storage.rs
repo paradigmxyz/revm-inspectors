@@ -13,7 +13,7 @@ use revm::{
 /// An Inspector that tracks warm and cold storage slot accesses.
 #[derive(Debug, Default)]
 pub struct StorageInspector {
-    /// Tracks storage slots and their access statistics per address
+    /// Tracks storage slots and access counter.
     accessed_slots: HashMap<Address, HashMap<B256, u64>>,
 }
 
@@ -23,8 +23,8 @@ impl StorageInspector {
         Self::default()
     }
 
-    /// Returns the number of cold SLOAD operations
-    pub fn cold_loads(&self) -> u64 {
+    /// Returns the number of accessed slots that were only accessed once.
+    pub fn unique_loads(&self) -> u64 {
         self.accessed_slots
             .values()
             .flat_map(|slots| slots.values())
@@ -32,7 +32,7 @@ impl StorageInspector {
             .count() as u64
     }
 
-    /// Returns the number of warm SLOAD operations  
+    /// Returns how often slots where accessed after the initial access
     pub fn warm_loads(&self) -> u64 {
         self.accessed_slots
             .values()
@@ -41,8 +41,13 @@ impl StorageInspector {
             .sum()
     }
 
-    /// Consumes the inspector and returns the map
-    pub fn into_inner(self) -> HashMap<Address, HashMap<B256, u64>> {
+    /// Returns the tracked slots per address.
+    pub const fn accessed_slots(&self) -> &HashMap<Address, HashMap<B256, u64>> {
+        &self.accessed_slots
+    }
+
+    /// Consumes the inspector and returns the map.
+    pub fn into_accessed_slots(self) -> HashMap<Address, HashMap<B256, u64>> {
         self.accessed_slots
     }
 }
