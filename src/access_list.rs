@@ -55,6 +55,11 @@ impl AccessListInspector {
         &self.excluded
     }
 
+    /// Returns a reference to the map of addresses and their corresponding touched storage slots.
+    pub fn touched_slots(&self) -> &HashMap<Address, BTreeSet<B256>> {
+        &self.access_list
+    }
+
     /// Returns list of addresses and storage keys used by the transaction. It gives you the list of
     /// addresses and storage keys that were touched during execution.
     pub fn into_access_list(self) -> AccessList {
