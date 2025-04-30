@@ -33,4 +33,7 @@ pub mod transfer;
 /// An inspector for tracking edge coverage.
 pub mod edge_cov;
 
+/// An inspector for tracking storage access.
+pub mod storage;
+
 pub use colorchoice::ColorChoice;
