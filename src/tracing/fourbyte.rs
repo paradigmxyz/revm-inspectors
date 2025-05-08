@@ -24,7 +24,8 @@ use alloc::format;
 use alloy_primitives::{hex, map::HashMap, Selector};
 use alloy_rpc_types_trace::geth::FourByteFrame;
 use revm::{
-    interpreter::{CallInputs, CallOutcome},
+    context::{ContextTr, LocalContextTr},
+    interpreter::{CallInput, CallInputs, CallOutcome},
     Inspector,
 };
 
@@ -42,12 +43,26 @@ impl FourByteInspector {
     }
 }
 
-impl<CTX> Inspector<CTX> for FourByteInspector {
-    fn call(&mut self, _context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
+impl<CTX: ContextTr> Inspector<CTX> for FourByteInspector {
+    fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         if inputs.input.len() >= 4 {
+            let r;
+            let input_bytes = match &inputs.input {
+                CallInput::SharedBuffer(range) => {
+                    match context.local().shared_memory_buffer_slice(range.clone()) {
+                        Some(slice) => {
+                            r = slice;
+                            r.as_ref()
+                        }
+                        None => &[],
+                    }
+                }
+                CallInput::Bytes(bytes) => bytes.as_ref(),
+            };
+
             let selector =
-                Selector::try_from(&inputs.input[..4]).expect("input is at least 4 bytes");
-            let calldata_size = inputs.input[4..].len();
+                Selector::try_from(&input_bytes[..4]).expect("input is at least 4 bytes");
+            let calldata_size = input_bytes[4..].len();
             *self.inner.entry((selector, calldata_size)).or_default() += 1;
         }
 

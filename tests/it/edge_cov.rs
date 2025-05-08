@@ -101,7 +101,7 @@ fn test_edge_coverage() {
     assert!(res.result.is_success());
 
     // There should be 13 non-zero counts and two edges that have been hit 255 times.
-    let mut counts = evm.data.inspector.into_hitcount();
+    let mut counts = evm.inspector.into_hitcount();
 
     counts.sort();
     assert_eq!(counts[counts.len() - 1], 255);

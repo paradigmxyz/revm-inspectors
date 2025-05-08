@@ -8,7 +8,7 @@ use crate::tracing::{
         builtins::{register_builtins, to_serde_value, PrecompileList},
     },
     types::CallKind,
-    TransactionContext,
+    CallInputExt, TransactionContext,
 };
 use alloc::{
     format,
@@ -478,7 +478,7 @@ where
         let value = inputs.transfer_value().unwrap_or_default();
         self.push_call(
             contract,
-            inputs.input.clone(),
+            inputs.input_data(context),
             value,
             inputs.scheme.into(),
             inputs.caller,

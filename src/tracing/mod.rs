@@ -12,15 +12,15 @@ use crate::{
 use alloc::vec::Vec;
 use revm::{
     bytecode::opcode::{self, OpCode},
-    context::JournalTr,
+    context::{JournalTr, LocalContextTr},
     context_interface::ContextTr,
     inspector::JournalExt,
     interpreter::{
         interpreter_types::{
             Immediates, InputsTr, Jumps, LoopControl, ReturnData, RuntimeFlag, SubRoutineStack,
         },
-        CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, EOFCreateInputs,
-        InstructionResult, Interpreter, InterpreterResult,
+        CallInput, CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome,
+        EOFCreateInputs, InstructionResult, Interpreter, InterpreterResult,
     },
     primitives::{hardfork::SpecId, Address, Bytes, Log, B256, U256},
     Inspector, JournalEntry,
@@ -578,10 +578,11 @@ where
             .exclude_precompile_calls
             .then(|| self.is_precompile_call(context, &to, &value));
 
+        let input = inputs.input_data(context);
         self.start_trace_on_call(
             context,
             to,
-            inputs.input.clone(),
+            input,
             value,
             inputs.scheme.into(),
             from,
@@ -727,5 +728,24 @@ impl From<alloy_rpc_types_eth::TransactionInfo> for TransactionContext {
             tx_index: tx_info.index.map(|idx| idx as usize),
             tx_hash: tx_info.hash,
         }
+    }
+}
+
+/// A helper extension trait that _clones_ the input data from the shared mem buffer
+pub(crate) trait CallInputExt {
+    fn input_data<CTX: ContextTr>(&self, ctx: &mut CTX) -> Bytes;
+}
+
+impl CallInputExt for CallInputs {
+    fn input_data<CTX: ContextTr>(&self, ctx: &mut CTX) -> Bytes {
+        let input_bytes = match &self.input {
+            CallInput::SharedBuffer(range) => ctx
+                .local()
+                .shared_memory_buffer_slice(range.clone())
+                .map(|slice| Bytes::from(slice.to_vec()))
+                .unwrap_or_default(),
+            CallInput::Bytes(bytes) => bytes.clone(),
+        };
+        input_bytes
     }
 }

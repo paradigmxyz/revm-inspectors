@@ -363,7 +363,7 @@ fn test_parity_statediff_blob_commit() {
 
     let res = evm.inspect_replay().unwrap();
     let mut full_trace =
-        evm.data.inspector.into_parity_builder().into_trace_results(&res.result, &trace_types);
+        evm.inspector.into_parity_builder().into_trace_results(&res.result, &trace_types);
 
     let state_diff = full_trace.state_diff.as_mut().unwrap();
     populate_state_diff(state_diff, db, res.state.iter()).unwrap();
