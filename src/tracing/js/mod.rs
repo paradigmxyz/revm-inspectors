@@ -8,7 +8,7 @@ use crate::tracing::{
         builtins::{register_builtins, to_serde_value, PrecompileList},
     },
     types::CallKind,
-    TransactionContext,
+    CallInputExt, TransactionContext,
 };
 use alloc::{
     format,
@@ -18,6 +18,7 @@ use alloc::{
 use alloy_primitives::{Address, Bytes, Log, U256};
 pub use boa_engine::vm::RuntimeLimits;
 use boa_engine::{js_string, Context, JsError, JsObject, JsResult, JsValue, Source};
+use core::borrow::Borrow;
 use revm::{
     context::JournalTr,
     context_interface::{
@@ -415,7 +416,7 @@ where
 
         let (stack, _stack_guard) = StackRef::new(&interp.stack);
         let evm_memory = interp.memory.borrow();
-        let (memory, _memory_guard) = MemoryRef::new(&evm_memory);
+        let (memory, _memory_guard) = MemoryRef::new(evm_memory);
         let step = StepLog {
             stack,
             op: interp.bytecode.opcode().into(),
@@ -445,7 +446,7 @@ where
 
             let (stack, _stack_guard) = StackRef::new(&interp.stack);
             let mem = interp.memory.borrow();
-            let (memory, _memory_guard) = MemoryRef::new(&mem);
+            let (memory, _memory_guard) = MemoryRef::new(mem);
             let step = StepLog {
                 stack,
                 op: interp.bytecode.opcode().into(),
@@ -477,7 +478,7 @@ where
         let value = inputs.transfer_value().unwrap_or_default();
         self.push_call(
             contract,
-            inputs.input.clone(),
+            inputs.input_data(context),
             value,
             inputs.scheme.into(),
             inputs.caller,

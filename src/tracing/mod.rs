@@ -10,17 +10,18 @@ use crate::{
     },
 };
 use alloc::vec::Vec;
+use core::borrow::Borrow;
 use revm::{
     bytecode::opcode::{self, OpCode},
-    context::JournalTr,
+    context::{JournalTr, LocalContextTr},
     context_interface::ContextTr,
     inspector::JournalExt,
     interpreter::{
         interpreter_types::{
             Immediates, InputsTr, Jumps, LoopControl, ReturnData, RuntimeFlag, SubRoutineStack,
         },
-        CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, EOFCreateInputs,
-        InstructionResult, Interpreter, InterpreterResult,
+        CallInput, CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome,
+        EOFCreateInputs, InstructionResult, Interpreter, InterpreterResult,
     },
     primitives::{hardfork::SpecId, Address, Bytes, Log, B256, U256},
     Inspector, JournalEntry,
@@ -80,6 +81,8 @@ pub struct TracingInspector {
     step_stack: Vec<StackStep>,
     /// Tracks the return value of the last call
     last_call_return_data: Option<Bytes>,
+    /// Tracks the journal len in the step, used in step_end to check if the journal has changed
+    last_journal_len: usize,
     /// The spec id of the EVM.
     ///
     /// This is filled during execution.
@@ -105,6 +108,7 @@ impl TracingInspector {
             trace_stack,
             step_stack,
             last_call_return_data,
+            last_journal_len,
             spec_id,
             // kept
             config: _,
@@ -114,6 +118,7 @@ impl TracingInspector {
         step_stack.clear();
         last_call_return_data.take();
         spec_id.take();
+        *last_journal_len = 0;
     }
 
     /// Resets the inspector to it's initial state of [Self::new].
@@ -376,7 +381,11 @@ impl TracingInspector {
     /// This expects an existing [CallTrace], in other words, this panics if not within the context
     /// of a call.
     #[cold]
-    fn start_step<CTX: ContextTr>(&mut self, interp: &mut Interpreter, context: &mut CTX) {
+    fn start_step<CTX: ContextTr<Journal: JournalExt>>(
+        &mut self,
+        interp: &mut Interpreter,
+        context: &mut CTX,
+    ) {
         let trace_idx = self.last_trace_idx();
         let trace = &mut self.traces.arena[trace_idx];
 
@@ -406,7 +415,7 @@ impl TracingInspector {
                     }
                 }
             }
-            RecordedMemory::new(interp.memory.borrow().context_memory())
+            RecordedMemory::new(&interp.memory.borrow().context_memory())
         });
 
         let stack = if self.config.record_stack_snapshots.is_all()
@@ -436,6 +445,8 @@ impl TracingInspector {
                     Some(interp.bytecode.read_slice(size as usize + 1)[1..].to_vec().into());
             }
         }
+
+        self.last_journal_len = context.journal_ref().journal().len();
 
         trace.trace.steps.push(CallTraceStep {
             depth: context.journal().depth() as u64,
@@ -488,10 +499,13 @@ impl TracingInspector {
             step.push_stack = Some(interp.stack.data()[start..].to_vec());
         }
 
-        if self.config.record_state_diff {
+        let journal = context.journal_ref().journal();
+
+        // If journal has not changed, there is no state change to be recorded.
+        if self.config.record_state_diff && journal.len() != self.last_journal_len {
             let op = step.op.get();
 
-            let journal_entry = context.journal_ref().last_journal().last();
+            let journal_entry = journal.last();
 
             step.storage_change = match (op, journal_entry) {
                 (
@@ -577,10 +591,11 @@ where
             .exclude_precompile_calls
             .then(|| self.is_precompile_call(context, &to, &value));
 
+        let input = inputs.input_data(context);
         self.start_trace_on_call(
             context,
             to,
-            inputs.input.clone(),
+            input,
             value,
             inputs.scheme.into(),
             from,
@@ -726,5 +741,24 @@ impl From<alloy_rpc_types_eth::TransactionInfo> for TransactionContext {
             tx_index: tx_info.index.map(|idx| idx as usize),
             tx_hash: tx_info.hash,
         }
+    }
+}
+
+/// A helper extension trait that _clones_ the input data from the shared mem buffer
+pub(crate) trait CallInputExt {
+    fn input_data<CTX: ContextTr>(&self, ctx: &mut CTX) -> Bytes;
+}
+
+impl CallInputExt for CallInputs {
+    fn input_data<CTX: ContextTr>(&self, ctx: &mut CTX) -> Bytes {
+        let input_bytes = match &self.input {
+            CallInput::SharedBuffer(range) => ctx
+                .local()
+                .shared_memory_buffer_slice(range.clone())
+                .map(|slice| Bytes::from(slice.to_vec()))
+                .unwrap_or_default(),
+            CallInput::Bytes(bytes) => bytes.clone(),
+        };
+        input_bytes
     }
 }
