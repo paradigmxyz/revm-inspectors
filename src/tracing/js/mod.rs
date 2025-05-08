@@ -18,6 +18,7 @@ use alloc::{
 use alloy_primitives::{Address, Bytes, Log, U256};
 pub use boa_engine::vm::RuntimeLimits;
 use boa_engine::{js_string, Context, JsError, JsObject, JsResult, JsValue, Source};
+use core::borrow::Borrow;
 use revm::{
     context::JournalTr,
     context_interface::{
@@ -32,7 +33,6 @@ use revm::{
     },
     DatabaseRef, Inspector,
 };
-use std::borrow::Borrow;
 
 pub(crate) mod bindings;
 pub(crate) mod builtins;

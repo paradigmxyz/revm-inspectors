@@ -10,6 +10,7 @@ use crate::{
     },
 };
 use alloc::vec::Vec;
+use core::borrow::Borrow;
 use revm::{
     bytecode::opcode::{self, OpCode},
     context::{JournalTr, LocalContextTr},
@@ -25,7 +26,6 @@ use revm::{
     primitives::{hardfork::SpecId, Address, Bytes, Log, B256, U256},
     Inspector, JournalEntry,
 };
-use std::borrow::Borrow;
 
 mod arena;
 pub use arena::CallTraceArena;
