@@ -140,7 +140,7 @@ fn test_geth_jstracer_proxy_contract() {
     let mut input_data = hex!("1a695230").to_vec(); // keccak256("transfer(address)")[:4]
     input_data.extend_from_slice(&[0u8; 12]); // Pad with zeros
     input_data.extend_from_slice(token_addr.as_slice());
-    println!("token {:?} proxy: {:?}", token_addr, proxy_addr);
+    println!("token {token_addr:?} proxy: {proxy_addr:?}");
 
     let code = r#"
 {
