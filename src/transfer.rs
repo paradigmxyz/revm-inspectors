@@ -124,6 +124,7 @@ where
         let kind = match inputs.scheme {
             CreateScheme::Create => TransferKind::Create,
             CreateScheme::Create2 { .. } => TransferKind::Create2,
+            CreateScheme::Custom { .. } => return None,
         };
 
         self.on_transfer(inputs.caller, address, inputs.value, kind, context.journal());

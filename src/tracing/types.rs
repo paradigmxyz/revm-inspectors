@@ -570,6 +570,7 @@ impl From<CreateScheme> for CallKind {
         match create {
             CreateScheme::Create => Self::Create,
             CreateScheme::Create2 { .. } => Self::Create2,
+            CreateScheme::Custom { .. } => Self::Create,
         }
     }
 }
