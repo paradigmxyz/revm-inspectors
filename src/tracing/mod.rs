@@ -81,6 +81,8 @@ pub struct TracingInspector {
     step_stack: Vec<StackStep>,
     /// Tracks the return value of the last call
     last_call_return_data: Option<Bytes>,
+    /// Tracks the journal len in the step, used in step_end to check if the journal has changed
+    last_journal_len: usize,
     /// The spec id of the EVM.
     ///
     /// This is filled during execution.
@@ -106,6 +108,7 @@ impl TracingInspector {
             trace_stack,
             step_stack,
             last_call_return_data,
+            last_journal_len,
             spec_id,
             // kept
             config: _,
@@ -115,6 +118,7 @@ impl TracingInspector {
         step_stack.clear();
         last_call_return_data.take();
         spec_id.take();
+        *last_journal_len = 0;
     }
 
     /// Resets the inspector to it's initial state of [Self::new].
@@ -377,7 +381,11 @@ impl TracingInspector {
     /// This expects an existing [CallTrace], in other words, this panics if not within the context
     /// of a call.
     #[cold]
-    fn start_step<CTX: ContextTr>(&mut self, interp: &mut Interpreter, context: &mut CTX) {
+    fn start_step<CTX: ContextTr<Journal: JournalExt>>(
+        &mut self,
+        interp: &mut Interpreter,
+        context: &mut CTX,
+    ) {
         let trace_idx = self.last_trace_idx();
         let trace = &mut self.traces.arena[trace_idx];
 
@@ -438,6 +446,8 @@ impl TracingInspector {
             }
         }
 
+        self.last_journal_len = context.journal_ref().journal().len();
+
         trace.trace.steps.push(CallTraceStep {
             depth: context.journal().depth() as u64,
             pc: interp.bytecode.pc(),
@@ -489,10 +499,11 @@ impl TracingInspector {
             step.push_stack = Some(interp.stack.data()[start..].to_vec());
         }
 
-        if self.config.record_state_diff {
+        let journal = context.journal_ref().journal();
+        if self.config.record_state_diff && journal.len() != self.last_journal_len {
             let op = step.op.get();
 
-            let journal_entry = context.journal_ref().journal().last();
+            let journal_entry = journal.last();
 
             step.storage_change = match (op, journal_entry) {
                 (
