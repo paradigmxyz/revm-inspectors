@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.21.0) - 2025-05-08
+
+### Bug Fixes
+
+- Correct Ref<[u8]> to &[u8] conversion in FourByteInspector ([#289](https://github.com/paradigmxyz/revm-inspectors/issues/289))
+
+### Dependencies
+
+- Bump revm ([#288](https://github.com/paradigmxyz/revm-inspectors/issues/288))
+
 ## [0.20.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.20.1) - 2025-04-30
 
 ### Features
@@ -13,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Miscellaneous Tasks
 
+- Release 0.20.1
 - [access-list] Add function to access touched slots ([#287](https://github.com/paradigmxyz/revm-inspectors/issues/287))
 - Make clippy happy ([#286](https://github.com/paradigmxyz/revm-inspectors/issues/286))
 
