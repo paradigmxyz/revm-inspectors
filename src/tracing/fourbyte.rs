@@ -52,7 +52,7 @@ impl<CTX: ContextTr> Inspector<CTX> for FourByteInspector {
                     match context.local().shared_memory_buffer_slice(range.clone()) {
                         Some(slice) => {
                             r = slice;
-                            r.as_ref()
+                            &*r
                         }
                         None => &[],
                     }
