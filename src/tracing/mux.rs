@@ -124,7 +124,7 @@ impl MuxInspector {
                 }
                 #[allow(unreachable_patterns)]
                 _ => {
-                    // Return an error if a JS tracer is used without enabling the required feature flag
+                    // Return an error if a tracer is used without enabling the required feature
                     return Err(Error::UnsupportedTracer(tracer_type));
                 }
             }
