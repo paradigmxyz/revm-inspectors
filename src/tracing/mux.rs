@@ -113,6 +113,10 @@ impl MuxInspector {
                         }
                     }
                 }
+                #[cfg(not(feature = "js-tracer"))]
+                GethDebugTracerType::JsTracer(_) => {
+                    return Err(Error::Unsupported("JS Tracer is not enabled"))
+                }
                 #[cfg(feature = "js-tracer")]
                 GethDebugTracerType::JsTracer(ref code) => {
                     let config = match tracer_config {
@@ -121,11 +125,6 @@ impl MuxInspector {
                     };
 
                     js_tracer = Some(JsInspector::new(code.clone(), config)?);
-                }
-                #[allow(unreachable_patterns)]
-                _ => {
-                    // Return an error if a tracer is used without enabling the required feature
-                    return Err(Error::UnsupportedTracer(tracer_type));
                 }
             }
         }
@@ -402,9 +401,9 @@ where
 /// Error type for [MuxInspector]
 #[derive(Debug, Error)]
 pub enum Error {
-    /// Unsupported tracer type
-    #[error("unsupported tracer (enable feature flag?) '{0:?}'")]
-    UnsupportedTracer(GethDebugTracerType),
+    /// Some feature is unsupported
+    #[error("unsupported")]
+    Unsupported(&'static str),
     /// Config was provided for a tracer that does not expect it
     #[error("unexpected config for tracer '{0:?}'")]
     UnexpectedConfig(GethDebugTracerType),
