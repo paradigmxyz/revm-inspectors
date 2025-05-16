@@ -130,56 +130,7 @@ impl CallTrace {
 
     /// Returns the error message if it is an erroneous result.
     pub(crate) fn as_error_msg(&self, kind: TraceStyle) -> Option<String> {
-        // See also <https://github.com/ethereum/go-ethereum/blob/34d507215951fb3f4a5983b65e127577989a6db8/eth/tracers/native/call_flat.go#L39-L55>
-        self.is_error().then(|| match self.status {
-            InstructionResult::Revert => {
-                if kind.is_parity() { "Reverted" } else { "execution reverted" }.to_string()
-            }
-            InstructionResult::OutOfGas | InstructionResult::PrecompileOOG => {
-                if kind.is_parity() { "Out of gas" } else { "out of gas" }.to_string()
-            }
-            InstructionResult::OutOfFunds => if kind.is_parity() {
-                "Insufficient balance for transfer"
-            } else {
-                "insufficient balance for transfer"
-            }
-            .to_string(),
-            InstructionResult::MemoryOOG => {
-                if kind.is_parity() { "Out of gas" } else { "out of gas: out of memory" }
-                    .to_string()
-            }
-            InstructionResult::MemoryLimitOOG => {
-                if kind.is_parity() { "Out of gas" } else { "out of gas: reach memory limit" }
-                    .to_string()
-            }
-            InstructionResult::InvalidOperandOOG => {
-                if kind.is_parity() { "Out of gas" } else { "out of gas: invalid operand" }
-                    .to_string()
-            }
-            InstructionResult::OpcodeNotFound => {
-                if kind.is_parity() { "Bad instruction" } else { "invalid opcode" }.to_string()
-            }
-            InstructionResult::StackOverflow => "Out of stack".to_string(),
-            InstructionResult::InvalidJump => {
-                if kind.is_parity() { "Bad jump destination" } else { "invalid jump destination" }
-                    .to_string()
-            }
-            InstructionResult::PrecompileError => {
-                if kind.is_parity() { "Built-in failed" } else { "precompiled failed" }.to_string()
-            }
-            InstructionResult::InvalidFEOpcode => {
-                if kind.is_parity() { "Bad instruction" } else { "invalid opcode: INVALID" }
-                    .to_string()
-            }
-            // TODO(mattsse): upcoming error
-            // InstructionResult::ReentrancySentryOOG => if kind.is_parity() {
-            //     "Out of gas"
-            // } else {
-            //     "out of gas: not enough gas for reentrancy sentry"
-            // }
-            // .to_string(),
-            status => format!("{status:?}"),
-        })
+        utils::fmt_error_msg(self.status, kind)
     }
 }
 
