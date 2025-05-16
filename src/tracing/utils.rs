@@ -1,6 +1,7 @@
 //! Utility functions for revm related ops
 use crate::tracing::config::TraceStyle;
 use alloc::{
+    format,
     string::{String, ToString},
     vec::Vec,
 };
