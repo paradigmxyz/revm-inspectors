@@ -1,11 +1,16 @@
 //! Javascript inspector
 
-use crate::tracing::{js::{
-    bindings::{
-        CallFrame, Contract, EvmDbRef, FrameResult, JsEvmContext, MemoryRef, StackRef, StepLog,
+use crate::tracing::{
+    config::TraceStyle,
+    js::{
+        bindings::{
+            CallFrame, Contract, EvmDbRef, FrameResult, JsEvmContext, MemoryRef, StackRef, StepLog,
+        },
+        builtins::{register_builtins, to_serde_value, PrecompileList},
     },
-    builtins::{register_builtins, to_serde_value, PrecompileList},
-}, types::CallKind, utils, CallInputExt, TransactionContext};
+    types::CallKind,
+    utils, CallInputExt, TransactionContext,
+};
 use alloc::{
     format,
     string::{String, ToString},
@@ -29,7 +34,6 @@ use revm::{
     },
     DatabaseRef, Inspector,
 };
-use crate::tracing::config::TraceStyle;
 
 pub(crate) mod bindings;
 pub(crate) mod builtins;
@@ -505,7 +509,7 @@ where
             let frame_result = FrameResult {
                 gas_used: outcome.result.gas.spent(),
                 output: outcome.result.output.clone(),
-                error: utils::fmt_error_msg(outcome.result.result, TraceStyle::Geth)
+                error: utils::fmt_error_msg(outcome.result.result, TraceStyle::Geth),
             };
             if let Err(err) = self.try_exit(frame_result) {
                 outcome.result = js_error_to_revert(err);
