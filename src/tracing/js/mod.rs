@@ -418,6 +418,7 @@ where
         let (stack, _stack_guard) = StackRef::new(&interp.stack);
         let evm_memory = interp.memory.borrow();
         let (memory, _memory_guard) = MemoryRef::new(evm_memory);
+        let active_call = self.active_call();
         let step = StepLog {
             stack,
             op: interp.bytecode.opcode().into(),
@@ -431,8 +432,8 @@ where
             contract: Contract {
                 caller: interp.input.caller_address,
                 contract: interp.input.target_address,
-                value: self.active_call().contract.value,
-                input: self.active_call().contract.input.clone(),
+                value: active_call.contract.value,
+                input: active_call.contract.input.clone(),
             },
         };
 
@@ -453,6 +454,7 @@ where
             let (stack, _stack_guard) = StackRef::new(&interp.stack);
             let mem = interp.memory.borrow();
             let (memory, _memory_guard) = MemoryRef::new(mem);
+            let active_call = self.active_call();
             let step = StepLog {
                 stack,
                 op: interp.bytecode.opcode().into(),
@@ -466,8 +468,8 @@ where
                 contract: Contract {
                     caller: interp.input.caller_address,
                     contract: interp.input.target_address,
-                    value: self.active_call().contract.value,
-                    input: self.active_call().contract.input.clone(),
+                    value: active_call.contract.value,
+                    input: active_call.contract.input.clone(),
                 },
             };
 
