@@ -1,10 +1,9 @@
 //! Geth tests
 use crate::utils::deploy_contract;
 use alloy_primitives::{hex, map::HashMap, Address, Bytes};
-use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::geth::{
     mux::MuxConfig, CallConfig, FlatCallConfig, GethDebugBuiltInTracerType, GethDebugTracerConfig,
-    GethTrace, PreStateConfig, PreStateFrame,
+    GethDebugTracerType, GethTrace, PreStateConfig, PreStateFrame,
 };
 use revm::{
     context::{ContextSetters, TxEnv},
@@ -141,6 +140,23 @@ fn test_geth_mux_tracer() {
     let mut evm = Context::mainnet().with_db(CacheDB::new(EmptyDB::default())).build_mainnet();
 
     let code = hex!("608060405234801561001057600080fd5b506103ac806100206000396000f3fe60806040526004361061003f5760003560e01c80630332ed131461014d5780636ae1ad40146101625780638384a00214610177578063de7eb4f31461018c575b60405134815233906000805160206103578339815191529060200160405180910390a2306001600160a01b0316636ae1ad406040518163ffffffff1660e01b8152600401600060405180830381600087803b15801561009d57600080fd5b505af19250505080156100ae575060015b50306001600160a01b0316630332ed136040518163ffffffff1660e01b8152600401600060405180830381600087803b1580156100ea57600080fd5b505af19250505080156100fb575060015b50306001600160a01b0316638384a0026040518163ffffffff1660e01b8152600401600060405180830381600087803b15801561013757600080fd5b505af115801561014b573d6000803e3d6000fd5b005b34801561015957600080fd5b5061014b6101a1565b34801561016e57600080fd5b5061014b610253565b34801561018357600080fd5b5061014b6102b7565b34801561019857600080fd5b5061014b6102dd565b306001600160a01b031663de7eb4f36040518163ffffffff1660e01b8152600401600060405180830381600087803b1580156101dc57600080fd5b505af11580156101f0573d6000803e3d6000fd5b505060405162461bcd60e51b8152602060048201526024808201527f6e6573746564456d6974576974684661696c75726541667465724e6573746564604482015263115b5a5d60e21b6064820152608401915061024a9050565b60405180910390fd5b6040516000815233906000805160206103578339815191529060200160405180910390a260405162461bcd60e51b81526020600482015260156024820152746e6573746564456d6974576974684661696c75726560581b604482015260640161024a565b6040516000815233906000805160206103578339815191529060200160405180910390a2565b6040516000815233906000805160206103578339815191529060200160405180910390a2306001600160a01b0316638384a0026040518163ffffffff1660e01b8152600401600060405180830381600087803b15801561033c57600080fd5b505af1158015610350573d6000803e3d6000fd5b5050505056fef950957d2407bed19dc99b718b46b4ce6090c05589006dfb86fd22c34865b23ea2646970667358221220090a696b9fbd22c7d1cc2a0b6d4a48c32d3ba892480713689a3145b73cfeb02164736f6c63430008130033");
+    let js_tracer_code = r#"
+    {
+        "gasUsed": 0,
+        "previousGas": null,
+        "step": function(log, db) {
+            if (this.previousGas !== null) {
+                this.gasUsed += this.previousGas - log.getGas();
+            }
+            this.previousGas = log.getGas();
+        },
+        "fault": function(log, db) { },
+        "result": function(ctx, db) {
+            return { "totalGasUsed": this.gasUsed };
+        }
+    }"#
+    .to_string();
+
     let deployer = Address::ZERO;
     let addr =
         deploy_contract(&mut evm, code.into(), deployer, SpecId::LONDON).created_address().unwrap();
@@ -151,19 +167,20 @@ fn test_geth_mux_tracer() {
     let prestate_config = PreStateConfig { diff_mode: Some(false), ..Default::default() };
 
     let config = MuxConfig(HashMap::from_iter([
-        (GethDebugBuiltInTracerType::FourByteTracer, None),
+        (GethDebugTracerType::BuiltInTracer(GethDebugBuiltInTracerType::FourByteTracer), None),
         (
-            GethDebugBuiltInTracerType::CallTracer,
+            GethDebugTracerType::BuiltInTracer(GethDebugBuiltInTracerType::CallTracer),
             Some(GethDebugTracerConfig(serde_json::to_value(call_config).unwrap())),
         ),
         (
-            GethDebugBuiltInTracerType::PreStateTracer,
+            GethDebugTracerType::BuiltInTracer(GethDebugBuiltInTracerType::PreStateTracer),
             Some(GethDebugTracerConfig(serde_json::to_value(prestate_config).unwrap())),
         ),
         (
-            GethDebugBuiltInTracerType::FlatCallTracer,
+            GethDebugTracerType::BuiltInTracer(GethDebugBuiltInTracerType::FlatCallTracer),
             Some(GethDebugTracerConfig(serde_json::to_value(flatcall_config).unwrap())),
         ),
+        (GethDebugTracerType::JsTracer(js_tracer_code.clone()), None),
     ]));
 
     let mut insp = MuxInspector::try_from_config(config.clone()).unwrap();
@@ -183,16 +200,26 @@ fn test_geth_mux_tracer() {
     assert!(res.result.is_success());
 
     let (ctx, inspector) = evm.ctx_inspector();
-    let frame =
-        inspector.try_into_mux_frame(&res, ctx.db_ref(), TransactionInfo::default()).unwrap();
+    let frame = inspector.try_into_mux_frame(&res, ctx.tx(), ctx.block(), ctx.db_ref()).unwrap();
 
-    assert_eq!(frame.0.len(), 4);
-    assert!(frame.0.contains_key(&GethDebugBuiltInTracerType::FourByteTracer));
-    assert!(frame.0.contains_key(&GethDebugBuiltInTracerType::CallTracer));
-    assert!(frame.0.contains_key(&GethDebugBuiltInTracerType::PreStateTracer));
-    assert!(frame.0.contains_key(&GethDebugBuiltInTracerType::FlatCallTracer));
+    assert_eq!(frame.0.len(), 5);
+    assert!(frame.0.contains_key(&GethDebugTracerType::BuiltInTracer(
+        GethDebugBuiltInTracerType::FourByteTracer
+    )));
+    assert!(frame
+        .0
+        .contains_key(&GethDebugTracerType::BuiltInTracer(GethDebugBuiltInTracerType::CallTracer)));
+    assert!(frame.0.contains_key(&GethDebugTracerType::BuiltInTracer(
+        GethDebugBuiltInTracerType::PreStateTracer
+    )));
+    assert!(frame.0.contains_key(&GethDebugTracerType::BuiltInTracer(
+        GethDebugBuiltInTracerType::FlatCallTracer
+    )));
+    assert!(frame.0.contains_key(&GethDebugTracerType::JsTracer(js_tracer_code.clone())));
 
-    let four_byte_frame = frame.0[&GethDebugBuiltInTracerType::FourByteTracer].clone();
+    let four_byte_frame = frame.0
+        [&GethDebugTracerType::BuiltInTracer(GethDebugBuiltInTracerType::FourByteTracer)]
+        .clone();
     match four_byte_frame {
         GethTrace::FourByteTracer(four_byte_frame) => {
             assert_eq!(four_byte_frame.0.len(), 4);
@@ -204,7 +231,9 @@ fn test_geth_mux_tracer() {
         _ => panic!("Expected FourByteTracer"),
     }
 
-    let call_frame = frame.0[&GethDebugBuiltInTracerType::CallTracer].clone();
+    let call_frame = frame.0
+        [&GethDebugTracerType::BuiltInTracer(GethDebugBuiltInTracerType::CallTracer)]
+        .clone();
     match call_frame {
         GethTrace::CallTracer(call_frame) => {
             assert_eq!(call_frame.calls.len(), 3);
@@ -213,7 +242,9 @@ fn test_geth_mux_tracer() {
         _ => panic!("Expected CallTracer"),
     }
 
-    let prestate_frame = frame.0[&GethDebugBuiltInTracerType::PreStateTracer].clone();
+    let prestate_frame = frame.0
+        [&GethDebugTracerType::BuiltInTracer(GethDebugBuiltInTracerType::PreStateTracer)]
+        .clone();
     match prestate_frame {
         GethTrace::PreStateTracer(prestate_frame) => {
             if let PreStateFrame::Default(prestate_mode) = prestate_frame {
@@ -225,7 +256,9 @@ fn test_geth_mux_tracer() {
         _ => panic!("Expected PreStateTracer"),
     }
 
-    let flatcall_frame = frame.0[&GethDebugBuiltInTracerType::FlatCallTracer].clone();
+    let flatcall_frame = frame.0
+        [&GethDebugTracerType::BuiltInTracer(GethDebugBuiltInTracerType::FlatCallTracer)]
+        .clone();
     match flatcall_frame {
         GethTrace::FlatCallTracer(traces) => {
             assert_eq!(traces.len(), 6);
@@ -237,6 +270,16 @@ fn test_geth_mux_tracer() {
             assert!(traces[5].trace.error.is_none());
         }
         _ => panic!("Expected FlatCallTracer"),
+    }
+
+    let js_tracer_frame = frame.0[&GethDebugTracerType::JsTracer(js_tracer_code)].clone();
+    match js_tracer_frame {
+        GethTrace::JS(js_tracer_frame) => {
+            let expected: serde_json::Value =
+                serde_json::from_str("{\"totalGasUsed\": 10133}").unwrap();
+            assert_eq!(js_tracer_frame, expected);
+        }
+        _ => panic!("Expected JsTracer"),
     }
 }
 
