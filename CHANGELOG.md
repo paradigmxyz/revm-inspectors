@@ -5,11 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.3](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.22.3) - 2025-05-19
+
+### Bug Fixes
+
+- Use original bytecodes ([#296](https://github.com/paradigmxyz/revm-inspectors/issues/296))
+
+### Miscellaneous Tasks
+
+- Make clippy happy ([#297](https://github.com/paradigmxyz/revm-inspectors/issues/297))
+
 ## [0.22.2](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.22.2) - 2025-05-16
 
 ### Bug Fixes
 
 - Js tracer behavior ([#295](https://github.com/paradigmxyz/revm-inspectors/issues/295))
+
+### Miscellaneous Tasks
+
+- Release 0.22.2
 
 ## [0.22.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.22.1) - 2025-05-16
 
