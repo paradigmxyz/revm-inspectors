@@ -1028,7 +1028,7 @@ mod tests {
         let res = call
             .as_callable()
             .unwrap()
-            .call(&JsValue::undefined(), &[contract_arg.clone()], &mut ctx)
+            .call(&JsValue::undefined(), core::slice::from_ref(&contract_arg), &mut ctx)
             .unwrap();
         assert!(res.is_object());
         let obj = res.as_object().unwrap();
@@ -1040,7 +1040,7 @@ mod tests {
         let res = get_address
             .as_callable()
             .unwrap()
-            .call(&JsValue::undefined(), &[contract_arg.clone()], &mut ctx)
+            .call(&JsValue::undefined(), core::slice::from_ref(&contract_arg), &mut ctx)
             .unwrap();
         assert!(res.is_object());
 
@@ -1051,7 +1051,7 @@ mod tests {
         let res = call
             .as_callable()
             .unwrap()
-            .call(&JsValue::undefined(), &[contract_arg.clone()], &mut ctx)
+            .call(&JsValue::undefined(), core::slice::from_ref(&contract_arg), &mut ctx)
             .unwrap();
         assert_eq!(
             res.to_string(&mut ctx).unwrap().to_std_string().unwrap(),
@@ -1154,7 +1154,9 @@ mod tests {
 
             let addr = Address::default();
             let addr = JsValue::from(js_string!(addr.to_string()));
-            let res = result_fn.call(&(obj.clone().into()), &[addr.clone()], &mut context).unwrap();
+            let res = result_fn
+                .call(&(obj.clone().into()), core::slice::from_ref(&addr), &mut context)
+                .unwrap();
             assert!(!res.as_boolean().unwrap());
 
             // drop the guard which also drops any GC values

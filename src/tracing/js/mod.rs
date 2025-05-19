@@ -173,7 +173,7 @@ impl JsInspector {
 
             // call setup()
             setup_fn
-                .call(&(obj.clone().into()), &[_js_config_value.clone()], &mut ctx)
+                .call(&(obj.clone().into()), core::slice::from_ref(&_js_config_value), &mut ctx)
                 .map_err(JsInspectorError::SetupCallFailed)?;
         }
 
