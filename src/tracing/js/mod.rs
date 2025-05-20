@@ -55,6 +55,8 @@ pub const RECURSION_LIMIT: usize = 10_000;
 #[derive(Debug)]
 pub struct JsInspector {
     ctx: Context,
+    /// The javascript code provided to the inspector.
+    code: String,
     /// The javascript config provided to the inspector.
     _js_config_value: JsValue,
     /// The input config object.
@@ -127,9 +129,10 @@ impl JsInspector {
         register_builtins(&mut ctx)?;
 
         // evaluate the code
-        let code = format!("({code})");
-        let obj =
-            ctx.eval(Source::from_bytes(code.as_bytes())).map_err(JsInspectorError::EvalCode)?;
+        let code_to_evaluate = format!("({code})");
+        let obj = ctx
+            .eval(Source::from_bytes(code_to_evaluate.as_bytes()))
+            .map_err(JsInspectorError::EvalCode)?;
 
         let obj = obj.as_object().cloned().ok_or(JsInspectorError::ExpectedJsObject)?;
 
@@ -179,6 +182,7 @@ impl JsInspector {
 
         Ok(Self {
             ctx,
+            code,
             _js_config_value,
             config,
             obj,
@@ -191,6 +195,11 @@ impl JsInspector {
             call_stack: Default::default(),
             precompiles_registered: false,
         })
+    }
+
+    /// Returns the javascript code.
+    pub const fn code(&self) -> &String {
+        &self.code
     }
 
     /// Returns the config object.
@@ -220,7 +229,7 @@ impl JsInspector {
     /// Note: This is supposed to be called after the inspection has finished.
     pub fn json_result<DB>(
         &mut self,
-        res: ResultAndState<impl HaltReasonTr>,
+        res: &ResultAndState<impl HaltReasonTr>,
         tx: &impl Transaction,
         block: &impl Block,
         db: &DB,
@@ -236,7 +245,7 @@ impl JsInspector {
     /// Calls the result function and returns the result.
     pub fn result<TX, DB>(
         &mut self,
-        res: ResultAndState<impl HaltReasonTr>,
+        res: &ResultAndState<impl HaltReasonTr>,
         tx: &TX,
         block: &impl Block,
         db: &DB,
@@ -259,7 +268,7 @@ impl JsInspector {
                     output_bytes = Some(out);
                 }
                 Output::Create(out, addr) => {
-                    to = addr;
+                    to = addr.clone();
                     output_bytes = Some(out);
                 }
             },
@@ -294,7 +303,7 @@ impl JsInspector {
             value: tx.value(),
             block: block.number(),
             coinbase: block.beneficiary(),
-            output: output_bytes.unwrap_or_default(),
+            output: output_bytes.unwrap_or_default().clone(),
             time: block.timestamp().to_string(),
             intrinsic_gas: 0,
             transaction_ctx: self.transaction_context,
@@ -733,7 +742,7 @@ mod tests {
 
         assert_eq!(res.result.is_success(), success);
         let (ctx, inspector) = evm.ctx_inspector();
-        inspector.json_result(res, ctx.tx(), ctx.block(), ctx.db_ref()).unwrap()
+        inspector.json_result(&res, ctx.tx(), ctx.block(), ctx.db_ref()).unwrap()
     }
 
     #[test]
