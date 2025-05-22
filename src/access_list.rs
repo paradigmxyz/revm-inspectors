@@ -172,16 +172,4 @@ where
         }
         None
     }
-
-    fn eofcreate(
-        &mut self,
-        context: &mut CTX,
-        _inputs: &mut revm::interpreter::EOFCreateInputs,
-    ) -> Option<revm::interpreter::CreateOutcome> {
-        // At the top-level frame, fill the excluded addresses
-        if context.journal().depth() == 0 {
-            self.collect_excluded_addresses(context)
-        }
-        None
-    }
 }
