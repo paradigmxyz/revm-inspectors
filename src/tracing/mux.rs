@@ -13,9 +13,7 @@ use revm::{
         ContextTr,
     },
     inspector::JournalExt,
-    interpreter::{
-        CallInputs, CallOutcome, CreateInputs, CreateOutcome, EOFCreateInputs, Interpreter,
-    },
+    interpreter::{CallInputs, CallOutcome, CreateInputs, CreateOutcome, Interpreter},
     DatabaseRef, Inspector,
 };
 use thiserror::Error;
@@ -248,36 +246,6 @@ where
         }
         if let Some(ref mut inspector) = self.tracing {
             inspector.create_end(context, inputs, outcome);
-        }
-    }
-
-    #[inline]
-    fn eofcreate(
-        &mut self,
-        context: &mut CTX,
-        inputs: &mut EOFCreateInputs,
-    ) -> Option<CreateOutcome> {
-        if let Some(ref mut inspector) = self.four_byte {
-            let _ = inspector.eofcreate(context, inputs);
-        }
-        if let Some(ref mut inspector) = self.tracing {
-            return inspector.eofcreate(context, inputs);
-        }
-        None
-    }
-
-    #[inline]
-    fn eofcreate_end(
-        &mut self,
-        context: &mut CTX,
-        inputs: &EOFCreateInputs,
-        outcome: &mut CreateOutcome,
-    ) {
-        if let Some(ref mut inspector) = self.four_byte {
-            inspector.eofcreate_end(context, inputs, outcome);
-        }
-        if let Some(ref mut inspector) = self.tracing {
-            inspector.eofcreate_end(context, inputs, outcome);
         }
     }
 

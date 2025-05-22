@@ -21,7 +21,7 @@ use revm::{
             Immediates, InputsTr, Jumps, LoopControl, ReturnData, RuntimeFlag, SubRoutineStack,
         },
         CallInput, CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome,
-        EOFCreateInputs, InstructionResult, Interpreter, InterpreterResult,
+        InstructionResult, Interpreter, InterpreterResult,
     },
     primitives::{hardfork::SpecId, Address, Bytes, Log, B256, U256},
     Inspector, JournalEntry,
@@ -630,42 +630,6 @@ where
         &mut self,
         _context: &mut CTX,
         _inputs: &CreateInputs,
-        outcome: &mut CreateOutcome,
-    ) {
-        self.fill_trace_on_call_end(&outcome.result, outcome.address);
-    }
-
-    fn eofcreate(
-        &mut self,
-        context: &mut CTX,
-        inputs: &mut EOFCreateInputs,
-    ) -> Option<CreateOutcome> {
-        let address = if let Some(address) = inputs.kind.created_address() {
-            *address
-        } else {
-            let _ = context.journal().load_account(inputs.caller);
-            let nonce = context.journal().load_account(inputs.caller).ok()?.info.nonce;
-            inputs.caller.create(nonce)
-        };
-
-        self.start_trace_on_call(
-            context,
-            address,
-            Bytes::new(),
-            inputs.value,
-            CallKind::EOFCreate,
-            inputs.caller,
-            inputs.gas_limit,
-            Some(false),
-        );
-
-        None
-    }
-
-    fn eofcreate_end(
-        &mut self,
-        _context: &mut CTX,
-        _inputs: &EOFCreateInputs,
         outcome: &mut CreateOutcome,
     ) {
         self.fill_trace_on_call_end(&outcome.result, outcome.address);

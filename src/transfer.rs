@@ -3,10 +3,8 @@ use alloy_primitives::{address, b256, Address, Log, LogData, B256, U256};
 use alloy_sol_types::SolValue;
 use revm::{
     context::JournalTr,
-    context_interface::{ContextTr, Transaction},
-    interpreter::{
-        CallInputs, CallOutcome, CreateInputs, CreateOutcome, CreateScheme, EOFCreateKind,
-    },
+    context_interface::ContextTr,
+    interpreter::{CallInputs, CallOutcome, CreateInputs, CreateOutcome, CreateScheme},
     Database, Inspector,
 };
 
@@ -132,27 +130,6 @@ where
         None
     }
 
-    fn eofcreate(
-        &mut self,
-        context: &mut CTX,
-        inputs: &mut revm::interpreter::EOFCreateInputs,
-    ) -> Option<CreateOutcome> {
-        let address = match inputs.kind {
-            EOFCreateKind::Tx { .. } => inputs.caller.create(context.tx().nonce()),
-            EOFCreateKind::Opcode { created_address, .. } => created_address,
-        };
-
-        self.on_transfer(
-            inputs.caller,
-            address,
-            inputs.value,
-            TransferKind::EofCreate,
-            context.journal(),
-        );
-
-        None
-    }
-
     fn selfdestruct(&mut self, contract: Address, target: Address, value: U256) {
         self.transfers.push(TransferOperation {
             kind: TransferKind::SelfDestruct,
@@ -187,6 +164,4 @@ pub enum TransferKind {
     Create2,
     /// A SELFDESTRUCT operation
     SelfDestruct,
-    /// A EOFCREATE operation
-    EofCreate,
 }

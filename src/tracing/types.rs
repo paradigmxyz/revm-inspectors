@@ -294,13 +294,11 @@ impl CallTraceNode {
                 gas_used: self.trace.gas_used,
                 output: self.trace.output.clone(),
             }),
-            CallKind::Create | CallKind::Create2 | CallKind::EOFCreate => {
-                TraceOutput::Create(CreateOutput {
-                    gas_used: self.trace.gas_used,
-                    code: self.trace.output.clone(),
-                    address: self.trace.address,
-                })
-            }
+            CallKind::Create | CallKind::Create2 => TraceOutput::Create(CreateOutput {
+                gas_used: self.trace.gas_used,
+                code: self.trace.output.clone(),
+                address: self.trace.address,
+            }),
         }
     }
 
@@ -356,15 +354,13 @@ impl CallTraceNode {
                 input: self.trace.data.clone(),
                 call_type: self.kind().into(),
             }),
-            CallKind::Create | CallKind::Create2 | CallKind::EOFCreate => {
-                Action::Create(CreateAction {
-                    from: self.trace.caller,
-                    value: self.trace.value,
-                    gas: self.trace.gas_limit,
-                    init: self.trace.data.clone(),
-                    creation_method: self.kind().into(),
-                })
-            }
+            CallKind::Create | CallKind::Create2 => Action::Create(CreateAction {
+                from: self.trace.caller,
+                value: self.trace.value,
+                gas: self.trace.gas_limit,
+                init: self.trace.data.clone(),
+                creation_method: self.kind().into(),
+            }),
         }
     }
 
@@ -444,8 +440,6 @@ pub enum CallKind {
     Create,
     /// Represents a contract creation operation using the CREATE2 opcode.
     Create2,
-    /// Represents an EOF contract creation operation.
-    EOFCreate,
 }
 
 impl CallKind {
@@ -459,14 +453,13 @@ impl CallKind {
             Self::AuthCall => "AUTHCALL",
             Self::Create => "CREATE",
             Self::Create2 => "CREATE2",
-            Self::EOFCreate => "EOF_CREATE",
         }
     }
 
     /// Returns true if the call is a create
     #[inline]
     pub const fn is_any_create(&self) -> bool {
-        matches!(self, Self::Create | Self::Create2 | Self::EOFCreate)
+        matches!(self, Self::Create | Self::Create2)
     }
 
     /// Returns true if the call is a delegate of some sorts
@@ -493,7 +486,6 @@ impl From<CallKind> for CreationMethod {
         match kind {
             CallKind::Create => CreationMethod::Create,
             CallKind::Create2 => CreationMethod::Create2,
-            CallKind::EOFCreate => CreationMethod::EofCreate,
             _ => CreationMethod::None,
         }
     }
@@ -534,7 +526,7 @@ impl From<CallKind> for ActionType {
             | CallKind::DelegateCall
             | CallKind::CallCode
             | CallKind::AuthCall => Self::Call,
-            CallKind::Create | CallKind::Create2 | CallKind::EOFCreate => Self::Create,
+            CallKind::Create | CallKind::Create2 => Self::Create,
         }
     }
 }
@@ -546,7 +538,7 @@ impl From<CallKind> for CallType {
             CallKind::StaticCall => Self::StaticCall,
             CallKind::CallCode => Self::CallCode,
             CallKind::DelegateCall => Self::DelegateCall,
-            CallKind::Create | CallKind::Create2 | CallKind::EOFCreate => Self::None,
+            CallKind::Create | CallKind::Create2 => Self::None,
             CallKind::AuthCall => Self::AuthCall,
         }
     }
