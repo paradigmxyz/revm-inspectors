@@ -36,7 +36,7 @@ alloy-sol-types = { version = "1.0", default-features = false }
 alloy-primitives = { version = "1.0", default-features = false, features = [
     "map",
 ] }
-revm = { version = "23.1.0", default-features = false }
+revm = { version = "24.0.0", default-features = false }
 
 anstyle = { version = "1.0", optional = true }
 colorchoice = "1.0"
