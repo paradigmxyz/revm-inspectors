@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.23.0) - 2025-05-23
+
+### Dependencies
+
+- [`deps`] Bump revm to 24.0.0 ([#300](https://github.com/paradigmxyz/revm-inspectors/issues/300))
+
+### Miscellaneous Tasks
+
+- Remove eof trace handlers ([#299](https://github.com/paradigmxyz/revm-inspectors/issues/299))
+
 ## [0.22.3](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.22.3) - 2025-05-19
 
 ### Bug Fixes
@@ -13,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Miscellaneous Tasks
 
+- Release 0.22.3
 - Make clippy happy ([#297](https://github.com/paradigmxyz/revm-inspectors/issues/297))
 
 ## [0.22.2](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.22.2) - 2025-05-16
