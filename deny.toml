@@ -2,7 +2,7 @@
 version = 2
 yanked = "warn"
 ignore = [
-    # https://github.com/dtolnay/paste
+    # https://rustsec.org/advisories/RUSTSEC-2024-0436
     "RUSTSEC-2024-0436",
 ]
 
