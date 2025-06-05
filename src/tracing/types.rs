@@ -629,6 +629,8 @@ pub struct CallTraceStep {
     ///
     /// This is set after the step was executed.
     pub status: InstructionResult,
+    /// Immediate bytes of the step
+    pub immediate_bytes: Option<Bytes>,
     /// Optional complementary decoded step data.
     pub decoded: Option<DecodedTraceStep>,
 }

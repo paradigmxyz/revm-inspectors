@@ -1,10 +1,13 @@
-use crate::tracing::{
-    arena::PushTraceKind,
-    types::{
-        CallKind, CallTraceNode, RecordedMemory, StorageChange, StorageChangeReason,
-        TraceMemberOrder,
+use crate::{
+    opcode::immediate_size,
+    tracing::{
+        arena::PushTraceKind,
+        types::{
+            CallKind, CallTraceNode, RecordedMemory, StorageChange, StorageChangeReason,
+            TraceMemberOrder,
+        },
+        utils::gas_used,
     },
-    utils::gas_used,
 };
 use alloc::vec::Vec;
 use core::borrow::Borrow;
@@ -14,7 +17,7 @@ use revm::{
     context_interface::ContextTr,
     inspector::JournalExt,
     interpreter::{
-        interpreter_types::{InputsTr, Jumps, LoopControl, ReturnData, RuntimeFlag},
+        interpreter_types::{Immediates, InputsTr, Jumps, LoopControl, ReturnData, RuntimeFlag},
         CallInput, CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome,
         InstructionResult, Interpreter, InterpreterResult,
     },
@@ -432,6 +435,15 @@ impl TracingInspector {
             interp.control.gas.refunded() as u64,
         );
 
+        let mut immediate_bytes = None;
+        if self.config.record_immediate_bytes {
+            let size = immediate_size(&interp.bytecode);
+            if size != 0 {
+                immediate_bytes =
+                    Some(interp.bytecode.read_slice(size as usize + 1)[1..].to_vec().into());
+            }
+        }
+
         self.last_journal_len = context.journal_ref().journal().len();
 
         trace.trace.steps.push(CallTraceStep {
@@ -447,6 +459,7 @@ impl TracingInspector {
             gas_refund_counter: interp.control.gas().refunded() as u64,
             gas_used,
             decoded: None,
+            immediate_bytes,
 
             // fields will be populated end of call
             gas_cost: 0,
