@@ -1,13 +1,10 @@
-use crate::{
-    opcode::immediate_size,
-    tracing::{
-        arena::PushTraceKind,
-        types::{
-            CallKind, CallTraceNode, RecordedMemory, StorageChange, StorageChangeReason,
-            TraceMemberOrder,
-        },
-        utils::gas_used,
+use crate::tracing::{
+    arena::PushTraceKind,
+    types::{
+        CallKind, CallTraceNode, RecordedMemory, StorageChange, StorageChangeReason,
+        TraceMemberOrder,
     },
+    utils::gas_used,
 };
 use alloc::vec::Vec;
 use core::borrow::Borrow;
@@ -17,9 +14,7 @@ use revm::{
     context_interface::ContextTr,
     inspector::JournalExt,
     interpreter::{
-        interpreter_types::{
-            Immediates, InputsTr, Jumps, LoopControl, ReturnData, RuntimeFlag, SubRoutineStack,
-        },
+        interpreter_types::{InputsTr, Jumps, LoopControl, ReturnData, RuntimeFlag},
         CallInput, CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome,
         InstructionResult, Interpreter, InterpreterResult,
     },
@@ -437,21 +432,11 @@ impl TracingInspector {
             interp.control.gas.refunded() as u64,
         );
 
-        let mut immediate_bytes = None;
-        if self.config.record_immediate_bytes {
-            let size = immediate_size(&interp.bytecode);
-            if size != 0 {
-                immediate_bytes =
-                    Some(interp.bytecode.read_slice(size as usize + 1)[1..].to_vec().into());
-            }
-        }
-
         self.last_journal_len = context.journal_ref().journal().len();
 
         trace.trace.steps.push(CallTraceStep {
             depth: context.journal().depth() as u64,
             pc: interp.bytecode.pc(),
-            code_section_idx: interp.sub_routine.routine_idx(),
             op,
             contract: interp.input.target_address(),
             stack,
@@ -462,7 +447,6 @@ impl TracingInspector {
             gas_refund_counter: interp.control.gas().refunded() as u64,
             gas_used,
             decoded: None,
-            immediate_bytes,
 
             // fields will be populated end of call
             gas_cost: 0,
@@ -567,23 +551,22 @@ where
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         // determine correct `from` and `to` based on the call scheme
         let (from, to) = match inputs.scheme {
-            CallScheme::DelegateCall | CallScheme::CallCode | CallScheme::ExtDelegateCall => {
+            CallScheme::DelegateCall | CallScheme::CallCode => {
                 (inputs.target_address, inputs.bytecode_address)
             }
             _ => (inputs.caller, inputs.target_address),
         };
 
-        let value =
-            if matches!(inputs.scheme, CallScheme::DelegateCall | CallScheme::ExtDelegateCall) {
-                // for delegate calls we need to use the value of the top trace
-                if let Some(parent) = self.active_trace() {
-                    parent.trace.value
-                } else {
-                    inputs.call_value()
-                }
+        let value = if matches!(inputs.scheme, CallScheme::DelegateCall) {
+            // for delegate calls we need to use the value of the top trace
+            if let Some(parent) = self.active_trace() {
+                parent.trace.value
             } else {
                 inputs.call_value()
-            };
+            }
+        } else {
+            inputs.call_value()
+        };
 
         // if calls to precompiles should be excluded, check whether this is a call to a precompile
         let maybe_precompile = self

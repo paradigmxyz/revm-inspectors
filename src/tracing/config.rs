@@ -71,8 +71,6 @@ pub struct TracingInspectorConfig {
     pub exclude_precompile_calls: bool,
     /// Whether to record logs
     pub record_logs: bool,
-    /// Whether to record immediate bytes for opcodes.
-    pub record_immediate_bytes: bool,
 }
 
 impl TracingInspectorConfig {
@@ -87,7 +85,6 @@ impl TracingInspectorConfig {
             record_opcodes_filter: None,
             exclude_precompile_calls: false,
             record_logs: true,
-            record_immediate_bytes: true,
         }
     }
 
@@ -102,7 +99,6 @@ impl TracingInspectorConfig {
             exclude_precompile_calls: false,
             record_logs: false,
             record_opcodes_filter: None,
-            record_immediate_bytes: false,
         }
     }
 
@@ -119,7 +115,6 @@ impl TracingInspectorConfig {
             exclude_precompile_calls: true,
             record_logs: false,
             record_opcodes_filter: None,
-            record_immediate_bytes: false,
         }
     }
 
@@ -157,7 +152,6 @@ impl TracingInspectorConfig {
             exclude_precompile_calls: false,
             record_logs: false,
             record_opcodes_filter: None,
-            record_immediate_bytes: false,
         }
     }
 
@@ -239,7 +233,6 @@ impl TracingInspectorConfig {
         self.exclude_precompile_calls |= other.exclude_precompile_calls;
         self.record_logs |= other.record_logs;
         self.record_opcodes_filter = self.record_opcodes_filter.or(other.record_opcodes_filter);
-        self.record_immediate_bytes |= other.record_immediate_bytes;
         self
     }
 
@@ -341,17 +334,6 @@ impl TracingInspectorConfig {
     pub const fn set_record_logs(mut self, record_logs: bool) -> Self {
         self.record_logs = record_logs;
         self
-    }
-
-    /// Configure whether the tracer should record immediate bytes
-    pub const fn set_immediate_bytes(mut self, record_immediate_bytes: bool) -> Self {
-        self.record_immediate_bytes = record_immediate_bytes;
-        self
-    }
-
-    /// Enable recording of immediate bytes
-    pub const fn record_immediate_bytes(self) -> Self {
-        self.set_immediate_bytes(true)
     }
 
     /// If [OpcodeFilter] is configured, returns whether the given opcode should be recorded.
