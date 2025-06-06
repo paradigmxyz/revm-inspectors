@@ -8,12 +8,14 @@ use alloy_rpc_types_trace::geth::{
     PreStateConfig,
 };
 use revm::{
+    context::result::ExecutionResult,
     context_interface::{
         result::{HaltReasonTr, ResultAndState},
         ContextTr,
     },
     inspector::JournalExt,
     interpreter::{CallInputs, CallOutcome, CreateInputs, CreateOutcome, Interpreter},
+    state::EvmState,
     DatabaseRef, Inspector,
 };
 use thiserror::Error;
@@ -101,7 +103,7 @@ impl MuxInspector {
     /// Try converting this [MuxInspector] into a [MuxFrame].
     pub fn try_into_mux_frame<DB: DatabaseRef>(
         &self,
-        result: &ResultAndState<impl HaltReasonTr>,
+        result: &ResultAndState<ExecutionResult<impl HaltReasonTr>, EvmState>,
         db: &DB,
         tx_info: TransactionInfo,
     ) -> Result<MuxFrame, DB::Error> {

@@ -7,7 +7,7 @@ use alloy_rpc_types_trace::parity::{
     Action, CallAction, CallType, CreationMethod, SelfdestructAction, TraceType,
 };
 use revm::{
-    context::{ContextSetters, TxEnv},
+    context::TxEnv,
     context_interface::{
         block::BlobExcessGasAndPrice,
         result::{ExecutionResult, Output},
@@ -17,7 +17,7 @@ use revm::{
     database_interface::EmptyDB,
     handler::EvmTr,
     inspector::InspectorEvmTr,
-    primitives::hardfork::SpecId,
+    primitives::{eip4844::BLOB_BASE_FEE_UPDATE_FRACTION_CANCUN, hardfork::SpecId},
     state::AccountInfo,
     Context, DatabaseCommit, InspectEvm, MainBuilder, MainContext,
 };
@@ -61,19 +61,18 @@ fn test_parity_selfdestruct(spec_id: SpecId) {
     let output = deploy_contract(&mut evm, code.into(), deployer, spec_id);
     let addr = output.created_address().unwrap();
 
-    evm.ctx().modify_tx(|tx| {
-        *tx = TxEnv {
+    let mut evm =
+        evm.with_inspector(TracingInspector::new(TracingInspectorConfig::default_parity()));
+    let res = evm
+        .inspect_tx_finalize(TxEnv {
             caller: deployer,
             gas_limit: 1000000,
             kind: TransactTo::Call(addr),
             data: hex!("43d726d6").into(),
             nonce: 1,
             ..Default::default()
-        }
-    });
-    let mut evm =
-        evm.with_inspector(TracingInspector::new(TracingInspectorConfig::default_parity()));
-    let res = evm.inspect_replay().unwrap();
+        })
+        .unwrap();
     assert!(res.result.is_success(), "{res:#?}");
 
     assert_eq!(evm.inspector().traces().nodes().len(), 1);
@@ -151,8 +150,7 @@ fn test_parity_constructor_selfdestruct() {
         )
         .unwrap();
 
-    //let res = evm.inspect_replay().unwrap();
-    assert!(res.result.is_success());
+    assert!(res.is_success());
     print_traces(evm.inspector());
 
     let traces = evm
@@ -196,23 +194,21 @@ fn test_parity_call_selfdestruct() {
     let to =
         deploy_contract(&mut evm, code.into(), deployer, SpecId::LONDON).created_address().unwrap();
 
-    evm.ctx().db().cache.accounts.get_mut(&to).unwrap().info.balance = balance;
+    evm.ctx().db_mut().cache.accounts.get_mut(&to).unwrap().info.balance = balance;
 
-    evm.ctx().modify_tx(|tx| {
-        *tx = TxEnv {
+    let mut evm =
+        evm.with_inspector(TracingInspector::new(TracingInspectorConfig::default_parity()));
+
+    let res = evm
+        .inspect_tx_finalize(TxEnv {
             caller,
             gas_limit: 100000000,
             kind: TransactTo::Call(to),
             data: input.to_vec().into(),
             nonce: 0,
             ..Default::default()
-        };
-    });
-
-    let mut evm =
-        evm.with_inspector(TracingInspector::new(TracingInspectorConfig::default_parity()));
-
-    let res = evm.inspect_replay().unwrap();
+        })
+        .unwrap();
     match &res.result {
         ExecutionResult::Success { output, .. } => match output {
             Output::Call(_) => {}
@@ -220,7 +216,7 @@ fn test_parity_call_selfdestruct() {
         },
         err => panic!("Execution failed: {err:?}"),
     }
-    evm.ctx().db().commit(res.state);
+    evm.ctx().db_mut().commit(res.state);
 
     let traces = evm
         .into_inspector()
@@ -255,7 +251,7 @@ fn test_parity_call_selfdestruct_create() {
 
     let value = U256::from(1);
 
-    let mut evm = Context::mainnet()
+    let evm = Context::mainnet()
         .with_db(CacheDB::<EmptyDB>::default())
         .modify_db_chained(|db| {
             db.insert_account_info(
@@ -269,8 +265,11 @@ fn test_parity_call_selfdestruct_create() {
         })
         .build_mainnet();
 
-    evm.ctx().modify_tx(|tx| {
-        *tx = TxEnv {
+    let mut evm =
+        evm.with_inspector(TracingInspector::new(TracingInspectorConfig::default_parity()));
+
+    let res = evm
+        .inspect_tx_finalize(TxEnv {
             caller,
             gas_limit: 100000000,
             kind: TransactTo::Create,
@@ -278,13 +277,8 @@ fn test_parity_call_selfdestruct_create() {
             nonce: 24,
             value: U256::from(1),
             ..Default::default()
-        };
-    });
-
-    let mut evm =
-        evm.with_inspector(TracingInspector::new(TracingInspectorConfig::default_parity()));
-
-    let res = evm.inspect_replay().unwrap();
+        })
+        .unwrap();
     match &res.result {
         ExecutionResult::Success { output, .. } => match output {
             Output::Create(_, _) => {}
@@ -292,7 +286,7 @@ fn test_parity_call_selfdestruct_create() {
         },
         err => panic!("Execution failed: {err:?}"),
     }
-    evm.ctx().db().commit(res.state);
+    evm.ctx().db_mut().commit(res.state);
 
     let traces = evm
         .into_inspector()
@@ -344,9 +338,15 @@ fn test_parity_statediff_blob_commit() {
         })
         .modify_block_chained(|b| {
             b.basefee = 100;
-            b.blob_excess_gas_and_price = Some(BlobExcessGasAndPrice::new(100, false));
+            b.blob_excess_gas_and_price =
+                Some(BlobExcessGasAndPrice::new(100, BLOB_BASE_FEE_UPDATE_FRACTION_CANCUN));
         })
-        .with_tx(TxEnv {
+        .build_mainnet_with_inspector(TracingInspector::new(
+            TracingInspectorConfig::from_parity_config(&trace_types),
+        ));
+
+    let res = evm
+        .inspect_tx_finalize(TxEnv {
             caller,
             gas_limit: 1000000,
             kind: TransactTo::Call(to),
@@ -357,11 +357,7 @@ fn test_parity_statediff_blob_commit() {
             max_fee_per_blob_gas: 1000000000,
             ..Default::default()
         })
-        .build_mainnet_with_inspector(TracingInspector::new(
-            TracingInspectorConfig::from_parity_config(&trace_types),
-        ));
-
-    let res = evm.inspect_replay().unwrap();
+        .unwrap();
     let mut full_trace =
         evm.inspector.into_parity_builder().into_trace_results(&res.result, &trace_types);
 
@@ -416,18 +412,19 @@ fn test_parity_delegatecall_selfdestruct() {
     input_data.extend_from_slice(target_addr.as_slice());
 
     // Call DelegateCall contract with SelfDestructTarget address
-    evm.set_tx(TxEnv {
-        caller: deployer,
-        gas_limit: 1000000,
-        kind: TransactTo::Call(delegate_addr),
-        data: input_data.into(),
-        nonce: 0,
-        ..Default::default()
-    });
     let mut evm =
         evm.with_inspector(TracingInspector::new(TracingInspectorConfig::default_parity()));
 
-    let res = evm.inspect_replay().unwrap();
+    let res = evm
+        .inspect_tx_finalize(TxEnv {
+            caller: deployer,
+            gas_limit: 1000000,
+            kind: TransactTo::Call(delegate_addr),
+            data: input_data.into(),
+            nonce: 0,
+            ..Default::default()
+        })
+        .unwrap();
     assert!(res.result.is_success());
 
     let traces = evm

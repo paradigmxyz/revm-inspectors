@@ -12,7 +12,7 @@ use core::iter::Peekable;
 use revm::{
     context_interface::result::{ExecutionResult, HaltReasonTr, ResultAndState},
     primitives::{hardfork::SpecId, KECCAK_EMPTY},
-    state::Account,
+    state::{Account, EvmState},
     DatabaseRef,
 };
 
@@ -172,7 +172,7 @@ impl ParityTraceBuilder {
     /// with the [TracingInspector](crate::tracing::TracingInspector).
     pub fn into_trace_results_with_state<DB: DatabaseRef>(
         self,
-        res: &ResultAndState<impl HaltReasonTr>,
+        res: &ResultAndState<ExecutionResult<impl HaltReasonTr>, EvmState>,
         trace_types: &HashSet<TraceType>,
         db: DB,
     ) -> Result<TraceResults, DB::Error> {
