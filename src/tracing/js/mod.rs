@@ -476,8 +476,7 @@ where
                     .bytecode
                     .action()
                     .as_ref()
-                    .map(|i| i.instruction_result().map(|i| format!("{:?}", i)))
-                    .flatten(),
+                    .and_then(|i| i.instruction_result().map(|i| format!("{i:?}"))),
                 contract: Contract {
                     caller: interp.input.caller_address,
                     contract: interp.input.target_address,

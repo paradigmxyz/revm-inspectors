@@ -531,7 +531,7 @@ impl TracingInspector {
         step.gas_cost = step.gas_remaining.saturating_sub(interp.gas.remaining());
 
         // set the status
-        step.status = interp.bytecode.action().as_ref().map(|i| i.instruction_result()).flatten()
+        step.status = interp.bytecode.action().as_ref().and_then(|i| i.instruction_result())
     }
 }
 

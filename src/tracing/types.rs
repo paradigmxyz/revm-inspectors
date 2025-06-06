@@ -133,7 +133,7 @@ impl CallTrace {
 
     /// Returns the error message if it is an erroneous result.
     pub(crate) fn as_error_msg(&self, kind: TraceStyle) -> Option<String> {
-        self.status.map(|status| utils::fmt_error_msg(status, kind)).flatten()
+        self.status.and_then(|status| utils::fmt_error_msg(status, kind))
     }
 }
 
