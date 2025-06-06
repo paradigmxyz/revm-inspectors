@@ -4,7 +4,7 @@ use alloy_rpc_types_trace::opcode::OpcodeGas;
 use revm::{
     bytecode::opcode::{self, OpCode},
     interpreter::{
-        interpreter_types::{Immediates, Jumps, LoopControl},
+        interpreter_types::{Immediates, Jumps},
         Interpreter,
     },
     Inspector,
@@ -67,14 +67,14 @@ impl<CTX> Inspector<CTX> for OpcodeGasInspector {
             *self.opcode_counts.entry(opcode).or_default() += 1;
 
             // keep track of the last opcode executed
-            self.last_opcode_gas_remaining = Some((opcode, interp.control.gas().remaining()));
+            self.last_opcode_gas_remaining = Some((opcode, interp.gas.remaining()));
         }
     }
 
     fn step_end(&mut self, interp: &mut Interpreter, _context: &mut CTX) {
         // update gas usage for the last opcode
         if let Some((opcode, gas_remaining)) = self.last_opcode_gas_remaining.take() {
-            let gas_cost = gas_remaining.saturating_sub(interp.control.gas().remaining());
+            let gas_cost = gas_remaining.saturating_sub(interp.gas.remaining());
             *self.opcode_gas.entry(opcode).or_default() += gas_cost;
         }
     }

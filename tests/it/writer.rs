@@ -3,7 +3,7 @@ use alloy_primitives::{address, b256, bytes, hex, Address, B256, U256};
 use alloy_sol_types::{sol, SolCall};
 use colorchoice::ColorChoice;
 use revm::{
-    context_interface::TransactTo, database::CacheDB, database_interface::EmptyDB, handler::EvmTr,
+    context::TxEnv, context_interface::TransactTo, database::CacheDB, database_interface::EmptyDB,
     inspector::InspectorEvmTr, primitives::hardfork::SpecId, Context, InspectCommitEvm, InspectEvm,
     MainBuilder, MainContext,
 };
@@ -44,14 +44,17 @@ fn test_trace_printing() {
     index += 1;
 
     let mut call = |data: Vec<u8>| {
-        evm.ctx().modify_tx(|tx| {
-            tx.data = data.into();
-            tx.kind = TransactTo::Call(address);
-            tx.gas_priority_fee = None;
-            tx.nonce = index as u64;
-        });
         evm.set_inspector(TracingInspector::new(TracingInspectorConfig::all()));
-        let r = evm.inspect_replay_commit().unwrap();
+        let r = evm
+            .inspect_tx_commit(
+                TxEnv::builder()
+                    .data(data.into())
+                    .kind(TransactTo::Call(address))
+                    .gas_priority_fee(None)
+                    .nonce(index as u64)
+                    .build_fill(),
+            )
+            .unwrap();
         assert!(r.is_success(), "evm.call reverted: {r:#?}");
 
         assert_traces(base_path, None, Some(index), evm.inspector());
