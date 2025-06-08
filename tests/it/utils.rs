@@ -63,16 +63,16 @@ pub fn inspect_deploy_contract<DB: Database + DatabaseCommit, INSP: Inspector<Co
     spec: SpecId,
 ) -> ExecutionResult<HaltReason> {
     evm.ctx().modify_cfg(|cfg| cfg.spec = spec);
-    evm.ctx().modify_tx(|tx| {
-        *tx = TxEnv {
+
+    let output = evm
+        .inspect_tx_commit(TxEnv {
             caller: deployer,
             gas_limit: 1000000,
             kind: TransactTo::Create,
             data: code,
             ..Default::default()
-        };
-    });
-    let output = evm.inspect_replay_commit().expect("Expect to be executed");
+        })
+        .expect("Expect to be executed");
 
     evm.ctx().modify_tx(|tx| {
         tx.nonce += 1;
