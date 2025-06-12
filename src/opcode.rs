@@ -3,8 +3,10 @@ use alloy_primitives::map::HashMap;
 use alloy_rpc_types_trace::opcode::OpcodeGas;
 use revm::{
     bytecode::opcode::{self, OpCode},
+    context::{ContextTr, JournalTr},
     interpreter::{
         interpreter_types::{Immediates, Jumps, LoopControl},
+        CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, CreateScheme,
         Interpreter,
     },
     Inspector,
@@ -57,9 +59,21 @@ impl OpcodeGasInspector {
             gas_used,
         })
     }
+
+    /// Helper function to subtract gas limit from opcode gas tracking.
+    /// This prevents call/create opcodes from including the gas consumed within the call/create.
+    fn subtract_gas_limit(&mut self, opcode_value: u8, gas_limit: u64) {
+        if let Some(opcode) = OpCode::new(opcode_value) {
+            let opcode_gas = self.opcode_gas.entry(opcode).or_default();
+            *opcode_gas = opcode_gas.saturating_sub(gas_limit);
+        }
+    }
 }
 
-impl<CTX> Inspector<CTX> for OpcodeGasInspector {
+impl<CTX> Inspector<CTX> for OpcodeGasInspector
+where
+    CTX: ContextTr,
+{
     fn step(&mut self, interp: &mut Interpreter, _context: &mut CTX) {
         let opcode_value = interp.bytecode.opcode();
         if let Some(opcode) = OpCode::new(opcode_value) {
@@ -77,6 +91,50 @@ impl<CTX> Inspector<CTX> for OpcodeGasInspector {
             let gas_cost = gas_remaining.saturating_sub(interp.control.gas().remaining());
             *self.opcode_gas.entry(opcode).or_default() += gas_cost;
         }
+    }
+
+    fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
+        if context.journal_ref().depth() == 0 {
+            // skip the root call
+            return None;
+        }
+
+        // for accurate call opcode gas tracking, we need to deduct the gas limit from the opcode
+        // gas, because otherwise the call opcodes would include the total gas consumed within the
+        // call itself, but we want to track how much gas the call opcode itself consumes.
+        let opcode = match inputs.scheme {
+            CallScheme::Call => opcode::CALL,
+            CallScheme::CallCode => opcode::CALLCODE,
+            CallScheme::DelegateCall => opcode::DELEGATECALL,
+            CallScheme::StaticCall => opcode::STATICCALL,
+            CallScheme::ExtCall => opcode::EXTCALL,
+            CallScheme::ExtStaticCall => opcode::EXTSTATICCALL,
+            CallScheme::ExtDelegateCall => opcode::EXTDELEGATECALL,
+        };
+
+        self.subtract_gas_limit(opcode, inputs.gas_limit);
+
+        None
+    }
+
+    fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
+        if context.journal_ref().depth() == 0 {
+            // skip the root create
+            return None;
+        }
+
+        // for accurate create opcode gas tracking, we need to deduct the gas limit from the opcode
+        // gas, because otherwise the create opcodes would include the total gas consumed within the
+        // create itself, but we want to track how much gas the create opcode itself consumes.
+        let opcode = match inputs.scheme {
+            CreateScheme::Create => opcode::CREATE,
+            CreateScheme::Create2 { .. } => opcode::CREATE2,
+            CreateScheme::Custom { .. } => return None,
+        };
+
+        self.subtract_gas_limit(opcode, inputs.gas_limit);
+
+        None
     }
 }
 
