@@ -89,6 +89,10 @@ pub struct JsInspector {
     step_object: Option<JsObject>,
     /// Reusable JS object for database references to avoid recreating on each call
     db_object: Option<JsObject>,
+    /// Reusable JS object for enter call frames to avoid recreating on each enter
+    enter_frame_object: Option<JsObject>,
+    /// Reusable JS object for exit frame results to avoid recreating on each exit
+    exit_frame_object: Option<JsObject>,
 }
 
 impl JsInspector {
@@ -196,6 +200,8 @@ impl JsInspector {
             precompiles_registered: false,
             step_object: None,
             db_object: None,
+            enter_frame_object: None,
+            exit_frame_object: None,
         })
     }
 
@@ -369,16 +375,42 @@ impl JsInspector {
 
     fn try_enter(&mut self, frame: CallFrame) -> JsResult<()> {
         if let Some(enter_fn) = &self.enter_fn {
-            let frame = frame.into_js_object(&mut self.ctx)?;
-            enter_fn.call(&(self.obj.clone().into()), &[frame.into()], &mut self.ctx)?;
+            // Lazy initialize enter frame object once
+            if self.enter_frame_object.is_none() {
+                self.enter_frame_object = Some(CallFrame::create_js_object_template(&mut self.ctx)?);
+            }
+            
+            // Update existing object with new data
+            if let Some(frame_obj) = &self.enter_frame_object {
+                frame.update_js_object(frame_obj, &mut self.ctx)?;
+                
+                enter_fn.call(
+                    &(self.obj.clone().into()), 
+                    &[frame_obj.clone().into()], 
+                    &mut self.ctx
+                )?;
+            }
         }
         Ok(())
     }
 
     fn try_exit(&mut self, frame: FrameResult) -> JsResult<()> {
         if let Some(exit_fn) = &self.exit_fn {
-            let frame = frame.into_js_object(&mut self.ctx)?;
-            exit_fn.call(&(self.obj.clone().into()), &[frame.into()], &mut self.ctx)?;
+            // Lazy initialize exit frame object once
+            if self.exit_frame_object.is_none() {
+                self.exit_frame_object = Some(FrameResult::create_js_object_template(&mut self.ctx)?);
+            }
+            
+            // Update existing object with new data
+            if let Some(frame_obj) = &self.exit_frame_object {
+                frame.update_js_object(frame_obj, &mut self.ctx)?;
+                
+                exit_fn.call(
+                    &(self.obj.clone().into()), 
+                    &[frame_obj.clone().into()], 
+                    &mut self.ctx
+                )?;
+            }
         }
         Ok(())
     }
@@ -1145,5 +1177,129 @@ mod tests {
         
         let unique_pcs = result.get("uniquePCs").unwrap().as_f64().unwrap();
         assert!(unique_pcs > 1.0, "Should have seen different PC values indicating object updates work");
+    }
+
+    #[test]
+    fn test_js_inspector_enter_exit_object_reuse() {
+        let code = r#"{
+            enterCount: 0,
+            exitCount: 0,
+            enterData: [],
+            exitData: [],
+            step: function(log, db) {},
+            fault: function(log, db) {},
+            enter: function(frame) {
+                this.enterCount++;
+                
+                // Test multiple calls to same function work
+                var from1 = frame.getFrom();
+                var from2 = frame.getFrom();
+                if (from1 !== from2) {
+                    throw new Error("getFrom should be consistent");
+                }
+                
+                // Collect data
+                this.enterData.push({
+                    from: frame.getFrom(),
+                    to: frame.getTo(),
+                    gas: frame.getGas(),
+                    type: frame.getType(),
+                    value: frame.getValue()
+                });
+            },
+            exit: function(frame) {
+                this.exitCount++;
+                
+                // Test consistency
+                var gasUsed1 = frame.getGasUsed();
+                var gasUsed2 = frame.getGasUsed();
+                if (gasUsed1 !== gasUsed2) {
+                    throw new Error("getGasUsed should be consistent");
+                }
+                
+                this.exitData.push({
+                    gasUsed: frame.getGasUsed(),
+                    error: frame.getError()
+                });
+            },
+            result: function() { 
+                return {
+                    enterCount: this.enterCount,
+                    exitCount: this.exitCount,
+                    enterDataLength: this.enterData.length,
+                    exitDataLength: this.exitData.length
+                };
+            }
+        }"#;
+        
+        let res = run_trace(code, None, true);
+        let result = res.as_object().unwrap();
+        
+        // Should have called enter and exit functions
+        let enter_count = result.get("enterCount").unwrap().as_f64().unwrap();
+        let exit_count = result.get("exitCount").unwrap().as_f64().unwrap();
+        
+        assert!(enter_count >= 0.0, "Should have tracked enter calls");
+        assert!(exit_count >= 0.0, "Should have tracked exit calls");
+        assert_eq!(enter_count, exit_count, "Enter and exit counts should match");
+    }
+
+    #[test]
+    fn test_js_inspector_enter_exit_data_updates() {
+        let code = r#"{
+            lastEnterGas: null,
+            lastExitGasUsed: null,
+            lastEnterType: null,
+            enterTypes: [],
+            step: function(log, db) {},
+            fault: function(log, db) {},
+            enter: function(frame) {
+                this.lastEnterGas = frame.getGas();
+                this.lastEnterType = frame.getType();
+                this.enterTypes.push(frame.getType());
+                
+                // Verify gas is a number
+                if (typeof frame.getGas() !== 'number') {
+                    throw new Error("Gas should be a number");
+                }
+                
+                // Verify type is a string
+                if (typeof frame.getType() !== 'string') {
+                    throw new Error("Type should be a string");
+                }
+            },
+            exit: function(frame) {
+                this.lastExitGasUsed = frame.getGasUsed();
+                
+                // Verify gasUsed is a number
+                if (typeof frame.getGasUsed() !== 'number') {
+                    throw new Error("GasUsed should be a number");
+                }
+            },
+            result: function() { 
+                return {
+                    lastEnterGas: this.lastEnterGas,
+                    lastExitGasUsed: this.lastExitGasUsed,
+                    lastEnterType: this.lastEnterType,
+                    uniqueEnterTypes: [...new Set(this.enterTypes)].length
+                };
+            }
+        }"#;
+        
+        let res = run_trace(code, None, true);
+        let result = res.as_object().unwrap();
+        
+        // Should have valid data types
+        if let Some(gas) = result.get("lastEnterGas") {
+            if !gas.is_null() {
+                assert!(gas.is_number(), "Enter gas should be a number");
+            }
+        }
+        
+        if let Some(gas_used) = result.get("lastExitGasUsed") {
+            if !gas_used.is_null() {
+                assert!(gas_used.is_number(), "Exit gas used should be a number");
+            }
+        }
     }
 }

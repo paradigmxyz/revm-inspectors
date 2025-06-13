@@ -644,6 +644,52 @@ pub(crate) struct FrameResult {
 }
 
 impl FrameResult {
+    /// Creates a reusable JS object template for frame results
+    pub(crate) fn create_js_object_template(ctx: &mut Context) -> JsResult<JsObject> {
+        let obj = JsObject::default();
+        
+        // Create placeholder functions
+        let default_gas_used = 0u64;
+        let default_output = JsValue::from(JsUint8Array::from_iter(core::iter::empty(), ctx)?);
+        let default_error = JsValue::undefined();
+        
+        let get_gas_used = js_value_getter!(default_gas_used, ctx);
+        let get_output = js_value_capture_getter!(default_output, ctx);
+        let get_error = js_value_capture_getter!(default_error, ctx);
+        
+        obj.set(js_string!("getGasUsed"), get_gas_used, false, ctx)?;
+        obj.set(js_string!("getOutput"), get_output, false, ctx)?;
+        obj.set(js_string!("getError"), get_error, false, ctx)?;
+        
+        Ok(obj)
+    }
+    
+    /// Updates an existing JS object with new frame result data
+    pub(crate) fn update_js_object(&self, obj: &JsObject, ctx: &mut Context) -> JsResult<()> {
+        let gas_used = self.gas_used;
+        let get_gas_used = js_value_getter!(gas_used, ctx);
+        
+        let output = to_uint8_array_value(self.output.clone(), ctx)?;
+        let get_output = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                move |_this, _args, output, _ctx| Ok(output.clone()),
+                output,
+            ),
+        )
+        .length(0)
+        .build();
+        
+        let error = self.error.as_ref().map(|err| JsValue::from(js_string!(err.clone()))).unwrap_or_default();
+        let get_error = js_value_capture_getter!(error, ctx);
+        
+        obj.set(js_string!("getGasUsed"), get_gas_used, false, ctx)?;
+        obj.set(js_string!("getOutput"), get_output, false, ctx)?;
+        obj.set(js_string!("getError"), get_error, false, ctx)?;
+        
+        Ok(())
+    }
+
     pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
         let Self { gas_used, output, error } = self;
         let obj = JsObject::default();
@@ -679,6 +725,113 @@ pub(crate) struct CallFrame {
 }
 
 impl CallFrame {
+    /// Creates a reusable JS object template for call frames
+    pub(crate) fn create_js_object_template(ctx: &mut Context) -> JsResult<JsObject> {
+        let obj = JsObject::default();
+        
+        // Create placeholder functions with default values
+        let default_address = Address::ZERO;
+        let default_u256 = U256::ZERO;
+        let default_u64 = 0u64;
+        let default_input = JsValue::from(JsUint8Array::from_iter(core::iter::empty(), ctx)?);
+        let default_type = js_string!("CALL");
+        
+        let get_from = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure(move |_this, _args, ctx| {
+                address_to_uint8_array_value(default_address, ctx)
+            }),
+        )
+        .length(0)
+        .build();
+        
+        let get_to = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure(move |_this, _args, ctx| {
+                address_to_uint8_array_value(default_address, ctx)
+            }),
+        )
+        .length(0)
+        .build();
+        
+        let get_value = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure(move |_this, _args, ctx| to_bigint(default_u256, ctx)),
+        )
+        .length(0)
+        .build();
+        
+        let get_input = js_value_capture_getter!(default_input, ctx);
+        let get_gas = js_value_getter!(default_u64, ctx);
+        let get_type = js_value_capture_getter!(default_type, ctx);
+        
+        obj.set(js_string!("getFrom"), get_from, false, ctx)?;
+        obj.set(js_string!("getTo"), get_to, false, ctx)?;
+        obj.set(js_string!("getValue"), get_value, false, ctx)?;
+        obj.set(js_string!("getInput"), get_input, false, ctx)?;
+        obj.set(js_string!("getGas"), get_gas, false, ctx)?;
+        obj.set(js_string!("getType"), get_type, false, ctx)?;
+        
+        Ok(obj)
+    }
+    
+    /// Updates an existing JS object with new call frame data
+    pub(crate) fn update_js_object(&self, obj: &JsObject, ctx: &mut Context) -> JsResult<()> {
+        let caller = self.contract.caller;
+        let contract = self.contract.contract;
+        let value = self.contract.value;
+        let gas = self.gas;
+        
+        let get_from = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure(move |_this, _args, ctx| {
+                address_to_uint8_array_value(caller, ctx)
+            }),
+        )
+        .length(0)
+        .build();
+        
+        let get_to = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure(move |_this, _args, ctx| {
+                address_to_uint8_array_value(contract, ctx)
+            }),
+        )
+        .length(0)
+        .build();
+        
+        let get_value = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure(move |_this, _args, ctx| to_bigint(value, ctx)),
+        )
+        .length(0)
+        .build();
+        
+        let input = to_uint8_array_value(self.contract.input.clone(), ctx)?;
+        let get_input = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                move |_this, _args, input, _ctx| Ok(input.clone()),
+                input,
+            ),
+        )
+        .length(0)
+        .build();
+        
+        let get_gas = js_value_getter!(gas, ctx);
+        let ty = js_string!(self.kind.to_string());
+        let get_type = js_value_capture_getter!(ty, ctx);
+        
+        obj.set(js_string!("getFrom"), get_from, false, ctx)?;
+        obj.set(js_string!("getTo"), get_to, false, ctx)?;
+        obj.set(js_string!("getValue"), get_value, false, ctx)?;
+        obj.set(js_string!("getInput"), get_input, false, ctx)?;
+        obj.set(js_string!("getGas"), get_gas, false, ctx)?;
+        obj.set(js_string!("getType"), get_type, false, ctx)?;
+        
+        Ok(())
+    }
+
     pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
         let Self { contract: Contract { caller, contract, value, input }, kind, gas } = self;
         let obj = JsObject::default();
@@ -1885,5 +2038,115 @@ mod tests {
         let get_pc = template.get(js_string!("getPC"), &mut context).unwrap();
         let final_pc = get_pc.as_callable().unwrap().call(&template.clone().into(), &[], &mut context).unwrap();
         assert_eq!(final_pc.to_number(&mut context).unwrap(), 99.0);
+    }
+
+    #[test]
+    fn test_call_frame_template_creation() {
+        let mut context = Context::default();
+        register_builtins(&mut context).unwrap();
+
+        // Test that template creation works
+        let template = CallFrame::create_js_object_template(&mut context).unwrap();
+        
+        // Verify all expected functions exist
+        assert!(template.get(js_string!("getFrom"), &mut context).unwrap().is_callable());
+        assert!(template.get(js_string!("getTo"), &mut context).unwrap().is_callable());
+        assert!(template.get(js_string!("getValue"), &mut context).unwrap().is_callable());
+        assert!(template.get(js_string!("getInput"), &mut context).unwrap().is_callable());
+        assert!(template.get(js_string!("getGas"), &mut context).unwrap().is_callable());
+        assert!(template.get(js_string!("getType"), &mut context).unwrap().is_callable());
+
+        // Test that template returns default values
+        let get_gas = template.get(js_string!("getGas"), &mut context).unwrap();
+        let gas_result = get_gas.as_callable().unwrap().call(&template.clone().into(), &[], &mut context).unwrap();
+        assert_eq!(gas_result.to_number(&mut context).unwrap(), 0.0);
+    }
+
+    #[test]
+    fn test_call_frame_update_object() {
+        let mut context = Context::default();
+        register_builtins(&mut context).unwrap();
+
+        // Create template
+        let template = CallFrame::create_js_object_template(&mut context).unwrap();
+        
+        // Create call frame with test data
+        let frame = CallFrame {
+            contract: Contract {
+                caller: Address::from([1u8; 20]),
+                contract: Address::from([2u8; 20]),
+                value: U256::from(1500),
+                input: vec![0xaa, 0xbb, 0xcc].into(),
+            },
+            kind: CallKind::Call,
+            gas: 30000,
+        };
+
+        // Update the template
+        frame.update_js_object(&template, &mut context).unwrap();
+
+        // Verify values were updated
+        let get_gas = template.get(js_string!("getGas"), &mut context).unwrap();
+        let gas_result = get_gas.as_callable().unwrap().call(&template.clone().into(), &[], &mut context).unwrap();
+        assert_eq!(gas_result.to_number(&mut context).unwrap(), 30000.0);
+
+        let get_type = template.get(js_string!("getType"), &mut context).unwrap();
+        let type_result = get_type.as_callable().unwrap().call(&template.clone().into(), &[], &mut context).unwrap();
+        assert_eq!(type_result.to_string(&mut context).unwrap().to_std_string().unwrap(), "CALL");
+
+        let get_value = template.get(js_string!("getValue"), &mut context).unwrap();
+        let value_result = get_value.as_callable().unwrap().call(&template.clone().into(), &[], &mut context).unwrap();
+        assert_eq!(value_result.to_string(&mut context).unwrap().to_std_string().unwrap(), "1500");
+    }
+
+    #[test]
+    fn test_frame_result_template_creation() {
+        let mut context = Context::default();
+        register_builtins(&mut context).unwrap();
+
+        // Test that template creation works
+        let template = FrameResult::create_js_object_template(&mut context).unwrap();
+        
+        // Verify all expected functions exist
+        assert!(template.get(js_string!("getGasUsed"), &mut context).unwrap().is_callable());
+        assert!(template.get(js_string!("getOutput"), &mut context).unwrap().is_callable());
+        assert!(template.get(js_string!("getError"), &mut context).unwrap().is_callable());
+
+        // Test that template returns default values
+        let get_gas_used = template.get(js_string!("getGasUsed"), &mut context).unwrap();
+        let gas_result = get_gas_used.as_callable().unwrap().call(&template.clone().into(), &[], &mut context).unwrap();
+        assert_eq!(gas_result.to_number(&mut context).unwrap(), 0.0);
+    }
+
+    #[test]
+    fn test_frame_result_update_object() {
+        let mut context = Context::default();
+        register_builtins(&mut context).unwrap();
+
+        // Create template
+        let template = FrameResult::create_js_object_template(&mut context).unwrap();
+        
+        // Create frame result with test data
+        let result = FrameResult {
+            gas_used: 12345,
+            output: vec![0x11, 0x22, 0x33].into(),
+            error: Some("test error".to_string()),
+        };
+
+        // Update the template
+        result.update_js_object(&template, &mut context).unwrap();
+
+        // Verify values were updated
+        let get_gas_used = template.get(js_string!("getGasUsed"), &mut context).unwrap();
+        let gas_result = get_gas_used.as_callable().unwrap().call(&template.clone().into(), &[], &mut context).unwrap();
+        assert_eq!(gas_result.to_number(&mut context).unwrap(), 12345.0);
+
+        let get_error = template.get(js_string!("getError"), &mut context).unwrap();
+        let error_result = get_error.as_callable().unwrap().call(&template.clone().into(), &[], &mut context).unwrap();
+        assert_eq!(error_result.to_string(&mut context).unwrap().to_std_string().unwrap(), "test error");
+
+        let get_output = template.get(js_string!("getOutput"), &mut context).unwrap();
+        let output_result = get_output.as_callable().unwrap().call(&template.clone().into(), &[], &mut context).unwrap();
+        assert!(output_result.is_object());
     }
 }
