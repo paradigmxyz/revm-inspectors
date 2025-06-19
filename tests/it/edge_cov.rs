@@ -46,7 +46,7 @@ fn test_edge_coverage() {
 
     // Create contract
     let res = evm
-        .inspect_tx_finalize(TxEnv {
+        .inspect_tx(TxEnv {
             caller: deployer,
             gas_limit: 1000000,
             kind: TransactTo::Create,
@@ -79,7 +79,7 @@ fn test_edge_coverage() {
 
     let insp = EdgeCovInspector::new();
     let mut evm = evm.with_inspector(insp);
-    let res = evm.inspect_tx_finalize(tx).unwrap();
+    let res = evm.inspect_tx(tx).unwrap();
     assert!(res.result.is_success());
 
     let counts = evm.inspector().get_hitcount();
@@ -88,7 +88,7 @@ fn test_edge_coverage() {
 
     evm.inspector().reset();
     let res = evm
-        .inspect_tx_finalize(TxEnv {
+        .inspect_tx(TxEnv {
             caller: deployer,
             gas_limit: 100000000,
             kind: TransactTo::Call(addr),

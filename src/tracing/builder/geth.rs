@@ -14,7 +14,6 @@ use alloy_rpc_types_trace::geth::{
     GethDefaultTracingOptions, PreStateConfig, PreStateFrame, PreStateMode, StructLog,
 };
 use revm::{
-    context::result::ExecutionResult,
     context_interface::result::{HaltReasonTr, ResultAndState},
     state::EvmState,
     DatabaseRef,
@@ -98,7 +97,7 @@ impl<'a> GethTraceBuilder<'a> {
     /// Generate a geth-style trace e.g. for `debug_traceTransaction`
     ///
     /// This expects the gas used and return value for the
-    /// [ExecutionResult] of the executed
+    /// [[revm::context::result::ExecutionResult]] of the executed
     /// transaction.
     pub fn geth_traces(
         &self,
@@ -131,7 +130,7 @@ impl<'a> GethTraceBuilder<'a> {
     /// This decodes all call frames from the recorded traces.
     ///
     /// This expects the gas used and return value for the
-    /// [ExecutionResult] of the executed
+    /// [revm::context::result::ExecutionResult] of the executed
     /// transaction.
     pub fn geth_call_traces(&self, opts: CallConfig, gas_used: u64) -> CallFrame {
         if self.nodes.is_empty() {
@@ -220,7 +219,7 @@ impl<'a> GethTraceBuilder<'a> {
     /// * `db` - The database to fetch state pre-transaction execution.
     pub fn geth_prestate_traces<DB: DatabaseRef>(
         &self,
-        ResultAndState { state, .. }: &ResultAndState<ExecutionResult<impl HaltReasonTr>, EvmState>,
+        ResultAndState { state, .. }: &ResultAndState<impl HaltReasonTr>,
         prestate_config: &PreStateConfig,
         db: DB,
     ) -> Result<PreStateFrame, DB::Error> {

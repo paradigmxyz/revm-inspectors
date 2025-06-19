@@ -64,7 +64,7 @@ fn test_geth_calltracer_logs() {
     let mut evm = evm.with_inspector(&mut insp);
 
     let res = evm
-        .inspect_tx_finalize(TxEnv {
+        .inspect_tx(TxEnv {
             caller: deployer,
             gas_limit: 1000000,
             kind: TransactTo::Call(addr),
@@ -172,7 +172,7 @@ fn test_geth_mux_tracer() {
     let mut evm = evm.with_inspector(&mut insp);
 
     let res = evm
-        .inspect_tx_finalize(TxEnv {
+        .inspect_tx(TxEnv {
             caller: deployer,
             gas_limit: 1000000,
             kind: TransactTo::Call(addr),
@@ -259,7 +259,7 @@ fn test_geth_inspector_reset() {
         .kind(TxKind::Call(Address::ZERO))
         .build_fill();
     // first run inspector
-    let res = evm.inspect_tx_finalize(tx.clone()).unwrap();
+    let res = evm.inspect_tx(tx.clone()).unwrap();
     assert!(res.result.is_success());
     assert_eq!(
         evm.inspector()
@@ -279,7 +279,7 @@ fn test_geth_inspector_reset() {
     assert_eq!(evm.inspector().traces().nodes().first().unwrap().trace.gas_limit, 0);
 
     // second run inspector after reset
-    let res = evm.inspect_tx_finalize(tx).unwrap();
+    let res = evm.inspect_tx(tx).unwrap();
     assert!(res.result.is_success());
     let gas_limit = evm.ctx().tx().gas_limit;
     assert_eq!(

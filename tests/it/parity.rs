@@ -64,7 +64,7 @@ fn test_parity_selfdestruct(spec_id: SpecId) {
     let mut evm =
         evm.with_inspector(TracingInspector::new(TracingInspectorConfig::default_parity()));
     let res = evm
-        .inspect_tx_finalize(TxEnv {
+        .inspect_tx(TxEnv {
             caller: deployer,
             gas_limit: 1000000,
             kind: TransactTo::Call(addr),
@@ -150,7 +150,7 @@ fn test_parity_constructor_selfdestruct() {
         )
         .unwrap();
 
-    assert!(res.is_success());
+    assert!(res.result.is_success());
     print_traces(evm.inspector());
 
     let traces = evm
@@ -200,7 +200,7 @@ fn test_parity_call_selfdestruct() {
         evm.with_inspector(TracingInspector::new(TracingInspectorConfig::default_parity()));
 
     let res = evm
-        .inspect_tx_finalize(TxEnv {
+        .inspect_tx(TxEnv {
             caller,
             gas_limit: 100000000,
             kind: TransactTo::Call(to),
@@ -269,7 +269,7 @@ fn test_parity_call_selfdestruct_create() {
         evm.with_inspector(TracingInspector::new(TracingInspectorConfig::default_parity()));
 
     let res = evm
-        .inspect_tx_finalize(TxEnv {
+        .inspect_tx(TxEnv {
             caller,
             gas_limit: 100000000,
             kind: TransactTo::Create,
@@ -346,7 +346,7 @@ fn test_parity_statediff_blob_commit() {
         ));
 
     let res = evm
-        .inspect_tx_finalize(TxEnv {
+        .inspect_tx(TxEnv {
             caller,
             gas_limit: 1000000,
             kind: TransactTo::Call(to),
@@ -416,7 +416,7 @@ fn test_parity_delegatecall_selfdestruct() {
         evm.with_inspector(TracingInspector::new(TracingInspectorConfig::default_parity()));
 
     let res = evm
-        .inspect_tx_finalize(TxEnv {
+        .inspect_tx(TxEnv {
             caller: deployer,
             gas_limit: 1000000,
             kind: TransactTo::Call(delegate_addr),

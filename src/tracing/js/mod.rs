@@ -32,7 +32,6 @@ use revm::{
         CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, Gas, InstructionResult,
         Interpreter, InterpreterAction, InterpreterResult,
     },
-    state::EvmState,
     DatabaseRef, Inspector,
 };
 
@@ -221,7 +220,7 @@ impl JsInspector {
     /// Note: This is supposed to be called after the inspection has finished.
     pub fn json_result<DB>(
         &mut self,
-        res: ResultAndState<ExecutionResult<impl HaltReasonTr>, EvmState>,
+        res: ResultAndState<impl HaltReasonTr>,
         tx: &impl Transaction,
         block: &impl Block,
         db: &DB,
@@ -237,7 +236,7 @@ impl JsInspector {
     /// Calls the result function and returns the result.
     pub fn result<TX, DB>(
         &mut self,
-        res: ResultAndState<ExecutionResult<impl HaltReasonTr>, EvmState>,
+        res: ResultAndState<impl HaltReasonTr>,
         tx: &TX,
         block: &impl Block,
         db: &DB,
@@ -734,7 +733,7 @@ mod tests {
             .build_mainnet_with_inspector(insp);
 
         let res = evm
-            .inspect_tx_finalize(TxEnv {
+            .inspect_tx(TxEnv {
                 gas_price: 1024,
                 gas_limit: 1_000_000,
                 gas_priority_fee: None,

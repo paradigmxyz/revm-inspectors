@@ -42,7 +42,7 @@ fn test_internal_transfers() {
     // Create contract
     let mut evm = context.build_mainnet_with_inspector(&mut insp);
     let res = evm
-        .inspect_tx_finalize(TxEnv {
+        .inspect_tx(TxEnv {
             caller: deployer,
             gas_limit: 1000000,
             kind: TransactTo::Create,
@@ -75,7 +75,7 @@ fn test_internal_transfers() {
 
     let mut evm = evm.with_inspector(TransferInspector::new(false));
 
-    let res = evm.inspect_tx_finalize(tx_env.clone().modify().nonce(1).build_fill()).unwrap();
+    let res = evm.inspect_tx(tx_env.clone().modify().nonce(1).build_fill()).unwrap();
     assert!(res.result.is_success());
 
     assert_eq!(evm.inspector().transfers().len(), 2);
@@ -99,7 +99,7 @@ fn test_internal_transfers() {
     );
 
     let mut evm = evm.with_inspector(TransferInspector::internal_only());
-    let res = evm.inspect_tx_finalize(tx_env.clone().modify().nonce(1).build_fill()).unwrap();
+    let res = evm.inspect_tx(tx_env.clone().modify().nonce(1).build_fill()).unwrap();
     assert!(res.result.is_success());
 
     assert_eq!(evm.inspector().transfers().len(), 1);

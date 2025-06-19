@@ -6,7 +6,7 @@ use revm::{
         result::{ExecutionResult, HaltReason},
         TransactTo,
     },
-    handler::{instructions::EthInstructions, EthPrecompiles, EvmTr},
+    handler::{instructions::EthInstructions, EthFrame, EthPrecompiles, EvmTr},
     interpreter::interpreter::EthInterpreter,
     primitives::hardfork::SpecId,
     Context, Database, DatabaseCommit, ExecuteCommitEvm, InspectCommitEvm, Inspector, Journal,
@@ -30,8 +30,13 @@ pub fn print_traces(tracer: &TracingInspector) {
     println!("{}", write_traces_with(tracer, TraceWriterConfig::new()));
 }
 
-pub type EvmDb<DB, INSP> =
-    Evm<ContextDb<DB>, INSP, EthInstructions<EthInterpreter, ContextDb<DB>>, EthPrecompiles>;
+pub type EvmDb<DB, INSP> = Evm<
+    ContextDb<DB>,
+    INSP,
+    EthInstructions<EthInterpreter, ContextDb<DB>>,
+    EthPrecompiles,
+    EthFrame,
+>;
 
 /// Deploys a contract with the given code and deployer address.
 pub fn deploy_contract<DB: Database + DatabaseCommit>(

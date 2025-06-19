@@ -33,7 +33,7 @@ fn test_access_list_precompile() {
     let mut accesslist = AccessListInspector::default();
     let mut evm = context.build_mainnet().with_inspector(&mut accesslist);
     let res = evm
-        .inspect_tx_finalize(TxEnv {
+        .inspect_tx(TxEnv {
             caller,
             gas_limit: 1000000,
             kind: TransactTo::Call(account),

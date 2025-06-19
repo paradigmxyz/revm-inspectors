@@ -503,9 +503,9 @@ impl core::fmt::Display for CallKind {
 impl From<CallScheme> for CallKind {
     fn from(scheme: CallScheme) -> Self {
         match scheme {
-            CallScheme::Call | CallScheme::ExtCall => Self::Call,
-            CallScheme::StaticCall | CallScheme::ExtStaticCall => Self::StaticCall,
-            CallScheme::DelegateCall | CallScheme::ExtDelegateCall => Self::DelegateCall,
+            CallScheme::Call => Self::Call,
+            CallScheme::StaticCall => Self::StaticCall,
+            CallScheme::DelegateCall => Self::DelegateCall,
             CallScheme::CallCode => Self::CallCode,
         }
     }
