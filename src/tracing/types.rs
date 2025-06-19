@@ -92,7 +92,7 @@ pub struct CallTrace {
     /// The gas limit of the call.
     pub gas_limit: u64,
     /// The final status of the call.
-    pub status: InstructionResult,
+    pub status: Option<InstructionResult>,
     /// Opcode-level execution steps.
     pub steps: Vec<CallTraceStep>,
     /// Optional complementary decoded call data.
@@ -103,13 +103,16 @@ impl CallTrace {
     /// Returns true if the status code is an error or revert, See [InstructionResult::Revert]
     #[inline]
     pub const fn is_error(&self) -> bool {
-        !self.status.is_ok()
+        let Some(status) = self.status else {
+            return false;
+        };
+        !status.is_ok()
     }
 
     /// Returns true if the status code is a revert.
     #[inline]
     pub fn is_revert(&self) -> bool {
-        self.status == InstructionResult::Revert
+        self.status.is_some_and(|status| status == InstructionResult::Revert)
     }
 
     /// Returns `true` if this trace was a selfdestruct.
@@ -124,13 +127,13 @@ impl CallTrace {
     /// `selfdestruct` inspector function will not be called after the Cancun hardfork.
     #[inline]
     pub const fn is_selfdestruct(&self) -> bool {
-        matches!(self.status, InstructionResult::SelfDestruct)
+        matches!(self.status, Some(InstructionResult::SelfDestruct))
             || self.selfdestruct_refund_target.is_some()
     }
 
     /// Returns the error message if it is an erroneous result.
     pub(crate) fn as_error_msg(&self, kind: TraceStyle) -> Option<String> {
-        utils::fmt_error_msg(self.status, kind)
+        self.status.and_then(|status| utils::fmt_error_msg(status, kind))
     }
 }
 
@@ -253,7 +256,7 @@ impl CallTraceNode {
 
     /// Returns the status of the call
     #[inline]
-    pub const fn status(&self) -> InstructionResult {
+    pub const fn status(&self) -> Option<InstructionResult> {
         self.trace.status
     }
 
@@ -392,7 +395,7 @@ impl CallTraceNode {
                 call_frame.to = None;
             }
 
-            if !self.status().is_revert() {
+            if !self.status().is_some_and(|status| status.is_revert()) {
                 call_frame.gas_used = U256::from(self.trace.gas_limit);
                 call_frame.output = None;
             }
@@ -500,9 +503,9 @@ impl core::fmt::Display for CallKind {
 impl From<CallScheme> for CallKind {
     fn from(scheme: CallScheme) -> Self {
         match scheme {
-            CallScheme::Call | CallScheme::ExtCall => Self::Call,
-            CallScheme::StaticCall | CallScheme::ExtStaticCall => Self::StaticCall,
-            CallScheme::DelegateCall | CallScheme::ExtDelegateCall => Self::DelegateCall,
+            CallScheme::Call => Self::Call,
+            CallScheme::StaticCall => Self::StaticCall,
+            CallScheme::DelegateCall => Self::DelegateCall,
             CallScheme::CallCode => Self::CallCode,
         }
     }
@@ -628,7 +631,7 @@ pub struct CallTraceStep {
     /// Final status of the step
     ///
     /// This is set after the step was executed.
-    pub status: InstructionResult,
+    pub status: Option<InstructionResult>,
     /// Immediate bytes of the step
     pub immediate_bytes: Option<Bytes>,
     /// Optional complementary decoded step data.
@@ -697,7 +700,10 @@ impl CallTraceStep {
     // Returns true if the status code is an error or revert, See [InstructionResult::Revert]
     #[inline]
     pub(crate) const fn is_error(&self) -> bool {
-        self.status as u8 >= InstructionResult::Revert as u8
+        let Some(status) = self.status else {
+            return false;
+        };
+        status.is_error()
     }
 
     /// Returns the error message if it is an erroneous result.

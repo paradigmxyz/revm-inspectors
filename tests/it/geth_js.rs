@@ -53,7 +53,7 @@ fn test_geth_jstracer_revert() {
     let insp = JsInspector::new(code.to_string(), serde_json::Value::Null).unwrap();
     let mut evm = evm.with_inspector(insp);
     let res = evm
-        .inspect_with_tx(TxEnv {
+        .inspect_tx(TxEnv {
             caller: deployer,
             gas_limit: 1000000,
             kind: TransactTo::Call(addr),
@@ -74,7 +74,7 @@ fn test_geth_jstracer_revert() {
     let insp = JsInspector::new(code.to_string(), serde_json::Value::Null).unwrap();
     let mut evm = evm.with_inspector(insp);
     let res = evm
-        .inspect_with_tx(TxEnv {
+        .inspect_tx(TxEnv {
             caller: deployer,
             gas_limit: 1000000,
             kind: TransactTo::Call(addr),
@@ -162,7 +162,7 @@ fn test_geth_jstracer_proxy_contract() {
 
     let mut evm = evm.with_inspector(insp);
     let res = evm
-        .inspect_with_tx(TxEnv {
+        .inspect_tx(TxEnv {
             caller: deployer,
             gas_limit: 1000000,
             kind: TransactTo::Call(proxy_addr),

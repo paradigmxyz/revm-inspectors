@@ -5,7 +5,7 @@ use revm::{
     bytecode::opcode::{self, OpCode},
     context::{ContextTr, JournalTr},
     interpreter::{
-        interpreter_types::{Immediates, Jumps, LoopControl},
+        interpreter_types::{Immediates, Jumps},
         CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, CreateScheme,
         Interpreter,
     },
@@ -81,14 +81,14 @@ where
             *self.opcode_counts.entry(opcode).or_default() += 1;
 
             // keep track of the last opcode executed
-            self.last_opcode_gas_remaining = Some((opcode, interp.control.gas().remaining()));
+            self.last_opcode_gas_remaining = Some((opcode, interp.gas.remaining()));
         }
     }
 
     fn step_end(&mut self, interp: &mut Interpreter, _context: &mut CTX) {
         // update gas usage for the last opcode
         if let Some((opcode, gas_remaining)) = self.last_opcode_gas_remaining.take() {
-            let gas_cost = gas_remaining.saturating_sub(interp.control.gas().remaining());
+            let gas_cost = gas_remaining.saturating_sub(interp.gas.remaining());
             *self.opcode_gas.entry(opcode).or_default() += gas_cost;
         }
     }
@@ -107,9 +107,6 @@ where
             CallScheme::CallCode => opcode::CALLCODE,
             CallScheme::DelegateCall => opcode::DELEGATECALL,
             CallScheme::StaticCall => opcode::STATICCALL,
-            CallScheme::ExtCall => opcode::EXTCALL,
-            CallScheme::ExtStaticCall => opcode::EXTSTATICCALL,
-            CallScheme::ExtDelegateCall => opcode::EXTDELEGATECALL,
         };
 
         self.subtract_gas_limit(opcode, inputs.gas_limit);
@@ -144,10 +141,6 @@ where
 /// Primarily needed to handle a special case of RJUMPV opcode.
 pub fn immediate_size(bytecode: &impl Immediates) -> u8 {
     let opcode = bytecode.read_u8();
-    if opcode == opcode::RJUMPV {
-        let vtable_size = bytecode.read_slice(2)[2];
-        return 1 + (vtable_size + 1) * 2;
-    }
     let Some(opcode) = OpCode::new(opcode) else { return 0 };
     opcode.info().immediate_size()
 }
@@ -175,7 +168,6 @@ mod tests {
             SharedMemory::new(),
             ExtBytecode::new(bytecode),
             InputsImpl::default(),
-            false,
             false,
             SpecId::default(),
             u64::MAX,
@@ -206,7 +198,6 @@ mod tests {
             SharedMemory::new(),
             ExtBytecode::new(bytecode),
             InputsImpl::default(),
-            false,
             false,
             SpecId::default(),
             u64::MAX,

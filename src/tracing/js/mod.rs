@@ -30,7 +30,7 @@ use revm::{
     interpreter::{
         interpreter_types::{Jumps, LoopControl},
         CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, Gas, InstructionResult,
-        Interpreter, InterpreterResult,
+        Interpreter, InterpreterAction, InterpreterResult,
     },
     DatabaseRef, Inspector,
 };
@@ -292,7 +292,7 @@ impl JsInspector {
                 .try_into()
                 .unwrap_or(u64::MAX),
             value: tx.value(),
-            block: block.number(),
+            block: block.number().try_into().unwrap_or(u64::MAX),
             coinbase: block.beneficiary(),
             output: output_bytes.unwrap_or_default(),
             time: block.timestamp().to_string(),
@@ -424,10 +424,10 @@ where
             op: interp.bytecode.opcode().into(),
             memory,
             pc: interp.bytecode.pc() as u64,
-            gas_remaining: interp.control.gas().remaining(),
-            cost: interp.control.gas().spent(),
+            gas_remaining: interp.gas.remaining(),
+            cost: interp.gas.spent(),
             depth: context.journal_ref().depth() as u64,
-            refund: interp.control.gas().refunded() as u64,
+            refund: interp.gas.refunded() as u64,
             error: None,
             contract: Contract {
                 caller: interp.input.caller_address,
@@ -438,7 +438,9 @@ where
         };
 
         if self.try_step(step, db).is_err() {
-            interp.control.set_instruction_result(InstructionResult::Revert);
+            interp
+                .bytecode
+                .set_action(InterpreterAction::new_halt(InstructionResult::Revert, interp.gas));
         }
     }
 
@@ -447,7 +449,12 @@ where
             return;
         }
 
-        if interp.control.instruction_result().is_revert() {
+        if interp
+            .bytecode
+            .action()
+            .as_ref()
+            .is_some_and(|a| a.instruction_result().map(|r| r.is_revert()).unwrap_or(false))
+        {
             let (db, _db_guard) =
                 EvmDbRef::new(context.journal_ref().evm_state(), context.db_ref());
 
@@ -460,11 +467,15 @@ where
                 op: interp.bytecode.opcode().into(),
                 memory,
                 pc: interp.bytecode.pc() as u64,
-                gas_remaining: interp.control.gas().remaining(),
-                cost: interp.control.gas().spent(),
+                gas_remaining: interp.gas.remaining(),
+                cost: interp.gas.spent(),
                 depth: context.journal_ref().depth() as u64,
-                refund: interp.control.gas().refunded() as u64,
-                error: Some(format!("{:?}", interp.control.instruction_result())),
+                refund: interp.gas.refunded() as u64,
+                error: interp
+                    .bytecode
+                    .action()
+                    .as_ref()
+                    .and_then(|i| i.instruction_result().map(|i| format!("{i:?}"))),
                 contract: Contract {
                     caller: interp.input.caller_address,
                     contract: interp.input.target_address,
@@ -536,7 +547,7 @@ where
     fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
         self.register_precompiles(context);
 
-        let nonce = context.journal().load_account(inputs.caller).unwrap().info.nonce;
+        let nonce = context.journal_mut().load_account(inputs.caller).unwrap().info.nonce;
         let contract = inputs.created_address(nonce);
         self.push_call(
             contract,
@@ -722,7 +733,7 @@ mod tests {
             .build_mainnet_with_inspector(insp);
 
         let res = evm
-            .inspect_with_tx(TxEnv {
+            .inspect_tx(TxEnv {
                 gas_price: 1024,
                 gas_limit: 1_000_000,
                 gas_priority_fee: None,

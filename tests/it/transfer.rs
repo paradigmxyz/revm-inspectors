@@ -35,22 +35,21 @@ fn test_internal_transfers() {
 
     let db = CacheDB::new(EmptyDB::default());
 
-    let context = Context::mainnet()
-        .with_db(db)
-        .modify_cfg_chained(|c| c.spec = SpecId::LONDON)
-        .with_tx(TxEnv {
-            caller: deployer,
-            gas_limit: 1000000,
-            kind: TransactTo::Create,
-            data: code.into(),
-            ..Default::default()
-        });
+    let context = Context::mainnet().with_db(db).modify_cfg_chained(|c| c.spec = SpecId::LONDON);
 
     let mut insp = TracingInspector::new(TracingInspectorConfig::default_geth());
 
     // Create contract
     let mut evm = context.build_mainnet_with_inspector(&mut insp);
-    let res = evm.inspect_replay().unwrap();
+    let res = evm
+        .inspect_tx(TxEnv {
+            caller: deployer,
+            gas_limit: 1000000,
+            kind: TransactTo::Create,
+            data: code.into(),
+            ..Default::default()
+        })
+        .unwrap();
     let addr = match res.result {
         ExecutionResult::Success { output, .. } => match output {
             Output::Create(_, addr) => addr.unwrap(),
@@ -58,9 +57,9 @@ fn test_internal_transfers() {
         },
         _ => panic!("Execution failed"),
     };
-    evm.ctx().db().commit(res.state);
+    evm.ctx().db_mut().commit(res.state);
 
-    let acc = evm.ctx().db().load_account(deployer).unwrap();
+    let acc = evm.ctx().db_mut().load_account(deployer).unwrap();
     acc.info.balance = U256::from(u64::MAX);
 
     let tx_env = TxEnv {
@@ -75,11 +74,8 @@ fn test_internal_transfers() {
     };
 
     let mut evm = evm.with_inspector(TransferInspector::new(false));
-    evm.ctx().modify_tx(|tx| {
-        *tx = tx_env.clone();
-        tx.nonce = 1;
-    });
-    let res = evm.inspect_replay().unwrap();
+
+    let res = evm.inspect_tx(tx_env.clone().modify().nonce(1).build_fill()).unwrap();
     assert!(res.result.is_success());
 
     assert_eq!(evm.inspector().transfers().len(), 2);
@@ -103,11 +99,7 @@ fn test_internal_transfers() {
     );
 
     let mut evm = evm.with_inspector(TransferInspector::internal_only());
-    evm.ctx().modify_tx(|tx| {
-        *tx = tx_env.clone();
-        tx.nonce = 1;
-    });
-    let res = evm.inspect_replay().unwrap();
+    let res = evm.inspect_tx(tx_env.clone().modify().nonce(1).build_fill()).unwrap();
     assert!(res.result.is_success());
 
     assert_eq!(evm.inspector().transfers().len(), 1);

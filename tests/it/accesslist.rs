@@ -3,8 +3,7 @@
 use alloy_primitives::{address, hex};
 use revm::{
     bytecode::Bytecode, context::TxEnv, context_interface::TransactTo, database::CacheDB,
-    database_interface::EmptyDB, handler::EvmTr, state::AccountInfo, Context, InspectEvm,
-    MainBuilder, MainContext,
+    database_interface::EmptyDB, state::AccountInfo, Context, InspectEvm, MainBuilder, MainContext,
 };
 use revm_inspectors::access_list::AccessListInspector;
 
@@ -31,21 +30,18 @@ fn test_access_list_precompile() {
             );
         });
 
-    let mut evm = context.build_mainnet();
-
-    evm.ctx().modify_tx(|tx| {
-        *tx = TxEnv {
+    let mut accesslist = AccessListInspector::default();
+    let mut evm = context.build_mainnet().with_inspector(&mut accesslist);
+    let res = evm
+        .inspect_tx(TxEnv {
             caller,
             gas_limit: 1000000,
             kind: TransactTo::Call(account),
             data: hex!("a5399705").into(),
             nonce: 0,
             ..Default::default()
-        }
-    });
-    let mut accesslist = AccessListInspector::default();
-    let mut evm = evm.with_inspector(&mut accesslist);
-    let res = evm.inspect_replay().unwrap();
+        })
+        .unwrap();
     assert!(res.result.is_success(), "{res:#?}");
 
     let erecover = address!("0x0000000000000000000000000000000000000001");

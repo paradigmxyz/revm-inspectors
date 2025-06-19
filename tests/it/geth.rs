@@ -1,13 +1,13 @@
 //! Geth tests
 use crate::utils::deploy_contract;
-use alloy_primitives::{hex, map::HashMap, Address, Bytes};
+use alloy_primitives::{hex, map::HashMap, Address, Bytes, TxKind};
 use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::geth::{
     mux::MuxConfig, CallConfig, FlatCallConfig, GethDebugBuiltInTracerType, GethDebugTracerConfig,
     GethTrace, PreStateConfig, PreStateFrame,
 };
 use revm::{
-    context::{ContextSetters, TxEnv},
+    context::TxEnv,
     context_interface::{ContextTr, TransactTo},
     database::CacheDB,
     database_interface::EmptyDB,
@@ -62,16 +62,17 @@ fn test_geth_calltracer_logs() {
         TracingInspector::new(TracingInspectorConfig::default_geth().set_record_logs(true));
 
     let mut evm = evm.with_inspector(&mut insp);
-    evm.set_tx(TxEnv {
-        caller: deployer,
-        gas_limit: 1000000,
-        kind: TransactTo::Call(addr),
-        data: Bytes::default(), // call fallback
-        nonce: 1,
-        ..Default::default()
-    });
 
-    let res = evm.inspect_replay().unwrap();
+    let res = evm
+        .inspect_tx(TxEnv {
+            caller: deployer,
+            gas_limit: 1000000,
+            kind: TransactTo::Call(addr),
+            data: Bytes::default(), // call fallback
+            nonce: 1,
+            ..Default::default()
+        })
+        .unwrap();
     assert!(res.result.is_success());
 
     let call_frame = insp
@@ -168,18 +169,18 @@ fn test_geth_mux_tracer() {
 
     let mut insp = MuxInspector::try_from_config(config.clone()).unwrap();
 
-    evm.ctx().set_tx(TxEnv {
-        caller: deployer,
-        gas_limit: 1000000,
-        kind: TransactTo::Call(addr),
-        data: Bytes::default(), // call fallback
-        nonce: 1,
-        ..Default::default()
-    });
-
     let mut evm = evm.with_inspector(&mut insp);
 
-    let res = evm.inspect_replay().unwrap();
+    let res = evm
+        .inspect_tx(TxEnv {
+            caller: deployer,
+            gas_limit: 1000000,
+            kind: TransactTo::Call(addr),
+            data: Bytes::default(), // call fallback
+            nonce: 1,
+            ..Default::default()
+        })
+        .unwrap();
     assert!(res.result.is_success());
 
     let (ctx, inspector) = evm.ctx_inspector();
@@ -246,19 +247,19 @@ fn test_geth_inspector_reset() {
 
     let context = Context::mainnet()
         .with_db(CacheDB::new(EmptyDB::default()))
-        .modify_cfg_chained(|cfg| cfg.spec = SpecId::LONDON)
-        .modify_tx_chained(|tx| {
-            tx.caller = Address::ZERO;
-            tx.gas_limit = 1000000;
-            tx.gas_price = Default::default();
-            tx.kind = TransactTo::Call(Address::ZERO);
-        });
+        .modify_cfg_chained(|cfg| cfg.spec = SpecId::LONDON);
 
     assert_eq!(insp.traces().nodes().first().unwrap().trace.gas_limit, 0);
 
     let mut evm = context.build_mainnet_with_inspector(insp);
+    let tx = TxEnv::builder()
+        .caller(Address::ZERO)
+        .gas_limit(1000000)
+        .gas_price(Default::default())
+        .kind(TxKind::Call(Address::ZERO))
+        .build_fill();
     // first run inspector
-    let res = evm.inspect_replay().unwrap();
+    let res = evm.inspect_tx(tx.clone()).unwrap();
     assert!(res.result.is_success());
     assert_eq!(
         evm.inspector()
@@ -278,7 +279,7 @@ fn test_geth_inspector_reset() {
     assert_eq!(evm.inspector().traces().nodes().first().unwrap().trace.gas_limit, 0);
 
     // second run inspector after reset
-    let res = evm.inspect_replay().unwrap();
+    let res = evm.inspect_tx(tx).unwrap();
     assert!(res.result.is_success());
     let gas_limit = evm.ctx().tx().gas_limit;
     assert_eq!(
