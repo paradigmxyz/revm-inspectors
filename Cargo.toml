@@ -32,11 +32,11 @@ clippy.lint_groups_priority = "allow"
 # eth
 alloy-rpc-types-eth = { version = "1.0", default-features = false }
 alloy-rpc-types-trace = { version = "1.0", default-features = false }
-alloy-sol-types = { version = "1.0", default-features = false }
-alloy-primitives = { version = "1.0", default-features = false, features = [
+alloy-sol-types = { version = "1.2", default-features = false }
+alloy-primitives = { version = "1.2", default-features = false, features = [
     "map",
 ] }
-revm = { version = "26.0.0", default-features = false }
+revm = { version = "27.0.1", default-features = false }
 
 anstyle = { version = "1.0", optional = true }
 colorchoice = "1.0"
