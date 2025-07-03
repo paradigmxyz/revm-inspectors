@@ -86,8 +86,8 @@ pub struct JsInspector {
     call_stack: Vec<CallStackItem>,
     /// Marker to track whether the precompiles have been registered.
     precompiles_registered: bool,
-    /// Tracker for when a revert is triggered manually (e.g. failing step hook)
-    force_revert_pc: Option<usize>,
+    /// Tracker for PC recorded in start_step
+    last_start_step_pc: Option<usize>,
 }
 
 impl JsInspector {
@@ -193,7 +193,7 @@ impl JsInspector {
             step_fn,
             call_stack: Default::default(),
             precompiles_registered: false,
-            force_revert_pc: None,
+            last_start_step_pc: None,
         })
     }
 
@@ -413,6 +413,10 @@ where
     CTX: ContextTr<Journal: JournalExt, Db: DatabaseRef>,
 {
     fn step(&mut self, interp: &mut Interpreter, context: &mut CTX) {
+        // if this is a revert we need to manually record this so that we can use it in the
+        // step_end fn
+        self.last_start_step_pc = Some(interp.bytecode.pc());
+
         if self.step_fn.is_none() {
             return;
         }
@@ -442,10 +446,6 @@ where
         };
 
         if self.try_step(step, db).is_err() {
-            // we must record the current PC before we manually trigger an revert that we then need
-            // to handle in the step_end call that follows
-            self.force_revert_pc = Some(interp.bytecode.pc());
-
             interp
                 .bytecode
                 .set_action(InterpreterAction::new_halt(InstructionResult::Revert, interp.gas));
@@ -474,8 +474,8 @@ where
                 stack,
                 // we can use REVERT opcode here because we checked that this was a revert
                 op: OpCode::REVERT.get().into(),
-                // Because this revert was triggered manually we must use the recorded pc
-                pc: self.force_revert_pc.unwrap_or_else(|| interp.bytecode.pc()) as u64,
+                // Use the recorded pc of the current step for the revert here
+                pc: self.last_start_step_pc.unwrap_or_default() as u64,
                 memory,
                 gas_remaining: interp.gas.remaining(),
                 cost: interp.gas.spent(),
