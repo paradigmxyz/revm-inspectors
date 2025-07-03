@@ -21,6 +21,7 @@ pub use boa_engine::vm::RuntimeLimits;
 use boa_engine::{js_string, Context, JsError, JsObject, JsResult, JsValue, Source};
 use core::borrow::Borrow;
 use revm::{
+    bytecode::OpCode,
     context::JournalTr,
     context_interface::{
         result::{ExecutionResult, HaltReasonTr, Output, ResultAndState},
@@ -464,7 +465,8 @@ where
             let active_call = self.active_call();
             let step = StepLog {
                 stack,
-                op: interp.bytecode.opcode().into(),
+                // we can use REVERT opcode here because we checked that this was a revert
+                op: OpCode::REVERT.get().into(),
                 memory,
                 pc: interp.bytecode.pc() as u64,
                 gas_remaining: interp.gas.remaining(),
