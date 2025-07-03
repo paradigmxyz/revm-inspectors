@@ -193,6 +193,7 @@ impl JsInspector {
             step_fn,
             call_stack: Default::default(),
             precompiles_registered: false,
+            force_revert_pc: None,
         })
     }
 
@@ -441,8 +442,8 @@ where
         };
 
         if self.try_step(step, db).is_err() {
-            /// we must record the current PC before we manually trigger an revert that we then
-            /// need to handle in the step_end call that follows
+            // we must record the current PC before we manually trigger an revert that we then need
+            // to handle in the step_end call that follows
             self.force_revert_pc = Some(interp.bytecode.pc());
 
             interp
