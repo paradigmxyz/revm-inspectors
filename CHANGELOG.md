@@ -5,11 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.2](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.26.2) - 2025-07-03
+
+### Bug Fixes
+
+- Use revert directly ([#309](https://github.com/paradigmxyz/revm-inspectors/issues/309))
+
 ## [0.26.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.26.1) - 2025-07-03
 
 ### Bug Fixes
 
 - Record state diffs for vm tracer ([#308](https://github.com/paradigmxyz/revm-inspectors/issues/308))
+
+### Miscellaneous Tasks
+
+- Release 0.26.1
 
 ## [0.26.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.26.0) - 2025-07-01
 
