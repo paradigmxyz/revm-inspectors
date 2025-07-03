@@ -413,7 +413,7 @@ where
     CTX: ContextTr<Journal: JournalExt, Db: DatabaseRef>,
 {
     fn step(&mut self, interp: &mut Interpreter, context: &mut CTX) {
-        if interp.bytecode.opcode() == OpCode::REVERT {
+        if interp.bytecode.opcode() == OpCode::REVERT.get() {
             // if this is a revert we need to manually record this so that we can use it in the
             // step_end fn
             self.revert_pc = Some(interp.bytecode.pc());
