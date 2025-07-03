@@ -86,8 +86,8 @@ pub struct JsInspector {
     call_stack: Vec<CallStackItem>,
     /// Marker to track whether the precompiles have been registered.
     precompiles_registered: bool,
-    /// Tracker PC for reverts (e.g. failing step hook that requires manually triggered revert)
-    revert_pc: Option<usize>,
+    /// Tracker for PC recorded in start_step
+    last_start_step_pc: Option<usize>,
 }
 
 impl JsInspector {
@@ -193,7 +193,7 @@ impl JsInspector {
             step_fn,
             call_stack: Default::default(),
             precompiles_registered: false,
-            revert_pc: None,
+            last_start_step_pc: None,
         })
     }
 
@@ -413,11 +413,9 @@ where
     CTX: ContextTr<Journal: JournalExt, Db: DatabaseRef>,
 {
     fn step(&mut self, interp: &mut Interpreter, context: &mut CTX) {
-        if interp.bytecode.opcode() == OpCode::REVERT.get() {
-            // if this is a revert we need to manually record this so that we can use it in the
-            // step_end fn
-            self.revert_pc = Some(interp.bytecode.pc());
-        }
+        // if this is a revert we need to manually record this so that we can use it in the
+        // step_end fn
+        self.last_start_step_pc = Some(interp.bytecode.pc());
 
         if self.step_fn.is_none() {
             return;
@@ -448,10 +446,6 @@ where
         };
 
         if self.try_step(step, db).is_err() {
-            // we must record the current PC before we manually trigger an revert that we then need
-            // to handle in the step_end call that follows
-            self.revert_pc = Some(interp.bytecode.pc());
-
             interp
                 .bytecode
                 .set_action(InterpreterAction::new_halt(InstructionResult::Revert, interp.gas));
@@ -480,8 +474,8 @@ where
                 stack,
                 // we can use REVERT opcode here because we checked that this was a revert
                 op: OpCode::REVERT.get().into(),
-                // For revert we also need to use the previously recorded PC
-                pc: self.revert_pc.unwrap_or_default() as u64,
+                // Use the recorded pc of the current step for the revert here
+                pc: self.last_start_step_pc.unwrap_or_default() as u64,
                 memory,
                 gas_remaining: interp.gas.remaining(),
                 cost: interp.gas.spent(),
