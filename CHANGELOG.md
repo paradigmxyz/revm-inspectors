@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Use revert directly ([#309](https://github.com/paradigmxyz/revm-inspectors/issues/309))
 
+### Miscellaneous Tasks
+
+- Release 0.26.2
+
 ## [0.26.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.26.1) - 2025-07-03
 
 ### Bug Fixes
