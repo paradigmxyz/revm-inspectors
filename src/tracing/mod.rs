@@ -354,6 +354,8 @@ impl TracingInspector {
         let InterpreterResult { result, ref output, ref gas } = *result;
 
         let trace_idx = self.pop_trace_idx();
+        println!("trace_idx {trace_idx} trace stack {}", self.trace_stack.len());
+        println!("result {result:?}");
         let trace = &mut self.traces.arena[trace_idx].trace;
 
         trace.gas_used = gas.spent();
