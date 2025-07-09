@@ -12,7 +12,7 @@ use revm::{
     handler::EvmTr,
     inspector::InspectorEvmTr,
     primitives::hardfork::SpecId,
-    Context, DatabaseCommit, ExecuteEvm, InspectEvm, MainBuilder, MainContext,
+    Context, DatabaseCommit, InspectEvm, MainBuilder, MainContext,
 };
 use revm_inspectors::{
     edge_cov::EdgeCovInspector,
@@ -38,13 +38,6 @@ fn test_edge_coverage() {
 
     let ctx = Context::mainnet()
         .modify_cfg_chained(|cfg| cfg.spec = SpecId::LONDON)
-        .with_tx(TxEnv {
-            caller: deployer,
-            gas_limit: 1000000,
-            kind: TransactTo::Create,
-            data: code.into(),
-            ..Default::default()
-        })
         .with_db(CacheDB::new(EmptyDB::default()));
 
     let mut insp = TracingInspector::new(TracingInspectorConfig::default_geth());
@@ -52,7 +45,15 @@ fn test_edge_coverage() {
     let mut evm = ctx.build_mainnet_with_inspector(&mut insp);
 
     // Create contract
-    let res = evm.inspect_replay().unwrap();
+    let res = evm
+        .inspect_tx(TxEnv {
+            caller: deployer,
+            gas_limit: 1000000,
+            kind: TransactTo::Create,
+            data: code.into(),
+            ..Default::default()
+        })
+        .unwrap();
     let addr = match res.result {
         ExecutionResult::Success { output, .. } => match output {
             Output::Create(_, addr) => addr.unwrap(),
@@ -60,9 +61,9 @@ fn test_edge_coverage() {
         },
         _ => panic!("Execution failed"),
     };
-    evm.ctx().db().commit(res.state);
+    evm.ctx().db_mut().commit(res.state);
 
-    let acc = evm.ctx().db().load_account(deployer).unwrap();
+    let acc = evm.ctx().db_mut().load_account(deployer).unwrap();
     acc.info.balance = U256::from(u64::MAX);
 
     let tx = TxEnv {
@@ -78,8 +79,7 @@ fn test_edge_coverage() {
 
     let insp = EdgeCovInspector::new();
     let mut evm = evm.with_inspector(insp);
-    evm.set_tx(tx);
-    let res = evm.inspect_replay().unwrap();
+    let res = evm.inspect_tx(tx).unwrap();
     assert!(res.result.is_success());
 
     let counts = evm.inspector().get_hitcount();
@@ -87,17 +87,18 @@ fn test_edge_coverage() {
     assert_eq!(counts.iter().filter(|&x| *x == 1).count(), 11);
 
     evm.inspector().reset();
-    evm.set_tx(TxEnv {
-        caller: deployer,
-        gas_limit: 100000000,
-        kind: TransactTo::Call(addr),
-        nonce: 1,
-        // 'cast cd "Y(bool)" false'
-        data: hex!("f42e8cdd0000000000000000000000000000000000000000000000000000000000000000")
-            .into(),
-        ..Default::default()
-    });
-    let res = evm.inspect_replay().unwrap();
+    let res = evm
+        .inspect_tx(TxEnv {
+            caller: deployer,
+            gas_limit: 100000000,
+            kind: TransactTo::Call(addr),
+            nonce: 1,
+            // 'cast cd "Y(bool)" false'
+            data: hex!("f42e8cdd0000000000000000000000000000000000000000000000000000000000000000")
+                .into(),
+            ..Default::default()
+        })
+        .unwrap();
     assert!(res.result.is_success());
 
     // There should be 13 non-zero counts and two edges that have been hit 255 times.

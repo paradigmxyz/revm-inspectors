@@ -5,10 +5,79 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.5](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.26.5) - 2025-07-03
+
+### Bug Fixes
+
+- Always record revert ([#311](https://github.com/paradigmxyz/revm-inspectors/issues/311))
+
+## [0.26.4](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.26.4) - 2025-07-03
+
+### Bug Fixes
+
+- Record manual revert pc ([#310](https://github.com/paradigmxyz/revm-inspectors/issues/310))
+
+### Miscellaneous Tasks
+
+- Release 0.26.4
+- Release 0.26.3
+
+## [0.26.2](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.26.2) - 2025-07-03
+
+### Bug Fixes
+
+- Use revert directly ([#309](https://github.com/paradigmxyz/revm-inspectors/issues/309))
+
+### Miscellaneous Tasks
+
+- Release 0.26.2
+
+## [0.26.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.26.1) - 2025-07-03
+
+### Bug Fixes
+
+- Record state diffs for vm tracer ([#308](https://github.com/paradigmxyz/revm-inspectors/issues/308))
+
+### Miscellaneous Tasks
+
+- Release 0.26.1
+
+## [0.26.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.26.0) - 2025-07-01
+
+### Dependencies
+
+- [deps] Bump to revm 27, alloy 1.2 ([#307](https://github.com/paradigmxyz/revm-inspectors/issues/307))
+
+### Miscellaneous Tasks
+
+- Release 0.26.0
+- Add trace_addresses helper ([#306](https://github.com/paradigmxyz/revm-inspectors/issues/306))
+
+## [0.25.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.25.0) - 2025-06-20
+
+### Dependencies
+
+- Bump revm v26.0.0 ([#303](https://github.com/paradigmxyz/revm-inspectors/issues/303))
+
+### Miscellaneous Tasks
+
+- Release 0.25.0
+
+## [0.24.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.24.0) - 2025-06-13
+
+### Bug Fixes
+
+- Deduct call opcode gas ([#304](https://github.com/paradigmxyz/revm-inspectors/issues/304))
+
+### Miscellaneous Tasks
+
+- Release 0.24.0
+
 ## [0.23.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.23.1) - 2025-06-07
 
 ### Miscellaneous Tasks
 
+- Release 0.23.1
 - Remove EOF leftovers ([#301](https://github.com/paradigmxyz/revm-inspectors/issues/301))
 - Update deny.toml and upgrade CI workflow ([#302](https://github.com/paradigmxyz/revm-inspectors/issues/302))
 

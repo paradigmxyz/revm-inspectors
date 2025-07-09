@@ -21,6 +21,7 @@ pub use boa_engine::vm::RuntimeLimits;
 use boa_engine::{js_string, Context, JsError, JsObject, JsResult, JsValue, Source};
 use core::borrow::Borrow;
 use revm::{
+    bytecode::OpCode,
     context::JournalTr,
     context_interface::{
         result::{ExecutionResult, HaltReasonTr, Output, ResultAndState},
@@ -30,7 +31,7 @@ use revm::{
     interpreter::{
         interpreter_types::{Jumps, LoopControl},
         CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, Gas, InstructionResult,
-        Interpreter, InterpreterResult,
+        Interpreter, InterpreterAction, InterpreterResult,
     },
     DatabaseRef, Inspector,
 };
@@ -85,6 +86,8 @@ pub struct JsInspector {
     call_stack: Vec<CallStackItem>,
     /// Marker to track whether the precompiles have been registered.
     precompiles_registered: bool,
+    /// Tracker for PC recorded in start_step
+    last_start_step_pc: Option<usize>,
     /// Reusable JS object for step logs to avoid recreating on each step
     step_object: Option<JsObject>,
     /// Reusable JS object for database references to avoid recreating on each call
@@ -198,6 +201,7 @@ impl JsInspector {
             step_fn,
             call_stack: Default::default(),
             precompiles_registered: false,
+            last_start_step_pc: None,
             step_object: None,
             db_object: None,
             enter_frame_object: None,
@@ -304,7 +308,7 @@ impl JsInspector {
                 .try_into()
                 .unwrap_or(u64::MAX),
             value: tx.value(),
-            block: block.number(),
+            block: block.number().try_into().unwrap_or(u64::MAX),
             coinbase: block.beneficiary(),
             output: output_bytes.unwrap_or_default(),
             time: block.timestamp().to_string(),
@@ -326,20 +330,20 @@ impl JsInspector {
         if self.step_object.is_none() {
             self.step_object = Some(StepLog::create_js_object_template(&mut self.ctx)?);
         }
-        
+
         // Lazy initialize db object once
         if self.db_object.is_none() {
             self.db_object = Some(EvmDbRef::create_js_object_template(&mut self.ctx)?);
         }
-        
+
         // Update existing objects with new data
         if let (Some(step_obj), Some(db_obj)) = (&self.step_object, &self.db_object) {
             step.update_js_object(step_obj, &mut self.ctx)?;
             db.update_js_object(db_obj, &mut self.ctx)?;
-            
+
             self.fault_fn.call(
-                &(self.obj.clone().into()), 
-                &[step_obj.clone().into(), db_obj.clone().into()], 
+                &(self.obj.clone().into()),
+                &[step_obj.clone().into(), db_obj.clone().into()],
                 &mut self.ctx
             )?;
         }
@@ -352,20 +356,20 @@ impl JsInspector {
             if self.step_object.is_none() {
                 self.step_object = Some(StepLog::create_js_object_template(&mut self.ctx)?);
             }
-            
+
             // Lazy initialize db object once
             if self.db_object.is_none() {
                 self.db_object = Some(EvmDbRef::create_js_object_template(&mut self.ctx)?);
             }
-            
+
             // Update existing objects with new data
             if let (Some(step_obj), Some(db_obj)) = (&self.step_object, &self.db_object) {
                 step.update_js_object(step_obj, &mut self.ctx)?;
                 db.update_js_object(db_obj, &mut self.ctx)?;
-                
+
                 step_fn.call(
-                    &(self.obj.clone().into()), 
-                    &[step_obj.clone().into(), db_obj.clone().into()], 
+                    &(self.obj.clone().into()),
+                    &[step_obj.clone().into(), db_obj.clone().into()],
                     &mut self.ctx
                 )?;
             }
@@ -379,14 +383,14 @@ impl JsInspector {
             if self.enter_frame_object.is_none() {
                 self.enter_frame_object = Some(CallFrame::create_js_object_template(&mut self.ctx)?);
             }
-            
+
             // Update existing object with new data
             if let Some(frame_obj) = &self.enter_frame_object {
                 frame.update_js_object(frame_obj, &mut self.ctx)?;
-                
+
                 enter_fn.call(
-                    &(self.obj.clone().into()), 
-                    &[frame_obj.clone().into()], 
+                    &(self.obj.clone().into()),
+                    &[frame_obj.clone().into()],
                     &mut self.ctx
                 )?;
             }
@@ -400,14 +404,14 @@ impl JsInspector {
             if self.exit_frame_object.is_none() {
                 self.exit_frame_object = Some(FrameResult::create_js_object_template(&mut self.ctx)?);
             }
-            
+
             // Update existing object with new data
             if let Some(frame_obj) = &self.exit_frame_object {
                 frame.update_js_object(frame_obj, &mut self.ctx)?;
-                
+
                 exit_fn.call(
-                    &(self.obj.clone().into()), 
-                    &[frame_obj.clone().into()], 
+                    &(self.obj.clone().into()),
+                    &[frame_obj.clone().into()],
                     &mut self.ctx
                 )?;
             }
@@ -483,6 +487,10 @@ where
     CTX: ContextTr<Journal: JournalExt, Db: DatabaseRef>,
 {
     fn step(&mut self, interp: &mut Interpreter, context: &mut CTX) {
+        // if this is a revert we need to manually record this so that we can use it in the
+        // step_end fn
+        self.last_start_step_pc = Some(interp.bytecode.pc());
+
         if self.step_fn.is_none() {
             return;
         }
@@ -498,10 +506,10 @@ where
             op: interp.bytecode.opcode().into(),
             memory,
             pc: interp.bytecode.pc() as u64,
-            gas_remaining: interp.control.gas().remaining(),
-            cost: interp.control.gas().spent(),
+            gas_remaining: interp.gas.remaining(),
+            cost: interp.gas.spent(),
             depth: context.journal_ref().depth() as u64,
-            refund: interp.control.gas().refunded() as u64,
+            refund: interp.gas.refunded() as u64,
             error: None,
             contract: Contract {
                 caller: interp.input.caller_address,
@@ -512,7 +520,9 @@ where
         };
 
         if self.try_step(step, db).is_err() {
-            interp.control.set_instruction_result(InstructionResult::Revert);
+            interp
+                .bytecode
+                .set_action(InterpreterAction::new_halt(InstructionResult::Revert, interp.gas));
         }
     }
 
@@ -521,7 +531,12 @@ where
             return;
         }
 
-        if interp.control.instruction_result().is_revert() {
+        if interp
+            .bytecode
+            .action()
+            .as_ref()
+            .is_some_and(|a| a.instruction_result().map(|r| r.is_revert()).unwrap_or(false))
+        {
             let (db, _db_guard) =
                 EvmDbRef::new(context.journal_ref().evm_state(), context.db_ref());
 
@@ -531,14 +546,20 @@ where
             let active_call = self.active_call();
             let step = StepLog {
                 stack,
-                op: interp.bytecode.opcode().into(),
+                // we can use REVERT opcode here because we checked that this was a revert
+                op: OpCode::REVERT.get().into(),
+                // Use the recorded pc of the current step for the revert here
+                pc: self.last_start_step_pc.unwrap_or_default() as u64,
                 memory,
-                pc: interp.bytecode.pc() as u64,
-                gas_remaining: interp.control.gas().remaining(),
-                cost: interp.control.gas().spent(),
+                gas_remaining: interp.gas.remaining(),
+                cost: interp.gas.spent(),
                 depth: context.journal_ref().depth() as u64,
-                refund: interp.control.gas().refunded() as u64,
-                error: Some(format!("{:?}", interp.control.instruction_result())),
+                refund: interp.gas.refunded() as u64,
+                error: interp
+                    .bytecode
+                    .action()
+                    .as_ref()
+                    .and_then(|i| i.instruction_result().map(|i| format!("{i:?}"))),
                 contract: Contract {
                     caller: interp.input.caller_address,
                     contract: interp.input.target_address,
@@ -610,7 +631,7 @@ where
     fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
         self.register_precompiles(context);
 
-        let nonce = context.journal().load_account(inputs.caller).unwrap().info.nonce;
+        let nonce = context.journal_mut().load_account(inputs.caller).unwrap().info.nonce;
         let contract = inputs.created_address(nonce);
         self.push_call(
             contract,
@@ -796,7 +817,7 @@ mod tests {
             .build_mainnet_with_inspector(insp);
 
         let res = evm
-            .inspect_with_tx(TxEnv {
+            .inspect_tx(TxEnv {
                 gas_price: 1024,
                 gas_limit: 1_000_000,
                 gas_priority_fee: None,
@@ -996,7 +1017,7 @@ mod tests {
     fn test_js_inspector_object_reuse() {
         let code = r#"{
             stepCount: 0,
-            step: function(log, db) { 
+            step: function(log, db) {
                 this.stepCount++;
                 // Test that we can access step properties multiple times
                 var pc1 = log.getPC();
@@ -1004,7 +1025,7 @@ mod tests {
                 if (pc1 !== pc2) {
                     throw new Error("PC values should be consistent");
                 }
-                
+
                 // Test database access consistency
                 var exists1 = db.exists("0x0000000000000000000000000000000000000000");
                 var exists2 = db.exists("0x0000000000000000000000000000000000000000");
@@ -1012,7 +1033,7 @@ mod tests {
                     throw new Error("DB exists results should be consistent");
                 }
             },
-            fault: function(log, db) { 
+            fault: function(log, db) {
                 // Test object reuse in fault handler too
                 var error1 = log.getError();
                 var error2 = log.getError();
@@ -1022,7 +1043,7 @@ mod tests {
             },
             result: function() { return this.stepCount; }
         }"#;
-        
+
         let res = run_trace(code, None, true);
         // Should have executed multiple steps without throwing consistency errors
         assert!(res.as_number().unwrap().as_f64().unwrap() > 0.0);
@@ -1034,26 +1055,26 @@ mod tests {
             firstPC: null,
             lastPC: null,
             pcCount: {},
-            step: function(log, db) { 
+            step: function(log, db) {
                 var pc = log.getPC();
                 if (this.firstPC === null) {
                     this.firstPC = pc;
                 }
                 this.lastPC = pc;
-                
+
                 // Count occurrences of each PC value
                 if (this.pcCount[pc]) {
                     this.pcCount[pc]++;
                 } else {
                     this.pcCount[pc] = 1;
                 }
-                
+
                 // Verify gas is always a number
                 var gas = log.getGas();
                 if (typeof gas !== 'number') {
                     throw new Error("Gas should always be a number, got: " + typeof gas);
                 }
-                
+
                 // Verify cost is always a number
                 var cost = log.getCost();
                 if (typeof cost !== 'number') {
@@ -1061,7 +1082,7 @@ mod tests {
                 }
             },
             fault: function() {},
-            result: function() { 
+            result: function() {
                 return {
                     firstPC: this.firstPC,
                     lastPC: this.lastPC,
@@ -1070,14 +1091,14 @@ mod tests {
                 };
             }
         }"#;
-        
+
         let res = run_trace(code, None, true);
         let result = res.as_object().unwrap();
-        
+
         // Should have captured different PC values throughout execution
         let unique_pcs = result.get("uniquePCs").unwrap().as_f64().unwrap();
         assert!(unique_pcs > 1.0, "Should have seen multiple different PC values");
-        
+
         let total_steps = result.get("totalSteps").unwrap().as_f64().unwrap();
         assert!(total_steps > 0.0, "Should have executed at least one step");
     }
@@ -1087,24 +1108,24 @@ mod tests {
         let code = r#"{
             dbCallCount: 0,
             balanceSum: 0,
-            step: function(log, db) { 
+            step: function(log, db) {
                 this.dbCallCount++;
-                
+
                 // Test multiple DB operations in same step
                 var addr = "0x0000000000000000000000000000000000000000";
-                
+
                 // Multiple calls to same function should work
                 var exists1 = db.exists(addr);
                 var exists2 = db.exists(addr);
                 if (exists1 !== exists2) {
                     throw new Error("DB exists should be consistent");
                 }
-                
+
                 // Multiple different function calls
                 var balance = db.getBalance(addr);
                 var nonce = db.getNonce(addr);
                 var code = db.getCode(addr);
-                
+
                 // Verify types
                 if (typeof balance !== 'bigint' && typeof balance !== 'object') {
                     throw new Error("Balance should be bigint or object, got: " + typeof balance);
@@ -1117,11 +1138,11 @@ mod tests {
                 }
             },
             fault: function() {},
-            result: function() { 
+            result: function() {
                 return this.dbCallCount;
             }
         }"#;
-        
+
         let res = run_trace(code, None, true);
         // Should have made multiple DB calls without errors
         assert!(res.as_number().unwrap().as_f64().unwrap() > 0.0);
@@ -1131,7 +1152,7 @@ mod tests {
     fn test_js_inspector_object_reuse_stress_test() {
         let code = r#"{
             stepData: [],
-            step: function(log, db) { 
+            step: function(log, db) {
                 // Collect data from each step to verify consistency
                 this.stepData.push({
                     pc: log.getPC(),
@@ -1140,7 +1161,7 @@ mod tests {
                     depth: log.getDepth(),
                     dbExists: db.exists("0x0000000000000000000000000000000000000000")
                 });
-                
+
                 // Verify that repeated calls within same step return same values
                 if (log.getPC() !== log.getPC()) {
                     throw new Error("PC should be consistent within step");
@@ -1150,15 +1171,15 @@ mod tests {
                 }
             },
             fault: function() {},
-            result: function() { 
+            result: function() {
                 if (this.stepData.length === 0) {
                     return { error: "No steps recorded" };
                 }
-                
+
                 // Verify we captured different states
                 var uniquePCs = new Set(this.stepData.map(s => s.pc)).size;
                 var uniqueGas = new Set(this.stepData.map(s => s.gas)).size;
-                
+
                 return {
                     totalSteps: this.stepData.length,
                     uniquePCs: uniquePCs,
@@ -1168,13 +1189,13 @@ mod tests {
                 };
             }
         }"#;
-        
+
         let res = run_trace(code, None, true);
         let result = res.as_object().unwrap();
-        
+
         let total_steps = result.get("totalSteps").unwrap().as_f64().unwrap();
         assert!(total_steps > 0.0, "Should have executed at least one step for stress test");
-        
+
         let unique_pcs = result.get("uniquePCs").unwrap().as_f64().unwrap();
         assert!(unique_pcs > 1.0, "Should have seen different PC values indicating object updates work");
     }
@@ -1190,14 +1211,14 @@ mod tests {
             fault: function(log, db) {},
             enter: function(frame) {
                 this.enterCount++;
-                
+
                 // Test multiple calls to same function work
                 var from1 = frame.getFrom();
                 var from2 = frame.getFrom();
                 if (from1 !== from2) {
                     throw new Error("getFrom should be consistent");
                 }
-                
+
                 // Collect data
                 this.enterData.push({
                     from: frame.getFrom(),
@@ -1209,20 +1230,20 @@ mod tests {
             },
             exit: function(frame) {
                 this.exitCount++;
-                
+
                 // Test consistency
                 var gasUsed1 = frame.getGasUsed();
                 var gasUsed2 = frame.getGasUsed();
                 if (gasUsed1 !== gasUsed2) {
                     throw new Error("getGasUsed should be consistent");
                 }
-                
+
                 this.exitData.push({
                     gasUsed: frame.getGasUsed(),
                     error: frame.getError()
                 });
             },
-            result: function() { 
+            result: function() {
                 return {
                     enterCount: this.enterCount,
                     exitCount: this.exitCount,
@@ -1231,14 +1252,14 @@ mod tests {
                 };
             }
         }"#;
-        
+
         let res = run_trace(code, None, true);
         let result = res.as_object().unwrap();
-        
+
         // Should have called enter and exit functions
         let enter_count = result.get("enterCount").unwrap().as_f64().unwrap();
         let exit_count = result.get("exitCount").unwrap().as_f64().unwrap();
-        
+
         assert!(enter_count >= 0.0, "Should have tracked enter calls");
         assert!(exit_count >= 0.0, "Should have tracked exit calls");
         assert_eq!(enter_count, exit_count, "Enter and exit counts should match");
@@ -1257,12 +1278,12 @@ mod tests {
                 this.lastEnterGas = frame.getGas();
                 this.lastEnterType = frame.getType();
                 this.enterTypes.push(frame.getType());
-                
+
                 // Verify gas is a number
                 if (typeof frame.getGas() !== 'number') {
                     throw new Error("Gas should be a number");
                 }
-                
+
                 // Verify type is a string
                 if (typeof frame.getType() !== 'string') {
                     throw new Error("Type should be a string");
@@ -1270,13 +1291,13 @@ mod tests {
             },
             exit: function(frame) {
                 this.lastExitGasUsed = frame.getGasUsed();
-                
+
                 // Verify gasUsed is a number
                 if (typeof frame.getGasUsed() !== 'number') {
                     throw new Error("GasUsed should be a number");
                 }
             },
-            result: function() { 
+            result: function() {
                 return {
                     lastEnterGas: this.lastEnterGas,
                     lastExitGasUsed: this.lastExitGasUsed,
@@ -1285,17 +1306,17 @@ mod tests {
                 };
             }
         }"#;
-        
+
         let res = run_trace(code, None, true);
         let result = res.as_object().unwrap();
-        
+
         // Should have valid data types
         if let Some(gas) = result.get("lastEnterGas") {
             if !gas.is_null() {
                 assert!(gas.is_number(), "Enter gas should be a number");
             }
         }
-        
+
         if let Some(gas_used) = result.get("lastExitGasUsed") {
             if !gas_used.is_null() {
                 assert!(gas_used.is_number(), "Exit gas used should be a number");

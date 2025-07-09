@@ -1,5 +1,6 @@
 use super::types::{CallTrace, CallTraceNode, TraceMemberOrder};
 use alloc::{vec, vec::Vec};
+use alloy_primitives::Address;
 
 /// An arena of recorded traces.
 ///
@@ -41,6 +42,12 @@ impl CallTraceArena {
     pub fn clear(&mut self) {
         self.arena.clear();
         self.arena.push(Default::default());
+    }
+
+    /// Returns __all__ addresses in the recorded traces, that is addresses of the trace and the
+    /// caller address.
+    pub fn trace_addresses(&self) -> impl Iterator<Item = Address> + '_ {
+        self.nodes().iter().flat_map(|node| [node.trace.address, node.trace.caller].into_iter())
     }
 
     /// Pushes a new trace into the arena, returning the trace ID

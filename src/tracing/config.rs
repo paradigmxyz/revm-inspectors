@@ -139,6 +139,8 @@ impl TracingInspectorConfig {
             .set_steps(true)
             .set_stack_snapshots(StackSnapshotType::Pushes)
             .set_memory_snapshots(true)
+            // also need statediffs for recording altered storage in `VmExecutedOperation.store`
+            .set_state_diffs(true)
     }
 
     /// Returns a config for geth style traces.
