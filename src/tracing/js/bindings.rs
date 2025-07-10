@@ -996,10 +996,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tracing::js::builtins::{
-        json_stringify, register_builtins, to_serde_value, BIG_INT_JS,
-    };
-    use boa_engine::{property::Attribute, Source};
+    use crate::tracing::js::builtins::{json_stringify, register_builtins, to_serde_value};
+    use boa_engine::Source;
     use revm::{database::CacheDB, database_interface::EmptyDB};
 
     #[test]
@@ -1011,8 +1009,7 @@ mod tests {
             value: U256::from(1337u64),
             input: vec![0x01, 0x02, 0x03].into(),
         };
-        let big_int = ctx.eval(Source::from_bytes(BIG_INT_JS)).unwrap();
-        ctx.register_global_property(js_string!("bigint"), big_int, Attribute::all()).unwrap();
+        register_builtins(&mut ctx).unwrap();
 
         let obj = contract.clone().into_js_object(&mut ctx).unwrap();
         let s = "({

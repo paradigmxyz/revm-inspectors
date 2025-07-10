@@ -12,6 +12,8 @@ mod geth;
 mod geth_js;
 #[cfg(feature = "std")]
 mod parity;
+#[cfg(feature = "js-tracer")]
+mod test_native_bigint;
 #[cfg(feature = "std")]
 mod transfer;
 #[cfg(feature = "std")]
