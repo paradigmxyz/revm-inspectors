@@ -262,6 +262,7 @@ impl StepLog {
     /// Converts the contract object into a js object
     ///
     /// Caution: this expects a global property `bigint` to be present.
+    #[allow(dead_code)]
     pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
         let Self {
             stack,
@@ -690,6 +691,7 @@ impl FrameResult {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
         let Self { gas_used, output, error } = self;
         let obj = JsObject::default();
@@ -832,6 +834,7 @@ impl CallFrame {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
         let Self { contract: Contract { caller, contract, value, input }, kind, gas } = self;
         let obj = JsObject::default();
@@ -1215,6 +1218,7 @@ impl EvmDbRef {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
         let obj = JsObject::default();
         let exists = FunctionObjectBuilder::new(
@@ -1854,7 +1858,7 @@ mod tests {
             &[addr], 
             &mut context
         ).unwrap();
-        assert_eq!(exists_result.as_boolean().unwrap(), false);
+        assert!(!exists_result.as_boolean().unwrap());
 
         let get_nonce = template.get(js_string!("getNonce"), &mut context).unwrap();
         let addr = JsValue::from(js_string!("0x0000000000000000000000000000000000000000"));
@@ -1899,7 +1903,7 @@ mod tests {
             &[addr.clone()], 
             &mut context
         ).unwrap();
-        assert_eq!(exists_result.as_boolean().unwrap(), true);
+        assert!(exists_result.as_boolean().unwrap());
 
         let get_balance = template.get(js_string!("getBalance"), &mut context).unwrap();
         let balance_result = get_balance.as_callable().unwrap().call(
@@ -2021,7 +2025,7 @@ mod tests {
                 cost: (i % 10) as u64,
                 depth: (i % 3) as u64,
                 refund: (i % 5) as u64,
-                error: if i % 2 == 0 { Some(format!("error {}", i)) } else { None },
+                error: if i % 2 == 0 { Some(format!("error {i}")) } else { None },
                 contract: Default::default(),
             };
 
