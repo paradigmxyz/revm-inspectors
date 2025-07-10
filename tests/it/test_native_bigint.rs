@@ -27,7 +27,7 @@ fn test_boa_native_bigint_support() {
 
     // Test 5: BigInt comparison
     let comparison = ctx.eval(Source::from_bytes(b"BigInt(100) < BigInt(200)")).unwrap();
-    assert_eq!(comparison.as_boolean().unwrap(), true);
+    assert!(comparison.as_boolean().unwrap());
 
     // Test 6: Convert to string
     let to_string = ctx.eval(Source::from_bytes(b"BigInt(999).toString()")).unwrap();
@@ -53,7 +53,7 @@ fn test_u256_to_boa_bigint() {
 
     for value in test_values {
         // Create BigInt from U256 string representation
-        let js_code = format!("BigInt('{}')", value);
+        let js_code = format!("BigInt('{value}')");
         let bigint_val = ctx.eval(Source::from_bytes(js_code.as_bytes())).unwrap();
 
         assert!(bigint_val.is_bigint());
@@ -118,7 +118,7 @@ fn test_bigint_operations_with_large_numbers() {
     assert_eq!(product.as_string().unwrap().to_std_string().unwrap(), "18014398509481986");
 
     let comparison = obj.get(js_string!("comparison"), &mut ctx).unwrap();
-    assert_eq!(comparison.as_boolean().unwrap(), true);
+    assert!(comparison.as_boolean().unwrap());
 }
 
 #[test]

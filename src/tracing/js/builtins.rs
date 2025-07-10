@@ -7,7 +7,7 @@ use boa_engine::{
     js_string,
     object::builtins::{JsArray, JsArrayBuffer, JsTypedArray, JsUint8Array},
     property::Attribute,
-    Context, JsArgs, JsError, JsNativeError, JsResult, JsString, JsValue, NativeFunction, Source,
+    Context, JsArgs, JsError, JsNativeError, JsResult, JsString, JsValue, NativeFunction,
 };
 use boa_gc::{empty_trace, Finalize, Trace};
 use core::borrow::Borrow;
@@ -59,11 +59,6 @@ pub(crate) fn json_stringify(val: JsValue, ctx: &mut Context) -> JsResult<JsStri
 /// Note: this does not register the `isPrecompiled` builtin, as this requires the precompile
 /// addresses, see [PrecompileList::register_callable].
 pub(crate) fn register_builtins(ctx: &mut Context) -> JsResult<()> {
-    // Add toJSON method to BigInt prototype for JSON serialization support
-    ctx.eval(Source::from_bytes(
-        b"BigInt.prototype.toJSON = function() { return this.toString(); }",
-    ))?;
-
     // Create global 'bigint' alias for native BigInt constructor (lowercase for compatibility)
     let big_int = ctx.global_object().get(js_string!("BigInt"), ctx)?;
     ctx.register_global_property(js_string!("bigint"), big_int, Attribute::all())?;
@@ -330,6 +325,7 @@ unsafe impl Trace for PrecompileList {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use boa_engine::Source;
 
     #[test]
     fn test_install_bigint() {
@@ -345,6 +341,47 @@ mod tests {
             bigint.as_callable().unwrap().call(&JsValue::undefined(), &[value], &mut ctx).unwrap();
         assert!(result.is_bigint());
         assert_eq!(result.to_string(&mut ctx).unwrap().to_std_string().unwrap(), "100");
+    }
+
+    #[test]
+    fn test_to_bigint_function() {
+        let mut ctx = Context::default();
+        register_builtins(&mut ctx).unwrap();
+
+        // Test various U256 values through to_bigint
+        let test_cases = vec![
+            (U256::ZERO, "0"),
+            (U256::from(1u64), "1"),
+            (U256::from(42u64), "42"),
+            (U256::from(u64::MAX), "18446744073709551615"),
+            (
+                U256::from_str_radix("123456789012345678901234567890", 10).unwrap(),
+                "123456789012345678901234567890",
+            ),
+        ];
+
+        for (value, expected) in test_cases {
+            let result = to_bigint(value, &mut ctx).unwrap();
+            assert!(result.is_bigint(), "Result should be a bigint for value {value}");
+            let result_str = result.to_string(&mut ctx).unwrap().to_std_string().unwrap();
+            assert_eq!(result_str, expected, "BigInt conversion failed for {value}");
+        }
+
+        // Test that the result can be used in JavaScript operations
+        let big_value = U256::from(999u64);
+        let bigint_result = to_bigint(big_value, &mut ctx).unwrap();
+
+        // Set it as a global variable
+        ctx.global_object().set(js_string!("testBigInt"), bigint_result, false, &mut ctx).unwrap();
+
+        // Test arithmetic with it
+        let arithmetic_test = ctx.eval(Source::from_bytes(b"testBigInt + BigInt(1)")).unwrap();
+        assert!(arithmetic_test.is_bigint());
+        assert_eq!(arithmetic_test.to_string(&mut ctx).unwrap().to_std_string().unwrap(), "1000");
+
+        // Test comparison
+        let comparison_test = ctx.eval(Source::from_bytes(b"testBigInt > BigInt(500)")).unwrap();
+        assert!(comparison_test.as_boolean().unwrap());
     }
 
     fn as_length<T>(array: T) -> usize
