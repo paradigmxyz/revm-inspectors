@@ -1,3 +1,5 @@
+#![allow(missing_docs)]
+
 use alloy_primitives::{hex, Address, U256};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use revm::{

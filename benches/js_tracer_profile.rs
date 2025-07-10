@@ -1,3 +1,6 @@
+#![allow(missing_docs)]
+#![allow(dead_code)]
+
 use alloy_primitives::{hex, Address, U256};
 use revm::{
     context::TxEnv,
