@@ -12,9 +12,6 @@ use boa_engine::{
 use boa_gc::{empty_trace, Finalize, Trace};
 use core::borrow::Borrow;
 
-/// bigIntegerJS is the minified version of <https://github.com/peterolson/BigInteger.js>.
-pub(crate) const BIG_INT_JS: &str = include_str!("bigint.js");
-
 /// Converts the given `JsValue` to a `serde_json::Value`.
 ///
 /// This first attempts to use the built-in `JSON.stringify` function to convert the value to a JSON
@@ -57,12 +54,18 @@ pub(crate) fn json_stringify(val: JsValue, ctx: &mut Context) -> JsResult<JsStri
     res.to_string(ctx)
 }
 
-/// Registers all the builtin functions and global bigint property.
+/// Registers all the builtin functions.
 ///
 /// Note: this does not register the `isPrecompiled` builtin, as this requires the precompile
 /// addresses, see [PrecompileList::register_callable].
 pub(crate) fn register_builtins(ctx: &mut Context) -> JsResult<()> {
-    let big_int = ctx.eval(Source::from_bytes(BIG_INT_JS))?;
+    // Add toJSON method to BigInt prototype for JSON serialization support
+    ctx.eval(Source::from_bytes(
+        b"BigInt.prototype.toJSON = function() { return this.toString(); }",
+    ))?;
+    
+    // Create global 'bigint' alias for native BigInt constructor (lowercase for compatibility)
+    let big_int = ctx.global_object().get(js_string!("BigInt"), ctx)?;
     ctx.register_global_property(js_string!("bigint"), big_int, Attribute::all())?;
     ctx.register_global_builtin_callable(
         js_string!("toHex"),
@@ -187,7 +190,7 @@ pub(crate) fn bytes_to_fb<const N: usize>(mut bytes: &[u8]) -> FixedBytes<N> {
     FixedBytes::left_padding_from(bytes)
 }
 
-/// Converts a U256 to a bigint using the global bigint property.
+/// Converts a U256 to a bigint using the global bigint alias.
 pub(crate) fn to_bigint(value: U256, ctx: &mut Context) -> JsResult<JsValue> {
     let bigint = ctx.global_object().get(js_string!("bigint"), ctx)?;
     let Some(bigint) = bigint.as_callable() else { return Ok(JsValue::undefined()) };
@@ -331,10 +334,16 @@ mod tests {
     #[test]
     fn test_install_bigint() {
         let mut ctx = Context::default();
-        let big_int = ctx.eval(Source::from_bytes(BIG_INT_JS.as_bytes())).unwrap();
-        let value = JsValue::from(100);
+        register_builtins(&mut ctx).unwrap();
+        
+        // Test that 'bigint' alias exists and works
+        let bigint = ctx.global_object().get(js_string!("bigint"), &mut ctx).unwrap();
+        assert!(bigint.is_callable());
+        
+        let value = JsValue::from(js_string!("100"));
         let result =
-            big_int.as_callable().unwrap().call(&JsValue::undefined(), &[value], &mut ctx).unwrap();
+            bigint.as_callable().unwrap().call(&JsValue::undefined(), &[value], &mut ctx).unwrap();
+        assert!(result.is_bigint());
         assert_eq!(result.to_string(&mut ctx).unwrap().to_std_string().unwrap(), "100");
     }
 
