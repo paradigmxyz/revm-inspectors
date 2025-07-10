@@ -10,10 +10,10 @@ mod edge_cov;
 mod geth;
 #[cfg(feature = "js-tracer")]
 mod geth_js;
-#[cfg(feature = "js-tracer")]
-mod test_native_bigint;
 #[cfg(feature = "std")]
 mod parity;
+#[cfg(feature = "js-tracer")]
+mod test_native_bigint;
 #[cfg(feature = "std")]
 mod transfer;
 #[cfg(feature = "std")]

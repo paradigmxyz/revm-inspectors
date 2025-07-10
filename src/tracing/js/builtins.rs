@@ -63,7 +63,7 @@ pub(crate) fn register_builtins(ctx: &mut Context) -> JsResult<()> {
     ctx.eval(Source::from_bytes(
         b"BigInt.prototype.toJSON = function() { return this.toString(); }",
     ))?;
-    
+
     // Create global 'bigint' alias for native BigInt constructor (lowercase for compatibility)
     let big_int = ctx.global_object().get(js_string!("BigInt"), ctx)?;
     ctx.register_global_property(js_string!("bigint"), big_int, Attribute::all())?;
@@ -335,11 +335,11 @@ mod tests {
     fn test_install_bigint() {
         let mut ctx = Context::default();
         register_builtins(&mut ctx).unwrap();
-        
+
         // Test that 'bigint' alias exists and works
         let bigint = ctx.global_object().get(js_string!("bigint"), &mut ctx).unwrap();
         assert!(bigint.is_callable());
-        
+
         let value = JsValue::from(js_string!("100"));
         let result =
             bigint.as_callable().unwrap().call(&JsValue::undefined(), &[value], &mut ctx).unwrap();
