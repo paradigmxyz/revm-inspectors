@@ -7,7 +7,7 @@ use boa_engine::{
     js_string,
     object::builtins::{JsArray, JsArrayBuffer, JsTypedArray, JsUint8Array},
     property::Attribute,
-    Context, JsArgs, JsError, JsNativeError, JsResult, JsString, JsValue, NativeFunction,
+    Context, JsArgs, JsError, JsNativeError, JsResult, JsString, JsValue, NativeFunction, Source,
 };
 use boa_gc::{empty_trace, Finalize, Trace};
 use core::borrow::Borrow;
@@ -59,6 +59,11 @@ pub(crate) fn json_stringify(val: JsValue, ctx: &mut Context) -> JsResult<JsStri
 /// Note: this does not register the `isPrecompiled` builtin, as this requires the precompile
 /// addresses, see [PrecompileList::register_callable].
 pub(crate) fn register_builtins(ctx: &mut Context) -> JsResult<()> {
+    // Add toJSON method to BigInt prototype for JSON serialization support
+    ctx.eval(Source::from_bytes(
+        b"BigInt.prototype.toJSON = function() { return this.toString(); }",
+    ))?;
+
     // Create global 'bigint' alias for native BigInt constructor (lowercase for compatibility)
     let big_int = ctx.global_object().get(js_string!("BigInt"), ctx)?;
     ctx.register_global_property(js_string!("bigint"), big_int, Attribute::all())?;
@@ -325,7 +330,6 @@ unsafe impl Trace for PrecompileList {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use boa_engine::Source;
 
     #[test]
     fn test_install_bigint() {
