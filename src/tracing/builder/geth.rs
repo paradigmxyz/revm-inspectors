@@ -1,19 +1,25 @@
 //! Geth trace builder
 use crate::tracing::{
-    types::{CallTraceNode, CallTraceStepStackItem},
+    types::{CallKind, CallTraceNode, CallTraceStepStackItem},
     utils::load_account_code,
 };
 use alloc::{
     borrow::Cow,
     collections::{BTreeMap, VecDeque},
+    format,
     vec::Vec,
 };
-use alloy_primitives::{map::HashMap, Address, Bytes, B256, U256};
+use alloy_primitives::{
+    map::{Entry, HashMap},
+    Address, Bytes, B256, U256,
+};
 use alloy_rpc_types_trace::geth::{
+    erc7562::{AccessedSlots, CallFrameType, ContractSize, Erc7562Config, Erc7562Frame},
     AccountChangeKind, AccountState, CallConfig, CallFrame, DefaultFrame, DiffMode,
     GethDefaultTracingOptions, PreStateConfig, PreStateFrame, PreStateMode, StructLog,
 };
 use revm::{
+    bytecode::opcode,
     context_interface::result::{HaltReasonTr, ResultAndState},
     state::EvmState,
     DatabaseRef,
@@ -346,5 +352,196 @@ impl<'a> GethTraceBuilder<'a> {
             // only keep accounts that are not created
             change_type.get(addr).map(|ty| !ty.0.is_created()).unwrap_or(true)
         });
+    }
+
+    /// Traces ERC-7562 calls using the call tracer.
+    pub fn geth_erc7562_traces<DB: DatabaseRef>(
+        &self,
+        opts: Erc7562Config,
+        gas_used: u64,
+        db: DB,
+    ) -> Erc7562Frame {
+        if self.nodes.is_empty() {
+            return Default::default();
+        }
+        self.geth_erc7562_traces_internal(0, opts.clone(), gas_used, db)
+    }
+
+    /// Internal function to trace ERC-7562 calls using the call tracer.
+    pub fn geth_erc7562_traces_internal<DB: DatabaseRef>(
+        &self,
+        node_idx: usize,
+        opts: Erc7562Config,
+        gas_used: u64,
+        db: DB,
+    ) -> Erc7562Frame {
+        if self.nodes.is_empty() {
+            return Default::default();
+        }
+
+        let _stack_top_items_size = opts.stack_top_items_size.unwrap_or(0);
+        let ignored_opcodes = opts.ignored_opcodes.clone();
+        let include_logs = opts.with_log.unwrap_or_default();
+
+        let call_config = CallConfig { only_top_call: None, with_log: Some(include_logs) };
+        let mut call_frame = self.geth_call_traces(call_config, gas_used);
+        call_frame.gas_used = U256::from(gas_used);
+
+        let mut accessed_slots = AccessedSlots::default();
+        let mut used_opcodes: HashMap<u8, u64> = HashMap::new();
+        let mut contract_size: HashMap<Address, ContractSize> = HashMap::new();
+        let mut ext_code_access_info = Vec::new();
+        let mut keccak = Vec::new();
+        let mut out_of_gas = false;
+
+        let node = &self.nodes[node_idx];
+        for step in &node.trace.steps {
+            let op = step.op.get();
+
+            // Skip if opcode is ignored
+            if ignored_opcodes.contains(&op) {
+                continue;
+            }
+
+            // Count used opcodes
+            *used_opcodes.entry(op).or_insert(0) += 1;
+
+            // Accessed storage slots
+            match op {
+                opcode::SLOAD => {
+                    if let Some(stack) = &step.stack {
+                        if let Some(slot) = stack.get(stack.len().saturating_sub(1)) {
+                            let slot: B256 = (*slot).into();
+                            let already_read = accessed_slots.reads.contains_key(&slot);
+                            let already_written = accessed_slots.writes.contains_key(&slot);
+                            if !already_read && !already_written {
+                                if let Some(change) = &step.storage_change {
+                                    let value: B256 = change.value.into();
+                                    accessed_slots.reads.entry(slot).or_default().push(value);
+                                }
+                            }
+                        }
+                    }
+                }
+                opcode::SSTORE => {
+                    if let Some(stack) = &step.stack {
+                        if let Some(slot) = stack.get(stack.len().saturating_sub(1)) {
+                            let slot: B256 = (*slot).into();
+                            *accessed_slots.writes.entry(slot).or_insert(0) += 1;
+                        }
+                    }
+                }
+                opcode::TLOAD => {
+                    if let Some(stack) = &step.stack {
+                        if let Some(slot) = stack.get(stack.len().saturating_sub(1)) {
+                            let slot: B256 = (*slot).into();
+                            *accessed_slots.transient_reads.entry(slot).or_insert(0) += 1;
+                        }
+                    }
+                }
+                opcode::TSTORE => {
+                    if let Some(stack) = &step.stack {
+                        if let Some(slot) = stack.get(stack.len().saturating_sub(1)) {
+                            let slot: B256 = (*slot).into();
+                            *accessed_slots.transient_writes.entry(slot).or_insert(0) += 1;
+                        }
+                    }
+                }
+                _ => {}
+            }
+
+            // Out-of-Gas detection
+            if let Some(status) = &step.status {
+                if *status == revm::interpreter::InstructionResult::OutOfGas {
+                    out_of_gas = true;
+                }
+            }
+
+            // EXT opcode handling and contract size capture
+            if matches!(op, opcode::EXTCODESIZE | opcode::EXTCODECOPY | opcode::EXTCODEHASH) {
+                if let Some(stack) = &step.stack {
+                    if let Some(item) = stack.get(stack.len().saturating_sub(1)) {
+                        let address = Address::from(item.to_be_bytes());
+                        ext_code_access_info.push(format!("{address:?}"));
+                        if let Entry::Vacant(e) = contract_size.entry(address) {
+                            if let Ok(Some(account)) = db.basic_ref(address) {
+                                if let Ok(bytecode) = db.code_by_hash_ref(account.code_hash) {
+                                    let size = bytecode.len();
+                                    e.insert(ContractSize {
+                                        contract_size: size as u64,
+                                        opcode: op,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // KECCAK preimages from returndata
+            if op == opcode::KECCAK256 {
+                if let (Some(stack), Some(memory)) = (&step.stack, &step.memory) {
+                    if stack.len() >= 2 {
+                        let offset = stack[stack.len() - 1];
+                        let len = stack[stack.len() - 2];
+                        let offset_usize: usize = offset.try_into().unwrap_or(0);
+                        let len_usize: usize = len.try_into().unwrap_or(0);
+                        if offset_usize
+                            .checked_add(len_usize)
+                            .is_some_and(|end| end <= memory.0.len())
+                        {
+                            let data = memory.0[offset_usize..offset_usize + len_usize].to_vec();
+                            keccak.push(data);
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut calls = Vec::new();
+        for (idx, n) in self.nodes.iter().enumerate() {
+            if n.parent == Some(node_idx) {
+                let child_trace =
+                    self.geth_erc7562_traces_internal(idx, opts.clone(), gas_used, &db);
+                calls.push(child_trace);
+            }
+        }
+
+        let call_kind = node.kind();
+        let call_frame_type = Self::convert_call_kind(call_kind);
+
+        Erc7562Frame {
+            call_frame_type,
+            from: call_frame.from,
+            gas: call_frame.gas.to(),
+            gas_used: call_frame.gas_used.to(),
+            to: call_frame.to,
+            input: call_frame.input,
+            output: call_frame.output,
+            error: call_frame.error,
+            revert_reason: call_frame.revert_reason,
+            logs: call_frame.logs,
+            value: call_frame.value,
+            accessed_slots,
+            ext_code_access_info,
+            used_opcodes,
+            contract_size,
+            out_of_gas,
+            keccak: keccak.into_iter().map(Bytes::from).collect(),
+            calls,
+        }
+    }
+
+    /// Converts a CallKind to a CallFrameType.
+    pub fn convert_call_kind(kind: CallKind) -> CallFrameType {
+        match kind {
+            CallKind::Call => CallFrameType::Call,
+            CallKind::CallCode => CallFrameType::CallCode,
+            CallKind::DelegateCall => CallFrameType::DelegateCall,
+            CallKind::StaticCall => CallFrameType::StaticCall,
+            CallKind::Create => CallFrameType::Create,
+            CallKind::Create2 => CallFrameType::Create2,
+            CallKind::AuthCall => todo!(),
+        }
     }
 }
