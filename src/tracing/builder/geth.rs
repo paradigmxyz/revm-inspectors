@@ -6,6 +6,7 @@ use crate::tracing::{
 use alloc::{
     borrow::Cow,
     collections::{BTreeMap, VecDeque},
+    format,
     vec::Vec,
 };
 use alloy_primitives::{map::HashMap, Address, Bytes, B256, U256};
@@ -484,7 +485,7 @@ impl<'a> GethTraceBuilder<'a> {
                         let len_usize: usize = len.try_into().unwrap_or(0);
                         if offset_usize
                             .checked_add(len_usize)
-                            .map_or(false, |end| end <= memory.0.len())
+                            .is_some_and(|end| end <= memory.0.len())
                         {
                             let data = memory.0[offset_usize..offset_usize + len_usize].to_vec();
                             keccak.push(data);
