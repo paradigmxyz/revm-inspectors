@@ -459,15 +459,17 @@ impl<'a> GethTraceBuilder<'a> {
                 if let Some(stack) = &step.stack {
                     if let Some(item) = stack.get(stack.len().saturating_sub(1)) {
                         let address = Address::from(item.to_be_bytes());
-                        ext_code_access_info.push(format!("{:?}", address));
-                        if !contract_size.contains_key(&address) {
+                        ext_code_access_info.push(format!("{address:?}"));
+                        if let std::collections::hash_map::Entry::Vacant(e) =
+                            contract_size.entry(address)
+                        {
                             if let Ok(Some(account)) = db.basic_ref(address) {
                                 if let Ok(bytecode) = db.code_by_hash_ref(account.code_hash) {
                                     let size = bytecode.len();
-                                    contract_size.insert(
-                                        address,
-                                        ContractSize { contract_size: size as u64, opcode: op },
-                                    );
+                                    e.insert(ContractSize {
+                                        contract_size: size as u64,
+                                        opcode: op,
+                                    });
                                 }
                             }
                         }
