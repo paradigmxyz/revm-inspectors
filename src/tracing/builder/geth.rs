@@ -351,25 +351,31 @@ impl<'a> GethTraceBuilder<'a> {
     }
 
     /// Traces ERC-7562 calls using the call tracer.
-    pub fn geth_erc7562_traces(&self, opts: Erc7562Config, gas_used: u64) -> Erc7562Frame {
+    pub fn geth_erc7562_traces<DB: DatabaseRef>(
+        &self,
+        opts: Erc7562Config,
+        gas_used: u64,
+        db: DB,
+    ) -> Erc7562Frame {
         if self.nodes.is_empty() {
             return Default::default();
         }
-        self.geth_erc7562_traces_internal(0, opts.clone(), gas_used)
+        self.geth_erc7562_traces_internal(0, opts.clone(), gas_used, db)
     }
 
-    /// Internal function to trace ERC-7562 calls.
-    pub fn geth_erc7562_traces_internal(
+    /// Internal function to trace ERC-7562 calls using the call tracer.
+    pub fn geth_erc7562_traces_internal<DB: DatabaseRef>(
         &self,
         node_idx: usize,
         opts: Erc7562Config,
         gas_used: u64,
+        db: DB,
     ) -> Erc7562Frame {
         if self.nodes.is_empty() {
             return Default::default();
         }
 
-        let stack_top_items_size = opts.stack_top_items_size.unwrap_or(0);
+        let _stack_top_items_size = opts.stack_top_items_size.unwrap_or(0);
         let ignored_opcodes = opts.ignored_opcodes.clone();
         let include_logs = opts.with_log.unwrap_or_default();
 
@@ -400,8 +406,8 @@ impl<'a> GethTraceBuilder<'a> {
             match op {
                 opcode::SLOAD => {
                     if let Some(stack) = &step.stack {
-                        if let Some(top) = stack.last() {
-                            let slot: B256 = (*top).into();
+                        if let Some(slot) = stack.get(stack.len().saturating_sub(1)) {
+                            let slot: B256 = (*slot).into();
                             let already_read = accessed_slots.reads.contains_key(&slot);
                             let already_written = accessed_slots.writes.contains_key(&slot);
                             if !already_read && !already_written {
@@ -415,45 +421,29 @@ impl<'a> GethTraceBuilder<'a> {
                 }
                 opcode::SSTORE => {
                     if let Some(stack) = &step.stack {
-                        if let Some(top) = stack.last() {
-                            let slot: B256 = (*top).into();
+                        if let Some(slot) = stack.get(stack.len().saturating_sub(1)) {
+                            let slot: B256 = (*slot).into();
                             *accessed_slots.writes.entry(slot).or_insert(0) += 1;
                         }
                     }
                 }
                 opcode::TLOAD => {
                     if let Some(stack) = &step.stack {
-                        if let Some(top) = stack.last() {
-                            let slot: B256 = (*top).into();
+                        if let Some(slot) = stack.get(stack.len().saturating_sub(1)) {
+                            let slot: B256 = (*slot).into();
                             *accessed_slots.transient_reads.entry(slot).or_insert(0) += 1;
                         }
                     }
                 }
                 opcode::TSTORE => {
                     if let Some(stack) = &step.stack {
-                        if let Some(top) = stack.last() {
-                            let slot: B256 = (*top).into();
+                        if let Some(slot) = stack.get(stack.len().saturating_sub(1)) {
+                            let slot: B256 = (*slot).into();
                             *accessed_slots.transient_writes.entry(slot).or_insert(0) += 1;
                         }
                     }
                 }
                 _ => {}
-            }
-
-            // Transient Read Stack Top Items
-            if let Some(stack) = &step.stack {
-                for item in stack.iter().rev().take(stack_top_items_size as usize) {
-                    let k: B256 = (*item).into();
-                    *accessed_slots.transient_reads.entry(k).or_insert(0) += 1;
-                }
-            }
-
-            // Transient Writes via push_stack
-            if let Some(push) = &step.push_stack {
-                for item in push {
-                    let k: B256 = (*item).into();
-                    *accessed_slots.transient_writes.entry(k).or_insert(0) += 1;
-                }
             }
 
             // Out-of-Gas detection
@@ -463,33 +453,56 @@ impl<'a> GethTraceBuilder<'a> {
                 }
             }
 
-            if let Some(mem) = &step.memory {
-                let size = mem.0.len() as u64;
-                contract_size
-                    .entry(step.contract)
-                    .or_insert_with(|| ContractSize { contract_size: size, opcode: op });
-            }
-
-            if op == opcode::KECCAK256 && !step.returndata.is_empty() {
-                keccak.push(step.returndata.clone());
-            }
-
+            // EXT opcode handling and contract size capture
             if matches!(op, opcode::EXTCODESIZE | opcode::EXTCODECOPY | opcode::EXTCODEHASH) {
                 if let Some(stack) = &step.stack {
-                    if let Some(addr) = stack.last() {
-                        ext_code_access_info
-                            .push(format!("{:?}", Address::from(addr.to_be_bytes())));
+                    if let Some(item) = stack.get(stack.len().saturating_sub(1)) {
+                        let address = Address::from(item.to_be_bytes());
+                        ext_code_access_info.push(format!("{:?}", address));
+                        if !contract_size.contains_key(&address) {
+                            if let Ok(Some(account)) = db.basic_ref(address) {
+                                if let Ok(bytecode) = db.code_by_hash_ref(account.code_hash) {
+                                    let size = bytecode.len();
+                                    contract_size.insert(
+                                        address,
+                                        ContractSize { contract_size: size as u64, opcode: op },
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // KECCAK preimages from returndata
+            if op == opcode::KECCAK256 {
+                if let (Some(stack), Some(memory)) = (&step.stack, &step.memory) {
+                    if stack.len() >= 2 {
+                        let offset = stack[stack.len() - 1];
+                        let len = stack[stack.len() - 2];
+                        let offset_usize: usize = offset.try_into().unwrap_or(0);
+                        let len_usize: usize = len.try_into().unwrap_or(0);
+                        if offset_usize
+                            .checked_add(len_usize)
+                            .map_or(false, |end| end <= memory.0.len())
+                        {
+                            let data = memory.0[offset_usize..offset_usize + len_usize].to_vec();
+                            keccak.push(data);
+                        }
                     }
                 }
             }
         }
+
         let mut calls = Vec::new();
         for (idx, n) in self.nodes.iter().enumerate() {
             if n.parent == Some(node_idx) {
-                let child_trace = self.geth_erc7562_traces_internal(idx, opts.clone(), gas_used);
+                let child_trace =
+                    self.geth_erc7562_traces_internal(idx, opts.clone(), gas_used, &db);
                 calls.push(child_trace);
             }
         }
+
         let call_kind = node.kind();
         let call_frame_type = Self::convert_call_kind(call_kind);
 
@@ -510,7 +523,7 @@ impl<'a> GethTraceBuilder<'a> {
             used_opcodes,
             contract_size,
             out_of_gas,
-            keccak,
+            keccak: keccak.into_iter().map(Bytes::from).collect(),
             calls,
         }
     }
