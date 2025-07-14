@@ -6,7 +6,7 @@ use crate::tracing::{
 use alloc::{
     borrow::Cow,
     collections::{BTreeMap, VecDeque},
-    format,
+    format, vec,
     vec::Vec,
 };
 use alloy_primitives::{
