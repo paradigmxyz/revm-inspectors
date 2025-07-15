@@ -369,7 +369,7 @@ impl<'a> GethTraceBuilder<'a> {
         let include_logs = opts.with_log.unwrap_or_default();
         let call_config = CallConfig { only_top_call: None, with_log: Some(include_logs) };
 
-        let top_call = self.geth_call_traces(call_config, gas_used);
+        let mut top_call = Some(self.geth_call_traces(call_config, gas_used));
 
         let mut frames: Vec<(usize, Erc7562Frame)> = Vec::with_capacity(self.nodes.len());
 
@@ -455,7 +455,8 @@ impl<'a> GethTraceBuilder<'a> {
                                         if let Ok(bytecode) = db.code_by_hash_ref(account.code_hash)
                                         {
                                             e.insert(ContractSize {
-                                                contract_size: bytecode.len() as u64,
+                                                contract_size: bytecode.original_bytes().len()
+                                                    as u64,
                                                 opcode: op,
                                             });
                                         }
@@ -486,7 +487,7 @@ impl<'a> GethTraceBuilder<'a> {
             }
 
             let call_frame = if idx == 0 {
-                top_call.clone()
+                top_call.take().unwrap()
             } else {
                 let include_logs = include_logs && !self.call_or_parent_failed(node);
                 self.nodes[idx].geth_empty_call_frame(include_logs)
@@ -520,21 +521,17 @@ impl<'a> GethTraceBuilder<'a> {
         }
 
         // Assemble tree
-        while let Some((idx, frame)) = frames.pop() {
+        loop {
+            let (idx, frame) = frames.pop().expect("call frames not empty");
             let node = &self.nodes[idx];
-            if let Some(parent_idx) = node.parent {
-                frames[parent_idx].1.calls.insert(0, frame);
+            if let Some(parent) = node.parent {
+                let parent_frame = &mut frames[parent];
+                parent_frame.1.calls.insert(0, frame);
             } else {
+                debug_assert!(frames.is_empty(), "only one root node has no parent");
                 return frame;
             }
         }
-
-        // Fallback in case no root found, to satisfy the compiler
-        frames
-            .into_iter()
-            .find(|(idx, _)| self.nodes[*idx].parent.is_none())
-            .map(|(_, frame)| frame)
-            .unwrap_or_default()
     }
 
     /// Converts a CallKind to a CallFrameType.
