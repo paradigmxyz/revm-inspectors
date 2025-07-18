@@ -1,6 +1,9 @@
 use alloy_primitives::{map::HashSet, U256};
 use alloy_rpc_types_trace::{
-    geth::{CallConfig, FlatCallConfig, GethDefaultTracingOptions, PreStateConfig},
+    geth::{
+        erc7562::Erc7562Config, CallConfig, FlatCallConfig, GethDefaultTracingOptions,
+        PreStateConfig,
+    },
     parity::TraceType,
 };
 use revm::bytecode::opcode::OpCode;
@@ -205,6 +208,20 @@ impl TracingInspectorConfig {
         Self::none()
             // call tracer is similar parity tracer with optional support for logs
             .set_record_logs(config.with_log.unwrap_or_default())
+    }
+
+    /// Returns a config for geth's
+    /// [Erc7562Frame](alloy_rpc_types_trace::geth::erc7562::Erc7562Frame).
+    #[inline]
+    pub fn from_geth_erc7562_config(config: &Erc7562Config) -> Self {
+        Self::none()
+            // call tracer is similar parity tracer with optional support for logs
+            .set_record_logs(config.with_log.unwrap_or_default())
+            // need memory snapshots for keccak preimages
+            .set_memory_snapshots(true)
+            // need stack snapshots for keccak preimages
+            .set_stack_snapshots(StackSnapshotType::Full)
+            .steps()
     }
 
     /// Returns a config for geth's
