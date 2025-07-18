@@ -51,21 +51,14 @@ impl EdgeCovInspector {
         address.hash(&mut hasher);
         pc.hash(&mut hasher);
         jump_dest.hash(&mut hasher);
-        // The hash is used to index into the hitcount array, so it must be modulo the maximum edge
-        // count.
+        // The hash is used to index into the hitcount array,
+        // so it must be modulo the maximum edge count.
         let edge_id = (hasher.finish() % MAX_EDGE_COUNT as u64) as usize;
         self.hitcount[edge_id] = self.hitcount[edge_id].checked_add(1).unwrap_or(1);
     }
-}
 
-impl Default for EdgeCovInspector {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl<CTX> Inspector<CTX> for EdgeCovInspector {
-    fn step(&mut self, interp: &mut Interpreter, _context: &mut CTX) {
+    #[cold]
+    fn do_step(&mut self, interp: &mut Interpreter) {
         let address = interp.input.target_address(); // TODO track context for delegatecall?
         let current_pc = interp.bytecode.pc();
 
@@ -94,6 +87,21 @@ impl<CTX> Inspector<CTX> for EdgeCovInspector {
             _ => {
                 // no-op
             }
+        }
+    }
+}
+
+impl Default for EdgeCovInspector {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<CTX> Inspector<CTX> for EdgeCovInspector {
+    #[inline]
+    fn step(&mut self, interp: &mut Interpreter, _context: &mut CTX) {
+        if matches!(interp.bytecode.opcode(), opcode::JUMP | opcode::JUMPI) {
+            self.do_step(interp);
         }
     }
 }
