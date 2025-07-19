@@ -230,14 +230,14 @@ impl CallTraceNode {
         // the correct child_id assignment order
         let mut child_id = 0;
         for i in (initial_len..stack.len()).rev() {
-            let step = stack[i].step;
+            let item = &mut stack[i];
 
             // If the opcode is a call, set the child trace id
-            if step.is_calllike_op() {
+            if item.step.is_calllike_op() {
                 // The opcode of this step is a call but it's possible that this step resulted
                 // in a revert or out of gas error in which case there's no actual child call executed and recorded: <https://github.com/paradigmxyz/reth/issues/3915>
                 if let Some(call_id) = self.children.get(child_id).copied() {
-                    stack[i].call_child_id = Some(call_id);
+                    item.call_child_id = Some(call_id);
                     child_id += 1;
                 }
             }
