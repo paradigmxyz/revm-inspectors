@@ -217,21 +217,21 @@ impl CallTraceNode {
         stack: &mut VecDeque<CallTraceStepStackItem<'a>>,
     ) {
         let initial_len = stack.len();
-        
+
         // First, extend the stack with all steps in reverse order
         stack.extend(self.trace.steps.iter().rev().map(|step| CallTraceStepStackItem {
             trace_node: self,
             step,
             call_child_id: None,
         }));
-        
+
         // Then, iterate over the inserted range in reverse to set call_child_id values
         // Since we inserted in reverse order, we need to process from the end to maintain
         // the correct child_id assignment order
         let mut child_id = 0;
         for i in (initial_len..stack.len()).rev() {
             let step = stack[i].step;
-            
+
             // If the opcode is a call, set the child trace id
             if step.is_calllike_op() {
                 // The opcode of this step is a call but it's possible that this step resulted
