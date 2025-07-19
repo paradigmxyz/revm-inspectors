@@ -216,30 +216,32 @@ impl CallTraceNode {
         &'a self,
         stack: &mut VecDeque<CallTraceStepStackItem<'a>>,
     ) {
-        stack.extend(self.call_step_stack().into_iter().rev());
-    }
-
-    /// Returns a list of all steps in this trace in the order they were executed
-    ///
-    /// If the step is a call, the id of the child trace is set.
-    pub(crate) fn call_step_stack(&self) -> Vec<CallTraceStepStackItem<'_>> {
-        let mut stack = Vec::with_capacity(self.trace.steps.len());
+        let initial_len = stack.len();
+        
+        // First, extend the stack with all steps in reverse order
+        stack.extend(self.trace.steps.iter().rev().map(|step| CallTraceStepStackItem {
+            trace_node: self,
+            step,
+            call_child_id: None,
+        }));
+        
+        // Then, iterate over the inserted range in reverse to set call_child_id values
+        // Since we inserted in reverse order, we need to process from the end to maintain
+        // the correct child_id assignment order
         let mut child_id = 0;
-        for step in self.trace.steps.iter() {
-            let mut item = CallTraceStepStackItem { trace_node: self, step, call_child_id: None };
-
-            // If the opcode is a call, put the child trace on the stack
+        for i in (initial_len..stack.len()).rev() {
+            let step = stack[i].step;
+            
+            // If the opcode is a call, set the child trace id
             if step.is_calllike_op() {
                 // The opcode of this step is a call but it's possible that this step resulted
                 // in a revert or out of gas error in which case there's no actual child call executed and recorded: <https://github.com/paradigmxyz/reth/issues/3915>
                 if let Some(call_id) = self.children.get(child_id).copied() {
-                    item.call_child_id = Some(call_id);
+                    stack[i].call_child_id = Some(call_id);
                     child_id += 1;
                 }
             }
-            stack.push(item);
         }
-        stack
     }
 
     /// Returns true if this is a call to a precompile
