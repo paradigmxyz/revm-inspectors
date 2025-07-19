@@ -51,6 +51,11 @@ impl<'a> GethTraceBuilder<'a> {
         self.nodes.into_owned()
     }
 
+    /// Returns the sum of all steps in the recorded node traces.
+    fn trace_step_count(&self) -> usize {
+        self.nodes.iter().map(|node| node.trace.steps.len()).sum()
+    }
+
     /// Fill in the geth trace with all steps of the trace and its children traces in the order they
     /// appear in the transaction.
     fn fill_geth_trace(
@@ -119,7 +124,7 @@ impl<'a> GethTraceBuilder<'a> {
         let main_trace_node = &self.nodes[0];
         let main_trace = &main_trace_node.trace;
 
-        let mut struct_logs = Vec::new();
+        let mut struct_logs = Vec::with_capacity(self.trace_step_count());
         let mut storage = HashMap::default();
         self.fill_geth_trace(main_trace_node, &opts, &mut storage, &mut struct_logs);
 
