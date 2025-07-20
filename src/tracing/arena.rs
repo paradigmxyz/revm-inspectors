@@ -1,5 +1,5 @@
 use super::types::{CallTrace, CallTraceNode, TraceMemberOrder};
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 use alloy_primitives::Address;
 
 /// An arena of recorded traces.
@@ -14,23 +14,27 @@ pub struct CallTraceArena {
 
 impl Default for CallTraceArena {
     fn default() -> Self {
-        // The first node is the root node
-        Self { arena: vec![Default::default()] }
+        let mut this = Self { arena: Vec::with_capacity(8) };
+        this.clear();
+        this
     }
 }
 
 impl CallTraceArena {
     /// Returns the nodes in the arena.
+    #[inline]
     pub fn nodes(&self) -> &[CallTraceNode] {
         &self.arena
     }
 
     /// Returns a mutable reference to the nodes in the arena.
+    #[inline]
     pub fn nodes_mut(&mut self) -> &mut Vec<CallTraceNode> {
         &mut self.arena
     }
 
     /// Consumes the arena and returns the nodes.
+    #[inline]
     pub fn into_nodes(self) -> Vec<CallTraceNode> {
         self.arena
     }
@@ -38,7 +42,6 @@ impl CallTraceArena {
     /// Clears the arena
     ///
     /// Note that this method has no effect on the allocated capacity of the arena.
-    #[inline]
     pub fn clear(&mut self) {
         self.arena.clear();
         self.arena.push(Default::default());
