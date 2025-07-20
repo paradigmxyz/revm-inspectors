@@ -103,7 +103,19 @@ impl TracingInspector {
     /// Note that this method has no effect on the allocated capacity of the vector.
     #[inline]
     pub fn fuse(&mut self) {
-        for node in &mut self.traces.arena {
+        let Self {
+            traces,
+            trace_stack,
+            step_stack,
+            last_call_return_data,
+            last_journal_len,
+            spec_id,
+            // kept
+            config: _,
+            reusable_step_vecs: _,
+        } = self;
+
+        for node in &mut traces.arena {
             let trace = &mut node.trace;
             trace.gas_limit = 0;
             trace.gas_used = 0;
@@ -113,11 +125,11 @@ impl TracingInspector {
             self.reusable_step_vecs.push(steps);
         }
 
-        self.trace_stack.clear();
-        self.step_stack.clear();
-        self.last_call_return_data.take();
-        self.spec_id.take();
-        self.last_journal_len = 0;
+        trace_stack.clear();
+        step_stack.clear();
+        last_call_return_data.take();
+        spec_id.take();
+        *last_journal_len = 0;
     }
 
     /// Resets the inspector to it's initial state of [Self::new].
@@ -322,7 +334,7 @@ impl TracingInspector {
             PushTraceKind::PushAndAttachToParent
         };
 
-        let reusable_steps = self.reusable_step_vecs.pop();
+        let reusable_steps = self.reusable_step_vecs.pop().unwrap_or_default();
 
         self.trace_stack.push(self.traces.push_trace(
             0,
@@ -337,7 +349,7 @@ impl TracingInspector {
                 caller,
                 maybe_precompile,
                 gas_limit,
-                steps: reusable_steps.unwrap_or_default(),
+                steps: reusable_steps,
                 ..Default::default()
             },
         ));
