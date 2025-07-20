@@ -2,6 +2,7 @@
 
 use crate::tracing::{config::TraceStyle, utils, utils::convert_memory};
 use alloc::{
+    boxed::Box,
     collections::VecDeque,
     format,
     string::{String, ToString},

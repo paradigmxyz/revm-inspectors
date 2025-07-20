@@ -147,7 +147,7 @@ const EVENT_SIGNATURES: &[(&str, B256, &[&str])] = &[
 // The actual decoding logic, including edge case handling, is not implemented here.
 fn patch_traces(patch: usize, t: &mut TracingInspector) {
     for node in t.traces_mut().nodes_mut() {
-        let decoded = node.trace.decoded.get_or_insert_with(|| Box::default());
+        let decoded = node.trace.decoded.get_or_insert_with(Box::default);
         // Inserts decoded `label` into the output, simulating actual decoding.
         LABELS.iter().for_each(|(label, address)| {
             if node.trace.address == *address {
