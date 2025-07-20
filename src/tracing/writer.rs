@@ -570,6 +570,6 @@ fn decoded_return_data(trace: &CallTrace) -> Option<&str> {
     trace.decoded.as_ref()?.return_data.as_deref()
 }
 
-fn decoded_log(log: &CallLog) -> &Box<DecodedCallLog> {
+fn decoded_log(log: &CallLog) -> &DecodedCallLog {
     log.decoded.as_ref().unwrap()
 }
