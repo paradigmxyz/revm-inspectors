@@ -31,7 +31,7 @@ clippy.lint_groups_priority = "allow"
 [dependencies]
 # eth
 alloy-rpc-types-eth = { version = "1.0.22", default-features = false }
-alloy-rpc-types-trace = { version = "1.0.22", default-features = false }
+alloy-rpc-types-trace = { git = "https://github.com/lean-apple/alloy.git", branch = "cow-op", default-features = false }
 alloy-sol-types = { version = "1.2", default-features = false }
 alloy-primitives = { version = "1.2", default-features = false, features = [
     "map",
