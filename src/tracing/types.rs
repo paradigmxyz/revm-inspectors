@@ -2,11 +2,11 @@
 
 use crate::tracing::{config::TraceStyle, utils, utils::convert_memory};
 use alloc::{
+    borrow::Cow,
     collections::VecDeque,
     format,
     string::{String, ToString},
     vec::Vec,
-    borrow::Cow
 };
 pub use alloy_primitives::Log;
 use alloy_primitives::{Address, Bytes, FixedBytes, LogData, U256};
