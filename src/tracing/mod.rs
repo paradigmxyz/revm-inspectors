@@ -87,7 +87,6 @@ pub struct TracingInspector {
     spec_id: Option<SpecId>,
     /// Pool of reusable step vectors to reduce allocations
     reusable_step_vecs: Vec<Vec<CallTraceStep>>,
-
 }
 
 // === impl TracingInspector ===
@@ -104,21 +103,21 @@ impl TracingInspector {
     /// Note that this method has no effect on the allocated capacity of the vector.
     #[inline]
     pub fn fuse(&mut self) {
-      for node in &mut self.traces.arena {
-        let trace = &mut node.trace;
-        
-        // Move out the steps vec for reuse
-        let mut steps = std::mem::take(&mut trace.steps);
-        steps.clear();
-        self.reusable_step_vecs.push(steps);
-    }
+        for node in &mut self.traces.arena {
+            let trace = &mut node.trace;
 
-    self.traces.arena.clear();
-    self.trace_stack.clear();
-    self.step_stack.clear();
-    self.last_call_return_data.take();
-    self.spec_id.take();
-    self.last_journal_len = 0;
+            // Move out the steps vec for reuse
+            let mut steps = std::mem::take(&mut trace.steps);
+            steps.clear();
+            self.reusable_step_vecs.push(steps);
+        }
+
+        self.traces.arena.clear();
+        self.trace_stack.clear();
+        self.step_stack.clear();
+        self.last_call_return_data.take();
+        self.spec_id.take();
+        self.last_journal_len = 0;
     }
 
     /// Resets the inspector to it's initial state of [Self::new].
@@ -338,7 +337,7 @@ impl TracingInspector {
                 caller,
                 maybe_precompile,
                 gas_limit,
-                steps:reusable_steps.unwrap_or_default(),
+                steps: reusable_steps.unwrap_or_default(),
                 ..Default::default()
             },
         ));
