@@ -85,6 +85,9 @@ pub struct TracingInspector {
     ///
     /// This is filled during execution.
     spec_id: Option<SpecId>,
+    /// Pool of reusable step vectors to reduce allocations
+    reusable_step_vecs: Vec<Vec<CallTraceStep>>,
+
 }
 
 // === impl TracingInspector ===
@@ -101,22 +104,21 @@ impl TracingInspector {
     /// Note that this method has no effect on the allocated capacity of the vector.
     #[inline]
     pub fn fuse(&mut self) {
-        let Self {
-            traces,
-            trace_stack,
-            step_stack,
-            last_call_return_data,
-            last_journal_len,
-            spec_id,
-            // kept
-            config: _,
-        } = self;
-        traces.clear();
-        trace_stack.clear();
-        step_stack.clear();
-        last_call_return_data.take();
-        spec_id.take();
-        *last_journal_len = 0;
+      for node in &mut self.traces.arena {
+        let trace = &mut node.trace;
+        
+        // Move out the steps vec for reuse
+        let mut steps = std::mem::take(&mut trace.steps);
+        steps.clear();
+        self.reusable_step_vecs.push(steps);
+    }
+
+    self.traces.arena.clear();
+    self.trace_stack.clear();
+    self.step_stack.clear();
+    self.last_call_return_data.take();
+    self.spec_id.take();
+    self.last_journal_len = 0;
     }
 
     /// Resets the inspector to it's initial state of [Self::new].
@@ -321,6 +323,8 @@ impl TracingInspector {
             PushTraceKind::PushAndAttachToParent
         };
 
+        let reusable_steps = self.reusable_step_vecs.pop();
+
         self.trace_stack.push(self.traces.push_trace(
             0,
             push_kind,
@@ -334,6 +338,7 @@ impl TracingInspector {
                 caller,
                 maybe_precompile,
                 gas_limit,
+                steps:reusable_steps.unwrap_or_default(),
                 ..Default::default()
             },
         ));
