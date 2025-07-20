@@ -10,7 +10,7 @@ use crate::{
     },
 };
 use alloc::vec::Vec;
-use core::borrow::Borrow;
+use core::{borrow::Borrow, mem};
 use revm::{
     bytecode::opcode::{self, OpCode},
     context::{JournalTr, LocalContextTr},
@@ -107,7 +107,7 @@ impl TracingInspector {
             let trace = &mut node.trace;
 
             // Move out the steps vec for reuse
-            let mut steps = std::mem::take(&mut trace.steps);
+            let mut steps = mem::take(&mut trace.steps);
             steps.clear();
             self.reusable_step_vecs.push(steps);
         }
