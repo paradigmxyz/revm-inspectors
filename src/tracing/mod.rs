@@ -105,14 +105,14 @@ impl TracingInspector {
     pub fn fuse(&mut self) {
         for node in &mut self.traces.arena {
             let trace = &mut node.trace;
-
-            // Move out the steps vec for reuse
+            trace.gas_limit = 0;
+            trace.gas_used = 0;
+            // Move out and store the reusable steps vec
             let mut steps = mem::take(&mut trace.steps);
             steps.clear();
             self.reusable_step_vecs.push(steps);
         }
 
-        self.traces.arena.clear();
         self.trace_stack.clear();
         self.step_stack.clear();
         self.last_call_return_data.take();
