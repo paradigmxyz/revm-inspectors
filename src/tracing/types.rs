@@ -96,7 +96,7 @@ pub struct CallTrace {
     /// Opcode-level execution steps.
     pub steps: Vec<CallTraceStep>,
     /// Optional complementary decoded call data.
-    pub decoded: DecodedCallTrace,
+    pub decoded: Option<Box<DecodedCallTrace>>,
 }
 
 impl CallTrace {
@@ -155,7 +155,7 @@ pub struct CallLog {
     /// The raw log data.
     pub raw_log: LogData,
     /// Optional complementary decoded log data.
-    pub decoded: DecodedCallLog,
+    pub decoded: Option<Box<DecodedCallLog>>,
     /// The position of the log relative to subcalls within the same trace.
     pub position: u64,
 }
@@ -166,7 +166,7 @@ impl From<Log> for CallLog {
         Self {
             position: Default::default(),
             raw_log: log.data,
-            decoded: DecodedCallLog { name: None, params: None },
+            decoded: Some(Box::new(DecodedCallLog { name: None, params: None })),
         }
     }
 }
@@ -637,7 +637,7 @@ pub struct CallTraceStep {
     /// Immediate bytes of the step
     pub immediate_bytes: Option<Bytes>,
     /// Optional complementary decoded step data.
-    pub decoded: Option<DecodedTraceStep>,
+    pub decoded: Option<Box<DecodedTraceStep>>,
 }
 
 // === impl CallTraceStep ===
