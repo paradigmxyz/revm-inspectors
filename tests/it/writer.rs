@@ -106,19 +106,11 @@ fn deploy_fail() {
 
     let node = &mut evm.inspector().traces_mut().nodes_mut()[0];
 
-      node.trace
-    .decoded
-    .get_or_insert_with(Default::default)
-    .label = Some("RevertingConstructor".to_string());
+    node.trace.decoded.get_or_insert_with(Default::default).label =
+        Some("RevertingConstructor".to_string());
 
-node.trace
-    .decoded
-    .get_or_insert_with(Default::default)
-    .return_data = Some("42".to_string());
+    node.trace.decoded.get_or_insert_with(Default::default).return_data = Some("42".to_string());
 
-
-       
-    
     assert_traces(base_path, Some("decoded"), None, evm.inspector());
 }
 
