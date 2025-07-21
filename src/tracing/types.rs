@@ -2,6 +2,7 @@
 
 use crate::tracing::{config::TraceStyle, utils, utils::convert_memory};
 use alloc::{
+    borrow::Cow,
     collections::VecDeque,
     format,
     string::{String, ToString},
@@ -652,7 +653,7 @@ impl CallTraceStep {
             error: self.as_error(),
             gas: self.gas_remaining,
             gas_cost: self.gas_cost,
-            op: self.op.to_string(),
+            op: Cow::Borrowed(self.op.as_str()),
             pc: self.pc as u64,
             refund_counter: (self.gas_refund_counter > 0).then_some(self.gas_refund_counter),
             // Filled, if not disabled manually
