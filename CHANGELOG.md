@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.27.1) - 2025-07-21
+
+### Miscellaneous Tasks
+
+- Use hashmap default ([#330](https://github.com/paradigmxyz/revm-inspectors/issues/330))
+
 ## [0.27.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.27.0) - 2025-07-21
 
 ### Bug Fixes
@@ -17,6 +23,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add erc7562 config ([#317](https://github.com/paradigmxyz/revm-inspectors/issues/317))
 - Geth_erc7562_tracers addition ([#316](https://github.com/paradigmxyz/revm-inspectors/issues/316))
 - Use native BigInt with compatibility layer ([#314](https://github.com/paradigmxyz/revm-inspectors/issues/314))
+
+### Miscellaneous Tasks
+
+- Release 0.27.0
 
 ### Performance
 
