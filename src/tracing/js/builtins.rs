@@ -1,6 +1,6 @@
 //! Builtin functions
 
-use alloc::{format, string::ToString, vec::Vec};
+use alloc::{borrow::Cow, format, string::ToString, vec::Vec};
 use alloy_primitives::{hex, map::HashSet, Address, FixedBytes, B256, U256};
 use boa_engine::{
     builtins::{array_buffer::ArrayBuffer, typed_array::TypedArray},
@@ -284,12 +284,22 @@ pub(crate) fn to_hex(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResu
 /// Decodes a hex decoded js-string
 fn hex_decode_js_string(js_string: &JsString) -> JsResult<Vec<u8>> {
     match js_string.to_std_string() {
-        Ok(s) => match hex::decode(s.as_str()) {
-            Ok(data) => Ok(data),
-            Err(err) => Err(JsError::from_native(
-                JsNativeError::error().with_message(format!("invalid hex string {s}: {err}",)),
-            )),
-        },
+        Ok(s) => {
+            // hex decoding strings is pretty relaxed in geth reference implementation, which allows uneven hex values <https://github.com/ethereum/go-ethereum/blob/355228b011ef9a85ebc0f21e7196f892038d49f0/common/bytes.go#L33-L35>
+            // <https://github.com/paradigmxyz/reth/issues/16289>
+            let mut s = Cow::Borrowed(s.strip_prefix("0x").unwrap_or(s.as_str()));
+            if s.as_ref().len() % 2 == 1 {
+                s = Cow::Owned(format!("0{s}"));
+            }
+
+            match hex::decode(s.as_ref()) {
+                Ok(data) => Ok(data),
+                Err(err) => Err(JsError::from_native(
+                    JsNativeError::error()
+                        .with_message(format!("invalid hex string: \"{s}\": {err}",)),
+                )),
+            }
+        }
         Err(err) => Err(JsError::from_native(
             JsNativeError::error()
                 .with_message(format!("invalid utf8 string {js_string:?}: {err}",)),
@@ -426,6 +436,18 @@ mod tests {
         assert_eq!(
             result.to_string(&mut ctx).unwrap().to_std_string().unwrap(),
             "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,222,173,190,239"
+        );
+    }
+
+    #[test]
+    fn test_to_word_digit_string() {
+        let mut ctx = Context::default();
+        let value = JsValue::from(js_string!("1"));
+        let result = to_word(&JsValue::undefined(), &[value], &mut ctx).unwrap();
+        assert_eq!(as_length(&result), 32);
+        assert_eq!(
+            result.to_string(&mut ctx).unwrap().to_std_string().unwrap(),
+            "0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1"
         );
     }
 
