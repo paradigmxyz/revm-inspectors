@@ -383,7 +383,7 @@ impl<'a> GethTraceBuilder<'a> {
 
             let mut accessed_slots = AccessedSlots::default();
             let mut used_opcodes = HashMap::default();
-            let mut contract_size= HashMap::default();
+            let mut contract_size = HashMap::default();
             let mut ext_code_access_info = Vec::new();
             let mut keccak = Vec::new();
             let mut out_of_gas = false;
