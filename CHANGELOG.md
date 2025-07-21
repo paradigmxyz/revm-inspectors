@@ -5,11 +5,39 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.27.0) - 2025-07-21
+
+### Bug Fixes
+
+- Allow single digit hex strings ([#329](https://github.com/paradigmxyz/revm-inspectors/issues/329))
+- [geth_tracer] Keccak input edge cases ([#328](https://github.com/paradigmxyz/revm-inspectors/issues/328))
+
+### Features
+
+- Add erc7562 config ([#317](https://github.com/paradigmxyz/revm-inspectors/issues/317))
+- Geth_erc7562_tracers addition ([#316](https://github.com/paradigmxyz/revm-inspectors/issues/316))
+- Use native BigInt with compatibility layer ([#314](https://github.com/paradigmxyz/revm-inspectors/issues/314))
+
+### Performance
+
+- Allocate some more initial capacity for CallTraceArena ([#323](https://github.com/paradigmxyz/revm-inspectors/issues/323))
+- Optimize push_steps_on_stack to avoid temporary allocation ([#320](https://github.com/paradigmxyz/revm-inspectors/issues/320))
+- Pre alloc struct logs ([#319](https://github.com/paradigmxyz/revm-inspectors/issues/319))
+- Outline edgecov step fn ([#318](https://github.com/paradigmxyz/revm-inspectors/issues/318))
+
+### Testing
+
+- Add top call revert test ([#312](https://github.com/paradigmxyz/revm-inspectors/issues/312))
+
 ## [0.26.5](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.26.5) - 2025-07-03
 
 ### Bug Fixes
 
 - Always record revert ([#311](https://github.com/paradigmxyz/revm-inspectors/issues/311))
+
+### Miscellaneous Tasks
+
+- Release 0.26.5
 
 ## [0.26.4](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.26.4) - 2025-07-03
 
