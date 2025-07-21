@@ -473,7 +473,7 @@ impl<'a> GethTraceBuilder<'a> {
                 }
 
                 // KECCAK preimages from returndata
-                if op == opcode::KECCAK256 {
+                if op == opcode::KECCAK256 && !out_of_gas {
                     if let (Some(stack), Some(memory)) = (&step.stack, &step.memory) {
                         if stack.len() >= 2 {
                             let offset = stack[stack.len() - 1];
@@ -481,10 +481,13 @@ impl<'a> GethTraceBuilder<'a> {
                             if let (Ok(offset), Ok(len)) =
                                 (usize::try_from(offset), usize::try_from(len))
                             {
-                                if offset + len <= memory.0.len() {
-                                    let data = memory.0[offset..offset + len].to_vec();
-                                    keccak.push(Bytes::from(data));
+                                let mut data = vec![0; len];
+                                if offset < memory.0.len() {
+                                    let end = (offset + len).min(memory.0.len());
+                                    let copy_len = end - offset;
+                                    data[..copy_len].copy_from_slice(&memory.0[offset..end]);
                                 }
+                                keccak.push(Bytes::from(data));
                             }
                         }
                     }
