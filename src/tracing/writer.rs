@@ -1,5 +1,3 @@
-use crate::tracing::types::DecodedCallLog;
-
 use super::{
     types::{
         CallKind, CallLog, CallTrace, CallTraceNode, DecodedCallData, DecodedTraceStep,
@@ -267,13 +265,13 @@ impl<W: Write> TraceWriter<W> {
             write!(
                 self.writer,
                 "{trace_kind_style}{CALL}new{trace_kind_style:#} {label}@{address}",
-                label = decoded_label(trace, "<unknown>")
+                label = trace.decoded_label("<unknown>")
             )?;
             if self.config.write_bytecodes {
                 write!(self.writer, "({})", trace.data)?;
             }
         } else {
-            let (func_name, inputs) = match decoded_call_data(trace) {
+            let (func_name, inputs) = match trace.decoded_call_data() {
                 Some(DecodedCallData { signature, args }) => {
                     let name = signature.split('(').next().unwrap();
                     (name.to_string(), args.join(", "))
@@ -292,7 +290,7 @@ impl<W: Write> TraceWriter<W> {
                 self.writer,
                 "{style}{addr}{style:#}::{style}{func_name}{style:#}",
                 style = self.trace_style(trace),
-                addr = decoded_label(trace, address.as_str()),
+                addr = trace.decoded_label(address.as_str()),
             )?;
 
             if !trace.value.is_zero() {
@@ -321,9 +319,9 @@ impl<W: Write> TraceWriter<W> {
         let log_style = self.log_style();
         self.write_branch()?;
 
-        if let Some(name) = &decoded_log(log).name {
+        if let Some(name) = &log.decoded_log().name {
             write!(self.writer, "emit {name}({log_style}")?;
-            if let Some(params) = &decoded_log(log).params {
+            if let Some(params) = &log.decoded_log().params {
                 for (i, (param_name, value)) in params.iter().enumerate() {
                     if i > 0 {
                         self.writer.write_all(b", ")?;
@@ -424,7 +422,7 @@ impl<W: Write> TraceWriter<W> {
             status = trace.status.unwrap_or(InstructionResult::Stop),
         )?;
 
-        if let Some(decoded) = decoded_return_data(trace) {
+        if let Some(decoded) = trace.decoded_return_data() {
             write!(self.writer, " ")?;
             return self.writer.write_all(decoded.as_bytes());
         }
@@ -556,20 +554,4 @@ fn num_or_hex(x: U256) -> String {
     } else {
         B256::from(x).to_string()
     }
-}
-
-fn decoded_label<'a>(trace: &'a CallTrace, fallback: &'a str) -> &'a str {
-    trace.decoded.as_ref().and_then(|d| d.label.as_deref()).unwrap_or(fallback)
-}
-
-fn decoded_call_data(trace: &CallTrace) -> Option<&DecodedCallData> {
-    trace.decoded.as_ref()?.call_data.as_ref()
-}
-
-fn decoded_return_data(trace: &CallTrace) -> Option<&str> {
-    trace.decoded.as_ref()?.return_data.as_deref()
-}
-
-fn decoded_log(log: &CallLog) -> &DecodedCallLog {
-    log.decoded.as_ref().unwrap()
 }

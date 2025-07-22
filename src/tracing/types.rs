@@ -136,6 +136,18 @@ impl CallTrace {
     pub(crate) fn as_error_msg(&self, kind: TraceStyle) -> Option<String> {
         self.status.and_then(|status| utils::fmt_error_msg(status, kind))
     }
+
+    pub(crate) fn decoded_label<'a>(&'a self, fallback: &'a str) -> &'a str {
+        self.decoded.as_ref().and_then(|d| d.label.as_deref()).unwrap_or(fallback)
+    }
+
+    pub(crate) fn decoded_call_data(&self) -> Option<&DecodedCallData> {
+        self.decoded.as_ref()?.call_data.as_ref()
+    }
+
+    pub(crate) fn decoded_return_data(&self) -> Option<&str> {
+        self.decoded.as_ref()?.return_data.as_deref()
+    }
 }
 
 /// Additional decoded data enhancing the [CallLog].
@@ -178,6 +190,10 @@ impl CallLog {
     pub fn with_position(mut self, position: u64) -> Self {
         self.position = position;
         self
+    }
+
+    pub(crate) fn decoded_log(&self) -> &DecodedCallLog {
+        self.decoded.as_ref().unwrap()
     }
 }
 
@@ -713,6 +729,11 @@ impl CallTraceStep {
     #[inline]
     pub(crate) fn as_error(&self) -> Option<String> {
         self.is_error().then(|| format!("{:?}", self.status))
+    }
+
+    /// Returns `DecodedTraceStep` from `CallTraceStep`.
+    pub fn decoded_mut(&mut self) -> &mut DecodedTraceStep {
+        self.decoded.get_or_insert_with(|| Box::new(DecodedTraceStep::Line(String::new())))
     }
 }
 
