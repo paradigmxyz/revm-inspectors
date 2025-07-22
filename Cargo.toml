@@ -36,7 +36,7 @@ alloy-sol-types = { version = "1.2", default-features = false }
 alloy-primitives = { version = "1.2", default-features = false, features = [
     "map",
 ] }
-revm = { version = "27.0.2", default-features = false }
+revm = { git = "https://github.com/bluealloy/revm.git", rev = "2f58cbc3a207c67cc4115c2cf9d6c6938ae6c927", default-features = false }
 
 anstyle = { version = "1.0", optional = true }
 colorchoice = "1.0"
@@ -65,6 +65,3 @@ std = [
 ]
 serde = ["dep:serde", "revm/serde"]
 js-tracer = ["dep:boa_engine", "dep:boa_gc"]
-
-[patch.crates-io]
-#revm = { git = "https://github.com/bluealloy/revm", rev = "e13b609fbbc80f9e5858255e4412db95c0cc6d12" }
