@@ -176,11 +176,7 @@ pub struct CallLog {
 impl From<Log> for CallLog {
     /// Converts a [`Log`] into a [`CallLog`].
     fn from(log: Log) -> Self {
-        Self {
-            position: Default::default(),
-            raw_log: log.data,
-            decoded: Some(Box::new(DecodedCallLog { name: None, params: None })),
-        }
+        Self { position: Default::default(), raw_log: log.data, decoded: None }
     }
 }
 
@@ -193,6 +189,9 @@ impl CallLog {
     }
 
     pub(crate) fn decoded_log(&self) -> &DecodedCallLog {
+        if self.decoded.is_none() {
+            return &DecodedCallLog { name: None, params: None };
+        }
         self.decoded.as_ref().unwrap()
     }
 }

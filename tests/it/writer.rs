@@ -168,17 +168,15 @@ fn patch_traces(patch: usize, t: &mut TracingInspector) {
         for log in node.logs.iter_mut() {
             EVENT_SIGNATURES.iter().for_each(|(name, signature, topics)| {
                 if log.raw_log.topics().first() == Some(signature) {
-                    if let Some(decoded) = log.decoded.as_mut() {
-                        decoded.name = Some(name.to_string());
-                        if log.raw_log.topics().len() > 1 {
-                            decoded.params = Some(
-                                log.raw_log.topics()[1..]
-                                    .iter()
-                                    .zip(topics.iter())
-                                    .map(|(topic, name)| (name.to_string(), topic.to_string()))
-                                    .collect(),
-                            );
-                        }
+                    log.decoded.get_or_insert_with(Default::default).name = Some(name.to_string());
+                    if log.raw_log.topics().len() > 1 {
+                        log.decoded.get_or_insert_with(Default::default).params = Some(
+                            log.raw_log.topics()[1..]
+                                .iter()
+                                .zip(topics.iter())
+                                .map(|(topic, name)| (name.to_string(), topic.to_string()))
+                                .collect(),
+                        );
                     }
                 }
             });
