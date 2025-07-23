@@ -319,9 +319,9 @@ impl<W: Write> TraceWriter<W> {
         let log_style = self.log_style();
         self.write_branch()?;
 
-        if let Some(name) = &log.decoded_log().name {
+        if let Some(name) = log.decoded_name() {
             write!(self.writer, "emit {name}({log_style}")?;
-            if let Some(params) = &log.decoded_log().params {
+            if let Some(params) = log.decoded_params() {
                 for (i, (param_name, value)) in params.iter().enumerate() {
                     if i > 0 {
                         self.writer.write_all(b", ")?;

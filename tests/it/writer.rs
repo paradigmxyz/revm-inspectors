@@ -106,10 +106,9 @@ fn deploy_fail() {
 
     let node = &mut evm.inspector().traces_mut().nodes_mut()[0];
 
-    node.trace.decoded.get_or_insert_with(Default::default).label =
-        Some("RevertingConstructor".to_string());
+    node.trace.decoded().label = Some("RevertingConstructor".to_string());
 
-    node.trace.decoded.get_or_insert_with(Default::default).return_data = Some("42".to_string());
+    node.trace.decoded().return_data = Some("42".to_string());
 
     assert_traces(base_path, Some("decoded"), None, evm.inspector());
 }
@@ -148,7 +147,7 @@ const EVENT_SIGNATURES: &[(&str, B256, &[&str])] = &[
 // The actual decoding logic, including edge case handling, is not implemented here.
 fn patch_traces(patch: usize, t: &mut TracingInspector) {
     for node in t.traces_mut().nodes_mut() {
-        let decoded = node.trace.decoded.get_or_insert_with(Box::default);
+        let decoded = node.trace.decoded.get_or_insert_with(Default::default).as_mut();
         // Inserts decoded `label` into the output, simulating actual decoding.
         LABELS.iter().for_each(|(label, address)| {
             if node.trace.address == *address {
@@ -168,9 +167,9 @@ fn patch_traces(patch: usize, t: &mut TracingInspector) {
         for log in node.logs.iter_mut() {
             EVENT_SIGNATURES.iter().for_each(|(name, signature, topics)| {
                 if log.raw_log.topics().first() == Some(signature) {
-                    log.decoded.get_or_insert_with(Default::default).name = Some(name.to_string());
+                    log.decoded().name = Some(name.to_string());
                     if log.raw_log.topics().len() > 1 {
-                        log.decoded.get_or_insert_with(Default::default).params = Some(
+                        log.decoded().params = Some(
                             log.raw_log.topics()[1..]
                                 .iter()
                                 .zip(topics.iter())

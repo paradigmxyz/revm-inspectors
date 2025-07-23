@@ -137,6 +137,13 @@ impl CallTrace {
         self.status.and_then(|status| utils::fmt_error_msg(status, kind))
     }
 
+    /// Gets the decoded call trace.
+    ///
+    /// Initializes with the default value if not yet set.
+    pub fn decoded(&mut self) -> &mut DecodedCallTrace {
+        self.decoded.get_or_insert_with(Default::default)
+    }
+
     pub(crate) fn decoded_label<'a>(&'a self, fallback: &'a str) -> &'a str {
         self.decoded.as_ref().and_then(|d| d.label.as_deref()).unwrap_or(fallback)
     }
@@ -188,11 +195,19 @@ impl CallLog {
         self
     }
 
-    pub(crate) fn decoded_log(&self) -> &DecodedCallLog {
-        if self.decoded.is_none() {
-            return &DecodedCallLog { name: None, params: None };
-        }
-        self.decoded.as_ref().unwrap()
+    /// Gets the decoded call log.
+    ///
+    /// Initializes with the default value if not yet set.
+    pub fn decoded(&mut self) -> &mut DecodedCallLog {
+        self.decoded.get_or_insert_with(Default::default)
+    }
+
+    pub(crate) fn decoded_name(&self) -> Option<&str> {
+        self.decoded.as_deref()?.name.as_deref()
+    }
+
+    pub(crate) fn decoded_params(&self) -> Option<&[(String, String)]> {
+        self.decoded.as_deref()?.params.as_deref()
     }
 }
 
