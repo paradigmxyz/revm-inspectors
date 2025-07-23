@@ -2,6 +2,7 @@
 
 use crate::tracing::{config::TraceStyle, utils, utils::convert_memory};
 use alloc::{
+    boxed::Box,
     collections::VecDeque,
     format,
     string::{String, ToString},
@@ -96,7 +97,7 @@ pub struct CallTrace {
     /// Opcode-level execution steps.
     pub steps: Vec<CallTraceStep>,
     /// Optional complementary decoded call data.
-    pub decoded: DecodedCallTrace,
+    pub decoded: Option<Box<DecodedCallTrace>>,
 }
 
 impl CallTrace {
@@ -135,6 +136,18 @@ impl CallTrace {
     pub(crate) fn as_error_msg(&self, kind: TraceStyle) -> Option<String> {
         self.status.and_then(|status| utils::fmt_error_msg(status, kind))
     }
+
+    pub(crate) fn decoded_label<'a>(&'a self, fallback: &'a str) -> &'a str {
+        self.decoded.as_ref().and_then(|d| d.label.as_deref()).unwrap_or(fallback)
+    }
+
+    pub(crate) fn decoded_call_data(&self) -> Option<&DecodedCallData> {
+        self.decoded.as_ref()?.call_data.as_ref()
+    }
+
+    pub(crate) fn decoded_return_data(&self) -> Option<&str> {
+        self.decoded.as_ref()?.return_data.as_deref()
+    }
 }
 
 /// Additional decoded data enhancing the [CallLog].
@@ -155,7 +168,7 @@ pub struct CallLog {
     /// The raw log data.
     pub raw_log: LogData,
     /// Optional complementary decoded log data.
-    pub decoded: DecodedCallLog,
+    pub decoded: Option<Box<DecodedCallLog>>,
     /// The position of the log relative to subcalls within the same trace.
     pub position: u64,
 }
@@ -163,11 +176,7 @@ pub struct CallLog {
 impl From<Log> for CallLog {
     /// Converts a [`Log`] into a [`CallLog`].
     fn from(log: Log) -> Self {
-        Self {
-            position: Default::default(),
-            raw_log: log.data,
-            decoded: DecodedCallLog { name: None, params: None },
-        }
+        Self { position: Default::default(), raw_log: log.data, decoded: None }
     }
 }
 
@@ -177,6 +186,13 @@ impl CallLog {
     pub fn with_position(mut self, position: u64) -> Self {
         self.position = position;
         self
+    }
+
+    pub(crate) fn decoded_log(&self) -> &DecodedCallLog {
+        if self.decoded.is_none() {
+            return &DecodedCallLog { name: None, params: None };
+        }
+        self.decoded.as_ref().unwrap()
     }
 }
 
@@ -637,7 +653,7 @@ pub struct CallTraceStep {
     /// Immediate bytes of the step
     pub immediate_bytes: Option<Bytes>,
     /// Optional complementary decoded step data.
-    pub decoded: Option<DecodedTraceStep>,
+    pub decoded: Option<Box<DecodedTraceStep>>,
 }
 
 // === impl CallTraceStep ===
@@ -712,6 +728,11 @@ impl CallTraceStep {
     #[inline]
     pub(crate) fn as_error(&self) -> Option<String> {
         self.is_error().then(|| format!("{:?}", self.status))
+    }
+
+    /// Returns `DecodedTraceStep` from `CallTraceStep`.
+    pub fn decoded_mut(&mut self) -> &mut DecodedTraceStep {
+        self.decoded.get_or_insert_with(|| Box::new(DecodedTraceStep::Line(String::new())))
     }
 }
 
