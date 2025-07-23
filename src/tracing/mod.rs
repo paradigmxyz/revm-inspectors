@@ -10,7 +10,7 @@ use crate::{
     },
 };
 use alloc::vec::Vec;
-use core::borrow::Borrow;
+use core::{borrow::Borrow, mem};
 use revm::{
     bytecode::opcode::{self, OpCode},
     context::{JournalTr, LocalContextTr},
@@ -85,6 +85,8 @@ pub struct TracingInspector {
     ///
     /// This is filled during execution.
     spec_id: Option<SpecId>,
+    /// Pool of reusable step vectors to reduce allocations
+    reusable_step_vecs: Vec<Vec<CallTraceStep>>,
 }
 
 // === impl TracingInspector ===
@@ -110,8 +112,19 @@ impl TracingInspector {
             spec_id,
             // kept
             config: _,
+            reusable_step_vecs: _,
         } = self;
-        traces.clear();
+
+        for node in &mut traces.arena {
+            let trace = &mut node.trace;
+            trace.gas_limit = 0;
+            trace.gas_used = 0;
+            // Move out and store the reusable steps vec
+            let mut steps = mem::take(&mut trace.steps);
+            steps.clear();
+            self.reusable_step_vecs.push(steps);
+        }
+
         trace_stack.clear();
         step_stack.clear();
         last_call_return_data.take();
@@ -321,6 +334,8 @@ impl TracingInspector {
             PushTraceKind::PushAndAttachToParent
         };
 
+        let reusable_steps = self.reusable_step_vecs.pop().unwrap_or_default();
+
         self.trace_stack.push(self.traces.push_trace(
             0,
             push_kind,
@@ -334,6 +349,7 @@ impl TracingInspector {
                 caller,
                 maybe_precompile,
                 gas_limit,
+                steps: reusable_steps,
                 ..Default::default()
             },
         ));
