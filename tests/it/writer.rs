@@ -105,8 +105,10 @@ fn deploy_fail() {
     assert_traces(base_path, Some("raw"), None, evm.inspector());
 
     let node = &mut evm.inspector().traces_mut().nodes_mut()[0];
-    node.trace.decoded.label = Some("RevertingConstructor".to_string());
-    node.trace.decoded.return_data = Some("42".to_string());
+
+    node.trace.decoded().label = Some("RevertingConstructor".to_string());
+
+    node.trace.decoded().return_data = Some("42".to_string());
 
     assert_traces(base_path, Some("decoded"), None, evm.inspector());
 }
@@ -145,17 +147,18 @@ const EVENT_SIGNATURES: &[(&str, B256, &[&str])] = &[
 // The actual decoding logic, including edge case handling, is not implemented here.
 fn patch_traces(patch: usize, t: &mut TracingInspector) {
     for node in t.traces_mut().nodes_mut() {
+        let decoded = node.trace.decoded.get_or_insert_with(Default::default).as_mut();
         // Inserts decoded `label` into the output, simulating actual decoding.
         LABELS.iter().for_each(|(label, address)| {
             if node.trace.address == *address {
-                node.trace.decoded.label = Some(label.to_string());
+                decoded.label = Some(label.to_string());
             }
         });
 
         // Inserts decoded `call_data` into the output, simulating actual decoding.
         FUNCTION_SELECTORS.iter().for_each(|(name, selector)| {
             if node.trace.data.starts_with(selector) {
-                node.trace.decoded.call_data =
+                decoded.call_data =
                     Some(DecodedCallData { signature: name.to_string(), args: vec![] });
             }
         });
@@ -164,10 +167,9 @@ fn patch_traces(patch: usize, t: &mut TracingInspector) {
         for log in node.logs.iter_mut() {
             EVENT_SIGNATURES.iter().for_each(|(name, signature, topics)| {
                 if log.raw_log.topics().first() == Some(signature) {
-                    log.decoded.name = Some(name.to_string());
-
+                    log.decoded().name = Some(name.to_string());
                     if log.raw_log.topics().len() > 1 {
-                        log.decoded.params = Some(
+                        log.decoded().params = Some(
                             log.raw_log.topics()[1..]
                                 .iter()
                                 .zip(topics.iter())
@@ -181,44 +183,45 @@ fn patch_traces(patch: usize, t: &mut TracingInspector) {
 
         // Custom patches for specific traces.
         match patch {
-            1 => node.trace.decoded.return_data = Some("0".to_string()),
-            3 => node.trace.decoded.return_data = Some("1".to_string()),
+            1 => decoded.return_data = Some("0".to_string()),
+            3 => decoded.return_data = Some("1".to_string()),
             4 => {
-                node.trace.decoded.call_data = Some(DecodedCallData {
+                decoded.call_data = Some(DecodedCallData {
                     signature: "setNumber".to_string(),
                     args: vec!["69".to_string()],
                 });
-                node.trace.decoded.return_data = Some("1".to_string())
+                decoded.return_data = Some("1".to_string())
             }
-            5 => node.trace.decoded.return_data = Some("69".to_string()),
+            5 => decoded.return_data = Some("69".to_string()),
             6 => {
-                node.trace.steps[0].decoded = Some(DecodedTraceStep::Line(
+                node.trace.steps[0].decoded = Some(Box::new(DecodedTraceStep::Line(
                     "[sload] 0x0000000000000000000000000000000000000000000000000000000000000045"
                         .to_string(),
-                ));
+                )));
             }
             7 if node.trace.depth == 2 => {
-                node.trace.steps[30].decoded = Some(DecodedTraceStep::InternalCall(
+                node.trace.steps[30].decoded = Some(Box::new(DecodedTraceStep::InternalCall(
                     DecodedInternalCall {
                         func_name: "Counter::_nest3Internal".to_string(),
                         args: Some(vec!["arg1".to_string(), "arg2".to_string(), "3".to_string()]),
                         return_data: Some(vec!["ret1".to_string()]),
                     },
                     89,
-                ));
-                node.trace.steps[87].decoded = Some(DecodedTraceStep::Line("[mstore]".to_string()));
+                )));
+                node.trace.steps[87].decoded =
+                    Some(Box::new(DecodedTraceStep::Line("[mstore]".to_string())));
                 node.trace.steps[90].decoded =
-                    Some(DecodedTraceStep::Line("[before_return]".to_string()));
+                    Some(Box::new(DecodedTraceStep::Line("[before_return]".to_string())));
             }
             7 if node.trace.depth == 0 => {
-                node.trace.steps[10].decoded = Some(DecodedTraceStep::InternalCall(
+                node.trace.steps[10].decoded = Some(Box::new(DecodedTraceStep::InternalCall(
                     DecodedInternalCall {
                         func_name: "Counter::_nest1".to_string(),
                         args: Some(vec![]),
                         return_data: Some(vec!["ret1".to_string(), "ret2".to_string()]),
                     },
                     150,
-                ));
+                )));
             }
             _ => continue,
         }
