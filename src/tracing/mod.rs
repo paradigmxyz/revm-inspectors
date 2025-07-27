@@ -85,7 +85,9 @@ pub struct TracingInspector {
     ///
     /// This is filled during execution.
     spec_id: Option<SpecId>,
-    /// Pool of reusable step vectors to reduce allocations
+    /// Pool of reusable _empty_ step vectors to reduce allocations.
+    ///
+    /// All `Vec<CallTraceStep>` are always empty but may have capacity.
     reusable_step_vecs: Vec<Vec<CallTraceStep>>,
 }
 
@@ -111,20 +113,22 @@ impl TracingInspector {
             last_journal_len,
             spec_id,
             // kept
-            config: _,
-            reusable_step_vecs: _,
+            config,
+            reusable_step_vecs,
         } = self;
 
-        for node in &mut traces.arena {
-            let trace = &mut node.trace;
-            trace.gas_limit = 0;
-            trace.gas_used = 0;
-            // Move out and store the reusable steps vec
-            let mut steps = mem::take(&mut trace.steps);
-            steps.clear();
-            self.reusable_step_vecs.push(steps);
+        // if we record steps we can reuse the individual calltracestep vecs
+        if config.record_steps {
+            for node in &mut traces.arena {
+                // move out and store the reusable steps vec
+                let mut steps = mem::take(&mut node.trace.steps);
+                // ensure steps are cleared
+                steps.clear();
+                reusable_step_vecs.push(steps);
+            }
         }
 
+        traces.clear();
         trace_stack.clear();
         step_stack.clear();
         last_call_return_data.take();
@@ -334,7 +338,8 @@ impl TracingInspector {
             PushTraceKind::PushAndAttachToParent
         };
 
-        let reusable_steps = self.reusable_step_vecs.pop().unwrap_or_default();
+        // find an empty steps vec or create a new one
+        let steps = self.reusable_step_vecs.pop().unwrap_or_default();
 
         self.trace_stack.push(self.traces.push_trace(
             0,
@@ -349,7 +354,7 @@ impl TracingInspector {
                 caller,
                 maybe_precompile,
                 gas_limit,
-                steps: reusable_steps,
+                steps,
                 ..Default::default()
             },
         ));
