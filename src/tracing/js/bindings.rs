@@ -403,7 +403,7 @@ impl OpObj {
                 // We always want an OpCode, even it is unknown because it could be an additional
                 // opcode that not a known constant.
                 let op = unsafe { OpCode::new_unchecked(value) };
-                let s = op.to_string();
+                let s = op.as_str();
                 Ok(JsValue::from(js_string!(s)))
             }),
         )
