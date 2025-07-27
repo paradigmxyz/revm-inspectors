@@ -10,7 +10,7 @@ use crate::{
     },
 };
 use alloc::vec::Vec;
-use core::borrow::Borrow;
+use core::{borrow::Borrow, mem};
 use revm::{
     bytecode::opcode::{self, OpCode},
     context::{JournalTr, LocalContextTr},
@@ -85,6 +85,10 @@ pub struct TracingInspector {
     ///
     /// This is filled during execution.
     spec_id: Option<SpecId>,
+    /// Pool of reusable _empty_ step vectors to reduce allocations.
+    ///
+    /// All `Vec<CallTraceStep>` are always empty but may have capacity.
+    reusable_step_vecs: Vec<Vec<CallTraceStep>>,
 }
 
 // === impl TracingInspector ===
@@ -109,8 +113,21 @@ impl TracingInspector {
             last_journal_len,
             spec_id,
             // kept
-            config: _,
+            config,
+            reusable_step_vecs,
         } = self;
+
+        // if we record steps we can reuse the individual calltracestep vecs
+        if config.record_steps {
+            for node in &mut traces.arena {
+                // move out and store the reusable steps vec
+                let mut steps = mem::take(&mut node.trace.steps);
+                // ensure steps are cleared
+                steps.clear();
+                reusable_step_vecs.push(steps);
+            }
+        }
+
         traces.clear();
         trace_stack.clear();
         step_stack.clear();
@@ -321,6 +338,9 @@ impl TracingInspector {
             PushTraceKind::PushAndAttachToParent
         };
 
+        // find an empty steps vec or create a new one
+        let steps = self.reusable_step_vecs.pop().unwrap_or_default();
+
         self.trace_stack.push(self.traces.push_trace(
             0,
             push_kind,
@@ -334,6 +354,7 @@ impl TracingInspector {
                 caller,
                 maybe_precompile,
                 gas_limit,
+                steps,
                 ..Default::default()
             },
         ));
