@@ -578,7 +578,7 @@ where
         if self.config.record_logs {
             let trace = self.last_trace();
             trace.ordering.push(TraceMemberOrder::Log(trace.logs.len()));
-            trace.logs.push(CallLog::from(log.clone()).with_position(trace.children.len() as u64));
+            trace.logs.push(CallLog::from(log).with_position(trace.children.len() as u64));
         }
     }
 
