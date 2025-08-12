@@ -5,10 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.28.0) - 2025-08-12
+
+### Dependencies
+
+- [deps] Bump revm 28.0.0, msrv 1.88 required for revm ([#334](https://github.com/paradigmxyz/revm-inspectors/issues/334))
+
+### Features
+
+- Reused call trace stack ([#325](https://github.com/paradigmxyz/revm-inspectors/issues/325))
+- Boxed the decoded field ([#326](https://github.com/paradigmxyz/revm-inspectors/issues/326))
+- Updated msrv to 1.86.0 ([#331](https://github.com/paradigmxyz/revm-inspectors/issues/331))
+
+### Miscellaneous Tasks
+
+- Rm log clone ([#333](https://github.com/paradigmxyz/revm-inspectors/issues/333))
+- Decoded cleanups
+
 ## [0.27.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.27.1) - 2025-07-21
 
 ### Miscellaneous Tasks
 
+- Release 0.27.1
 - Use hashmap default ([#330](https://github.com/paradigmxyz/revm-inspectors/issues/330))
 
 ## [0.27.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.27.0) - 2025-07-21
