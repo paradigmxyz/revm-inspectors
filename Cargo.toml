@@ -52,6 +52,7 @@ boa_gc = { version = "0.20", optional = true }
 
 [dev-dependencies]
 snapbox = { version = "0.6", features = ["term-svg"] }
+criterion = "0.5"
 
 [features]
 default = ["std"]
@@ -65,6 +66,16 @@ std = [
 ]
 serde = ["dep:serde", "revm/serde"]
 js-tracer = ["dep:boa_engine", "dep:boa_gc"]
+
+[[bench]]
+name = "js_tracer"
+harness = false
+required-features = ["js-tracer"]
+
+[[bench]]
+name = "js_tracer_profile"
+harness = false
+required-features = ["js-tracer"]
 
 [patch.crates-io]
 #revm = { git = "https://github.com/bluealloy/revm", rev = "e13b609fbbc80f9e5858255e4412db95c0cc6d12" }
