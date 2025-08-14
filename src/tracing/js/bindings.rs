@@ -183,9 +183,86 @@ pub(crate) struct StepLog {
 }
 
 impl StepLog {
+    /// Creates a reusable JS object template that can be updated with new step data
+    ///
+    /// Caution: this expects a global property `bigint` to be present.
+    pub(crate) fn create_js_object_template(ctx: &mut Context) -> JsResult<JsObject> {
+        let obj = JsObject::default();
+
+        // Create placeholder methods for fields that will be updated
+        let placeholder_u64 = 0u64;
+        let placeholder_error = JsValue::undefined();
+        
+        let get_pc = js_value_getter!(placeholder_u64, ctx);
+        let get_gas = js_value_getter!(placeholder_u64, ctx);
+        let get_cost = js_value_getter!(placeholder_u64, ctx);
+        let get_refund = js_value_getter!(placeholder_u64, ctx);
+        let get_depth = js_value_getter!(placeholder_u64, ctx);
+        let get_error = js_value_capture_getter!(placeholder_error, ctx);
+
+        obj.set(js_string!("getPC"), get_pc, false, ctx)?;
+        obj.set(js_string!("getError"), get_error, false, ctx)?;
+        obj.set(js_string!("getGas"), get_gas, false, ctx)?;
+        obj.set(js_string!("getCost"), get_cost, false, ctx)?;
+        obj.set(js_string!("getDepth"), get_depth, false, ctx)?;
+        obj.set(js_string!("getRefund"), get_refund, false, ctx)?;
+
+        // Create placeholder nested objects that will be updated
+        obj.set(js_string!("op"), JsObject::default(), false, ctx)?;
+        obj.set(js_string!("memory"), JsObject::default(), false, ctx)?;
+        obj.set(js_string!("stack"), JsObject::default(), false, ctx)?;
+        obj.set(js_string!("contract"), JsObject::default(), false, ctx)?;
+
+        Ok(obj)
+    }
+
+    /// Updates an existing JS object with new step data
+    pub(crate) fn update_js_object(&self, obj: &JsObject, ctx: &mut Context) -> JsResult<()> {
+        // Update primitive field getters
+        let pc = self.pc;
+        let gas_remaining = self.gas_remaining;
+        let cost = self.cost;
+        let refund = self.refund;
+        let depth = self.depth;
+        
+        let get_pc = js_value_getter!(pc, ctx);
+        let get_gas = js_value_getter!(gas_remaining, ctx);
+        let get_cost = js_value_getter!(cost, ctx);
+        let get_refund = js_value_getter!(refund, ctx);
+        let get_depth = js_value_getter!(depth, ctx);
+        
+        let error = if let Some(ref error) = self.error {
+            JsValue::from(js_string!(error.clone()))
+        } else {
+            JsValue::undefined()
+        };
+        let get_error = js_value_capture_getter!(error, ctx);
+
+        obj.set(js_string!("getPC"), get_pc, false, ctx)?;
+        obj.set(js_string!("getError"), get_error, false, ctx)?;
+        obj.set(js_string!("getGas"), get_gas, false, ctx)?;
+        obj.set(js_string!("getCost"), get_cost, false, ctx)?;
+        obj.set(js_string!("getDepth"), get_depth, false, ctx)?;
+        obj.set(js_string!("getRefund"), get_refund, false, ctx)?;
+
+        // Update nested objects - these still need to be recreated as they contain references
+        let op = self.op.into_js_object(ctx)?;
+        let memory = self.memory.clone().into_js_object(ctx)?;
+        let stack = self.stack.clone().into_js_object(ctx)?;
+        let contract = self.contract.clone().into_js_object(ctx)?;
+
+        obj.set(js_string!("op"), op, false, ctx)?;
+        obj.set(js_string!("memory"), memory, false, ctx)?;
+        obj.set(js_string!("stack"), stack, false, ctx)?;
+        obj.set(js_string!("contract"), contract, false, ctx)?;
+
+        Ok(())
+    }
+
     /// Converts the contract object into a js object
     ///
     /// Caution: this expects a global property `bigint` to be present.
+    #[allow(dead_code)]
     pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
         let Self {
             stack,
@@ -374,7 +451,7 @@ unsafe impl<DB: 'static> Trace for GcDb<DB> {
 }
 
 /// Represents the opcode object
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub(crate) struct OpObj(pub(crate) u8);
 
 impl OpObj {
@@ -424,7 +501,7 @@ impl From<u8> for OpObj {
 }
 
 /// Represents the stack object
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct StackRef(GuardedNullableGc<Stack>);
 
 impl StackRef {
@@ -568,6 +645,53 @@ pub(crate) struct FrameResult {
 }
 
 impl FrameResult {
+    /// Creates a reusable JS object template for frame results
+    pub(crate) fn create_js_object_template(ctx: &mut Context) -> JsResult<JsObject> {
+        let obj = JsObject::default();
+        
+        // Create placeholder functions
+        let default_gas_used = 0u64;
+        let default_output = JsValue::from(JsUint8Array::from_iter(core::iter::empty(), ctx)?);
+        let default_error = JsValue::undefined();
+        
+        let get_gas_used = js_value_getter!(default_gas_used, ctx);
+        let get_output = js_value_capture_getter!(default_output, ctx);
+        let get_error = js_value_capture_getter!(default_error, ctx);
+        
+        obj.set(js_string!("getGasUsed"), get_gas_used, false, ctx)?;
+        obj.set(js_string!("getOutput"), get_output, false, ctx)?;
+        obj.set(js_string!("getError"), get_error, false, ctx)?;
+        
+        Ok(obj)
+    }
+    
+    /// Updates an existing JS object with new frame result data
+    pub(crate) fn update_js_object(&self, obj: &JsObject, ctx: &mut Context) -> JsResult<()> {
+        let gas_used = self.gas_used;
+        let get_gas_used = js_value_getter!(gas_used, ctx);
+        
+        let output = to_uint8_array_value(self.output.clone(), ctx)?;
+        let get_output = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                move |_this, _args, output, _ctx| Ok(output.clone()),
+                output,
+            ),
+        )
+        .length(0)
+        .build();
+        
+        let error = self.error.as_ref().map(|err| JsValue::from(js_string!(err.clone()))).unwrap_or_default();
+        let get_error = js_value_capture_getter!(error, ctx);
+        
+        obj.set(js_string!("getGasUsed"), get_gas_used, false, ctx)?;
+        obj.set(js_string!("getOutput"), get_output, false, ctx)?;
+        obj.set(js_string!("getError"), get_error, false, ctx)?;
+        
+        Ok(())
+    }
+
+    #[allow(dead_code)]
     pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
         let Self { gas_used, output, error } = self;
         let obj = JsObject::default();
@@ -603,6 +727,114 @@ pub(crate) struct CallFrame {
 }
 
 impl CallFrame {
+    /// Creates a reusable JS object template for call frames
+    pub(crate) fn create_js_object_template(ctx: &mut Context) -> JsResult<JsObject> {
+        let obj = JsObject::default();
+        
+        // Create placeholder functions with default values
+        let default_address = Address::ZERO;
+        let default_u256 = U256::ZERO;
+        let default_u64 = 0u64;
+        let default_input = JsValue::from(JsUint8Array::from_iter(core::iter::empty(), ctx)?);
+        let default_type = js_string!("CALL");
+        
+        let get_from = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure(move |_this, _args, ctx| {
+                address_to_uint8_array_value(default_address, ctx)
+            }),
+        )
+        .length(0)
+        .build();
+        
+        let get_to = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure(move |_this, _args, ctx| {
+                address_to_uint8_array_value(default_address, ctx)
+            }),
+        )
+        .length(0)
+        .build();
+        
+        let get_value = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure(move |_this, _args, ctx| to_bigint(default_u256, ctx)),
+        )
+        .length(0)
+        .build();
+        
+        let get_input = js_value_capture_getter!(default_input, ctx);
+        let get_gas = js_value_getter!(default_u64, ctx);
+        let get_type = js_value_capture_getter!(default_type, ctx);
+        
+        obj.set(js_string!("getFrom"), get_from, false, ctx)?;
+        obj.set(js_string!("getTo"), get_to, false, ctx)?;
+        obj.set(js_string!("getValue"), get_value, false, ctx)?;
+        obj.set(js_string!("getInput"), get_input, false, ctx)?;
+        obj.set(js_string!("getGas"), get_gas, false, ctx)?;
+        obj.set(js_string!("getType"), get_type, false, ctx)?;
+        
+        Ok(obj)
+    }
+    
+    /// Updates an existing JS object with new call frame data
+    pub(crate) fn update_js_object(&self, obj: &JsObject, ctx: &mut Context) -> JsResult<()> {
+        let caller = self.contract.caller;
+        let contract = self.contract.contract;
+        let value = self.contract.value;
+        let gas = self.gas;
+        
+        let get_from = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure(move |_this, _args, ctx| {
+                address_to_uint8_array_value(caller, ctx)
+            }),
+        )
+        .length(0)
+        .build();
+        
+        let get_to = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure(move |_this, _args, ctx| {
+                address_to_uint8_array_value(contract, ctx)
+            }),
+        )
+        .length(0)
+        .build();
+        
+        let get_value = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure(move |_this, _args, ctx| to_bigint(value, ctx)),
+        )
+        .length(0)
+        .build();
+        
+        let input = to_uint8_array_value(self.contract.input.clone(), ctx)?;
+        let get_input = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                move |_this, _args, input, _ctx| Ok(input.clone()),
+                input,
+            ),
+        )
+        .length(0)
+        .build();
+        
+        let get_gas = js_value_getter!(gas, ctx);
+        let ty = js_string!(self.kind.to_string());
+        let get_type = js_value_capture_getter!(ty, ctx);
+        
+        obj.set(js_string!("getFrom"), get_from, false, ctx)?;
+        obj.set(js_string!("getTo"), get_to, false, ctx)?;
+        obj.set(js_string!("getValue"), get_value, false, ctx)?;
+        obj.set(js_string!("getInput"), get_input, false, ctx)?;
+        obj.set(js_string!("getGas"), get_gas, false, ctx)?;
+        obj.set(js_string!("getType"), get_type, false, ctx)?;
+        
+        Ok(())
+    }
+
+    #[allow(dead_code)]
     pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
         let Self { contract: Contract { caller, contract, value, input }, kind, gas } = self;
         let obj = JsObject::default();
@@ -844,6 +1076,149 @@ impl EvmDbRef {
         to_uint8_array(B256::from(value), ctx)
     }
 
+    /// Creates a reusable JS object template for database references
+    pub(crate) fn create_js_object_template(ctx: &mut Context) -> JsResult<JsObject> {
+        let obj = JsObject::default();
+        
+        // Create placeholder functions that will be updated with actual captures
+        let default_bool = false;
+        let default_u64 = 0u64;
+        let default_u256 = U256::ZERO;
+        let default_b256 = B256::ZERO;
+        
+        let exists = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure(move |_this, _args, _ctx| Ok(JsValue::from(default_bool))),
+        )
+        .length(1)
+        .build();
+
+        let get_balance = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure(move |_this, _args, ctx| to_bigint(default_u256, ctx)),
+        )
+        .length(1)
+        .build();
+
+        let get_nonce = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure(move |_this, _args, _ctx| Ok(JsValue::from(default_u64))),
+        )
+        .length(1)
+        .build();
+
+        let get_code = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure(move |_this, _args, ctx| {
+                to_uint8_array(Vec::<u8>::new(), ctx).map(|arr| arr.into())
+            }),
+        )
+        .length(1)
+        .build();
+
+        let get_state = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure(move |_this, _args, ctx| {
+                to_uint8_array(default_b256, ctx).map(|arr| arr.into())
+            }),
+        )
+        .length(2)
+        .build();
+
+        obj.set(js_string!("getBalance"), get_balance, false, ctx)?;
+        obj.set(js_string!("getNonce"), get_nonce, false, ctx)?;
+        obj.set(js_string!("getCode"), get_code, false, ctx)?;
+        obj.set(js_string!("getState"), get_state, false, ctx)?;
+        obj.set(js_string!("exists"), exists, false, ctx)?;
+        
+        Ok(obj)
+    }
+
+    /// Updates an existing JS object with new database reference
+    pub(crate) fn update_js_object(&self, obj: &JsObject, ctx: &mut Context) -> JsResult<()> {
+        // Update the function closures with the new database reference
+        let exists = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                move |_this, args, db, ctx| {
+                    let val = args.get_or_undefined(0).clone();
+                    let acc = db.read_basic(val, ctx)?;
+                    let exists = acc.is_some();
+                    Ok(JsValue::from(exists))
+                },
+                self.clone(),
+            ),
+        )
+        .length(1)
+        .build();
+
+        let get_balance = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                move |_this, args, db, ctx| {
+                    let val = args.get_or_undefined(0).clone();
+                    let acc = db.read_basic(val, ctx)?;
+                    let balance = acc.map(|acc| acc.balance).unwrap_or_default();
+                    to_bigint(balance, ctx)
+                },
+                self.clone(),
+            ),
+        )
+        .length(1)
+        .build();
+
+        let get_nonce = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                move |_this, args, db, ctx| {
+                    let val = args.get_or_undefined(0).clone();
+                    let acc = db.read_basic(val, ctx)?;
+                    let nonce = acc.map(|acc| acc.nonce).unwrap_or_default();
+                    Ok(JsValue::from(nonce))
+                },
+                self.clone(),
+            ),
+        )
+        .length(1)
+        .build();
+
+        let get_code = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                move |_this, args, db, ctx| {
+                    let val = args.get_or_undefined(0).clone();
+                    Ok(db.read_code(val, ctx)?.into())
+                },
+                self.clone(),
+            ),
+        )
+        .length(1)
+        .build();
+
+        let get_state = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                move |_this, args, db, ctx| {
+                    let addr = args.get_or_undefined(0).clone();
+                    let slot = args.get_or_undefined(1).clone();
+                    Ok(db.read_state(addr, slot, ctx)?.into())
+                },
+                self.clone(),
+            ),
+        )
+        .length(2)
+        .build();
+
+        obj.set(js_string!("getBalance"), get_balance, false, ctx)?;
+        obj.set(js_string!("getNonce"), get_nonce, false, ctx)?;
+        obj.set(js_string!("getCode"), get_code, false, ctx)?;
+        obj.set(js_string!("getState"), get_state, false, ctx)?;
+        obj.set(js_string!("exists"), exists, false, ctx)?;
+
+        Ok(())
+    }
+
+    #[allow(dead_code)]
     pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
         let obj = JsObject::default();
         let exists = FunctionObjectBuilder::new(
@@ -1303,5 +1678,476 @@ mod tests {
         let res = result_fn.call(&eval, &[], &mut context).unwrap();
         let val = json_stringify(res.clone(), &mut context).unwrap().to_std_string().unwrap();
         assert_eq!(val, r#"["0000000000000000000000000000000000000000:88b8;88b8"]"#);
+    }
+
+    #[test]
+    fn test_step_log_template_creation() {
+        let mut context = Context::default();
+        register_builtins(&mut context).unwrap();
+
+        // Test that template creation works
+        let template = StepLog::create_js_object_template(&mut context).unwrap();
+        
+        // Verify all expected properties exist
+        assert!(template.get(js_string!("getPC"), &mut context).unwrap().is_callable());
+        assert!(template.get(js_string!("getGas"), &mut context).unwrap().is_callable());
+        assert!(template.get(js_string!("getCost"), &mut context).unwrap().is_callable());
+        assert!(template.get(js_string!("getDepth"), &mut context).unwrap().is_callable());
+        assert!(template.get(js_string!("getRefund"), &mut context).unwrap().is_callable());
+        assert!(template.get(js_string!("getError"), &mut context).unwrap().is_callable());
+        
+        // Verify nested objects exist
+        assert!(template.get(js_string!("op"), &mut context).unwrap().is_object());
+        assert!(template.get(js_string!("memory"), &mut context).unwrap().is_object());
+        assert!(template.get(js_string!("stack"), &mut context).unwrap().is_object());
+        assert!(template.get(js_string!("contract"), &mut context).unwrap().is_object());
+
+        // Test that template returns default values
+        let get_pc = template.get(js_string!("getPC"), &mut context).unwrap();
+        let pc_result = get_pc.as_callable().unwrap().call(&template.clone().into(), &[], &mut context).unwrap();
+        assert_eq!(pc_result.to_number(&mut context).unwrap(), 0.0);
+    }
+
+    #[test]
+    fn test_step_log_update_object() {
+        let mut context = Context::default();
+        register_builtins(&mut context).unwrap();
+
+        // Create template
+        let template = StepLog::create_js_object_template(&mut context).unwrap();
+        
+        // Create step log with test data
+        let mut stack = Stack::new();
+        let _ = stack.push(U256::from(42));
+        let (stack_ref, _stack_guard) = StackRef::new(&stack);
+        let mem = SharedMemory::new();
+        let (mem_ref, _mem_guard) = MemoryRef::new(&mem);
+
+        let step = StepLog {
+            stack: stack_ref,
+            op: OpObj(0x01), // ADD opcode
+            memory: mem_ref,
+            pc: 123,
+            gas_remaining: 5000,
+            cost: 3,
+            depth: 2,
+            refund: 0,
+            error: Some("test error".to_string()),
+            contract: Contract {
+                caller: Address::from([1u8; 20]),
+                contract: Address::from([2u8; 20]),
+                value: U256::from(1000),
+                input: vec![0x12, 0x34].into(),
+            },
+        };
+
+        // Update the template with step data
+        step.update_js_object(&template, &mut context).unwrap();
+
+        // Verify the values were updated
+        let get_pc = template.get(js_string!("getPC"), &mut context).unwrap();
+        let pc_result = get_pc.as_callable().unwrap().call(&template.clone().into(), &[], &mut context).unwrap();
+        assert_eq!(pc_result.to_number(&mut context).unwrap(), 123.0);
+
+        let get_gas = template.get(js_string!("getGas"), &mut context).unwrap();
+        let gas_result = get_gas.as_callable().unwrap().call(&template.clone().into(), &[], &mut context).unwrap();
+        assert_eq!(gas_result.to_number(&mut context).unwrap(), 5000.0);
+
+        let get_cost = template.get(js_string!("getCost"), &mut context).unwrap();
+        let cost_result = get_cost.as_callable().unwrap().call(&template.clone().into(), &[], &mut context).unwrap();
+        assert_eq!(cost_result.to_number(&mut context).unwrap(), 3.0);
+
+        let get_depth = template.get(js_string!("getDepth"), &mut context).unwrap();
+        let depth_result = get_depth.as_callable().unwrap().call(&template.clone().into(), &[], &mut context).unwrap();
+        assert_eq!(depth_result.to_number(&mut context).unwrap(), 2.0);
+
+        let get_error = template.get(js_string!("getError"), &mut context).unwrap();
+        let error_result = get_error.as_callable().unwrap().call(&template.clone().into(), &[], &mut context).unwrap();
+        assert_eq!(error_result.to_string(&mut context).unwrap().to_std_string().unwrap(), "test error");
+    }
+
+    #[test]
+    fn test_step_log_multiple_updates() {
+        let mut context = Context::default();
+        register_builtins(&mut context).unwrap();
+
+        // Create template
+        let template = StepLog::create_js_object_template(&mut context).unwrap();
+        
+        // Create stack and memory refs
+        let mut stack = Stack::new();
+        let _ = stack.push(U256::from(100));
+        let (stack_ref, _stack_guard) = StackRef::new(&stack);
+        let mem = SharedMemory::new();
+        let (mem_ref, _mem_guard) = MemoryRef::new(&mem);
+
+        // First update
+        let step1 = StepLog {
+            stack: stack_ref.clone(),
+            op: OpObj(0x01),
+            memory: mem_ref.clone(),
+            pc: 10,
+            gas_remaining: 1000,
+            cost: 5,
+            depth: 1,
+            refund: 0,
+            error: None,
+            contract: Default::default(),
+        };
+
+        step1.update_js_object(&template, &mut context).unwrap();
+
+        // Verify first update
+        let get_pc = template.get(js_string!("getPC"), &mut context).unwrap();
+        let pc_result = get_pc.as_callable().unwrap().call(&template.clone().into(), &[], &mut context).unwrap();
+        assert_eq!(pc_result.to_number(&mut context).unwrap(), 10.0);
+
+        // Second update with different values
+        let step2 = StepLog {
+            stack: stack_ref,
+            op: OpObj(0x02),
+            memory: mem_ref,
+            pc: 20,
+            gas_remaining: 2000,
+            cost: 10,
+            depth: 2,
+            refund: 5,
+            error: Some("new error".to_string()),
+            contract: Default::default(),
+        };
+
+        step2.update_js_object(&template, &mut context).unwrap();
+
+        // Verify values were updated to new ones (get the function again to see updated value)
+        let get_pc2 = template.get(js_string!("getPC"), &mut context).unwrap();
+        let pc_result2 = get_pc2.as_callable().unwrap().call(&template.clone().into(), &[], &mut context).unwrap();
+        assert_eq!(pc_result2.to_number(&mut context).unwrap(), 20.0);
+
+        let get_gas = template.get(js_string!("getGas"), &mut context).unwrap();
+        let gas_result = get_gas.as_callable().unwrap().call(&template.clone().into(), &[], &mut context).unwrap();
+        assert_eq!(gas_result.to_number(&mut context).unwrap(), 2000.0);
+
+        let get_error = template.get(js_string!("getError"), &mut context).unwrap();
+        let error_result = get_error.as_callable().unwrap().call(&template.clone().into(), &[], &mut context).unwrap();
+        assert_eq!(error_result.to_string(&mut context).unwrap().to_std_string().unwrap(), "new error");
+    }
+
+    #[test]
+    fn test_evm_db_ref_template_creation() {
+        let mut context = Context::default();
+        register_builtins(&mut context).unwrap();
+
+        // Test that template creation works
+        let template = EvmDbRef::create_js_object_template(&mut context).unwrap();
+        
+        // Verify all expected functions exist
+        assert!(template.get(js_string!("exists"), &mut context).unwrap().is_callable());
+        assert!(template.get(js_string!("getBalance"), &mut context).unwrap().is_callable());
+        assert!(template.get(js_string!("getNonce"), &mut context).unwrap().is_callable());
+        assert!(template.get(js_string!("getCode"), &mut context).unwrap().is_callable());
+        assert!(template.get(js_string!("getState"), &mut context).unwrap().is_callable());
+
+        // Test that template returns default values
+        let exists_fn = template.get(js_string!("exists"), &mut context).unwrap();
+        let addr = JsValue::from(js_string!("0x0000000000000000000000000000000000000000"));
+        let exists_result = exists_fn.as_callable().unwrap().call(
+            &template.clone().into(), 
+            &[addr], 
+            &mut context
+        ).unwrap();
+        assert!(!exists_result.as_boolean().unwrap());
+
+        let get_nonce = template.get(js_string!("getNonce"), &mut context).unwrap();
+        let addr = JsValue::from(js_string!("0x0000000000000000000000000000000000000000"));
+        let nonce_result = get_nonce.as_callable().unwrap().call(
+            &template.clone().into(), 
+            &[addr], 
+            &mut context
+        ).unwrap();
+        assert_eq!(nonce_result.to_number(&mut context).unwrap(), 0.0);
+    }
+
+    #[test]
+    fn test_evm_db_ref_update_object() {
+        let mut context = Context::default();
+        register_builtins(&mut context).unwrap();
+
+        // Create template
+        let template = EvmDbRef::create_js_object_template(&mut context).unwrap();
+        
+        // Create a database with some test data
+        let mut db = CacheDB::new(EmptyDB::new());
+        let test_addr = Address::from([0x42u8; 20]);
+        let account_info = AccountInfo {
+            balance: U256::from(1000),
+            nonce: 5,
+            code_hash: KECCAK_EMPTY,
+            code: None,
+        };
+        db.insert_account_info(test_addr, account_info);
+        
+        let state = EvmState::default();
+        let (db_ref, _guard) = EvmDbRef::new(&state, &db);
+
+        // Update the template with database reference
+        db_ref.update_js_object(&template, &mut context).unwrap();
+
+        // Test that the functions now work with real data
+        let exists_fn = template.get(js_string!("exists"), &mut context).unwrap();
+        let addr = JsValue::from(js_string!(test_addr.to_string()));
+        let exists_result = exists_fn.as_callable().unwrap().call(
+            &template.clone().into(), 
+            &[addr.clone()], 
+            &mut context
+        ).unwrap();
+        assert!(exists_result.as_boolean().unwrap());
+
+        let get_balance = template.get(js_string!("getBalance"), &mut context).unwrap();
+        let balance_result = get_balance.as_callable().unwrap().call(
+            &template.clone().into(), 
+            &[addr.clone()], 
+            &mut context
+        ).unwrap();
+        assert_eq!(balance_result.to_string(&mut context).unwrap().to_std_string().unwrap(), "1000");
+
+        let get_nonce = template.get(js_string!("getNonce"), &mut context).unwrap();
+        let nonce_result = get_nonce.as_callable().unwrap().call(
+            &template.clone().into(), 
+            &[addr], 
+            &mut context
+        ).unwrap();
+        assert_eq!(nonce_result.to_number(&mut context).unwrap(), 5.0);
+    }
+
+    #[test]
+    fn test_object_reuse_vs_recreation_equivalence() {
+        let mut context = Context::default();
+        register_builtins(&mut context).unwrap();
+
+        // Create stack and memory for testing
+        let mut stack = Stack::new();
+        let _ = stack.push(U256::from(12345));
+        let (stack_ref, _stack_guard) = StackRef::new(&stack);
+        let mem = SharedMemory::new();
+        let (mem_ref, _mem_guard) = MemoryRef::new(&mem);
+
+        let step = StepLog {
+            stack: stack_ref.clone(),
+            op: OpObj(0x01),
+            memory: mem_ref.clone(),
+            pc: 100,
+            gas_remaining: 5000,
+            cost: 3,
+            depth: 1,
+            refund: 10,
+            error: Some("test".to_string()),
+            contract: Contract {
+                caller: Address::from([1u8; 20]),
+                contract: Address::from([2u8; 20]),
+                value: U256::from(500),
+                input: vec![0xab, 0xcd].into(),
+            },
+        };
+
+        // Method 1: Traditional object creation  
+        let step_copy = StepLog {
+            stack: stack_ref.clone(),
+            op: step.op,
+            memory: mem_ref.clone(),
+            pc: step.pc,
+            gas_remaining: step.gas_remaining,
+            cost: step.cost,
+            depth: step.depth,
+            refund: step.refund,
+            error: step.error.clone(),
+            contract: step.contract.clone(),
+        };
+        let traditional_obj = step_copy.into_js_object(&mut context).unwrap();
+
+        // Method 2: Template + update
+        let template = StepLog::create_js_object_template(&mut context).unwrap();
+        step.update_js_object(&template, &mut context).unwrap();
+
+        // Compare key properties to ensure they produce equivalent results
+        let traditional_pc = traditional_obj.get(js_string!("getPC"), &mut context).unwrap()
+            .as_callable().unwrap()
+            .call(&traditional_obj.clone().into(), &[], &mut context).unwrap();
+        let template_pc = template.get(js_string!("getPC"), &mut context).unwrap()
+            .as_callable().unwrap()
+            .call(&template.clone().into(), &[], &mut context).unwrap();
+        assert_eq!(traditional_pc.to_number(&mut context).unwrap(), template_pc.to_number(&mut context).unwrap());
+
+        let traditional_gas = traditional_obj.get(js_string!("getGas"), &mut context).unwrap()
+            .as_callable().unwrap()
+            .call(&traditional_obj.clone().into(), &[], &mut context).unwrap();
+        let template_gas = template.get(js_string!("getGas"), &mut context).unwrap()
+            .as_callable().unwrap()
+            .call(&template.clone().into(), &[], &mut context).unwrap();
+        assert_eq!(traditional_gas.to_number(&mut context).unwrap(), template_gas.to_number(&mut context).unwrap());
+
+        let traditional_error = traditional_obj.get(js_string!("getError"), &mut context).unwrap()
+            .as_callable().unwrap()
+            .call(&traditional_obj.clone().into(), &[], &mut context).unwrap();
+        let template_error = template.get(js_string!("getError"), &mut context).unwrap()
+            .as_callable().unwrap()
+            .call(&template.clone().into(), &[], &mut context).unwrap();
+        assert_eq!(
+            traditional_error.to_string(&mut context).unwrap().to_std_string().unwrap(),
+            template_error.to_string(&mut context).unwrap().to_std_string().unwrap()
+        );
+    }
+
+    #[test]
+    fn test_performance_no_object_leaks() {
+        let mut context = Context::default();
+        register_builtins(&mut context).unwrap();
+
+        // Create a template once
+        let template = StepLog::create_js_object_template(&mut context).unwrap();
+        
+        // Simulate many updates (like what would happen during tracing)
+        for i in 0..100 {
+            let mut stack = Stack::new();
+            let _ = stack.push(U256::from(i));
+            let (stack_ref, _stack_guard) = StackRef::new(&stack);
+            let mem = SharedMemory::new();
+            let (mem_ref, _mem_guard) = MemoryRef::new(&mem);
+
+            let step = StepLog {
+                stack: stack_ref,
+                op: OpObj(i as u8),
+                memory: mem_ref,
+                pc: i as u64,
+                gas_remaining: 1000 + i as u64,
+                cost: (i % 10) as u64,
+                depth: (i % 3) as u64,
+                refund: (i % 5) as u64,
+                error: if i % 2 == 0 { Some(format!("error {i}")) } else { None },
+                contract: Default::default(),
+            };
+
+            // Update the same template object
+            step.update_js_object(&template, &mut context).unwrap();
+
+            // Verify the last update is reflected
+            let get_pc = template.get(js_string!("getPC"), &mut context).unwrap();
+            let pc_result = get_pc.as_callable().unwrap().call(&template.clone().into(), &[], &mut context).unwrap();
+            assert_eq!(pc_result.to_number(&mut context).unwrap(), i as f64);
+        }
+
+        // Template should still be functional and contain the last values
+        let get_pc = template.get(js_string!("getPC"), &mut context).unwrap();
+        let final_pc = get_pc.as_callable().unwrap().call(&template.clone().into(), &[], &mut context).unwrap();
+        assert_eq!(final_pc.to_number(&mut context).unwrap(), 99.0);
+    }
+
+    #[test]
+    fn test_call_frame_template_creation() {
+        let mut context = Context::default();
+        register_builtins(&mut context).unwrap();
+
+        // Test that template creation works
+        let template = CallFrame::create_js_object_template(&mut context).unwrap();
+        
+        // Verify all expected functions exist
+        assert!(template.get(js_string!("getFrom"), &mut context).unwrap().is_callable());
+        assert!(template.get(js_string!("getTo"), &mut context).unwrap().is_callable());
+        assert!(template.get(js_string!("getValue"), &mut context).unwrap().is_callable());
+        assert!(template.get(js_string!("getInput"), &mut context).unwrap().is_callable());
+        assert!(template.get(js_string!("getGas"), &mut context).unwrap().is_callable());
+        assert!(template.get(js_string!("getType"), &mut context).unwrap().is_callable());
+
+        // Test that template returns default values
+        let get_gas = template.get(js_string!("getGas"), &mut context).unwrap();
+        let gas_result = get_gas.as_callable().unwrap().call(&template.clone().into(), &[], &mut context).unwrap();
+        assert_eq!(gas_result.to_number(&mut context).unwrap(), 0.0);
+    }
+
+    #[test]
+    fn test_call_frame_update_object() {
+        let mut context = Context::default();
+        register_builtins(&mut context).unwrap();
+
+        // Create template
+        let template = CallFrame::create_js_object_template(&mut context).unwrap();
+        
+        // Create call frame with test data
+        let frame = CallFrame {
+            contract: Contract {
+                caller: Address::from([1u8; 20]),
+                contract: Address::from([2u8; 20]),
+                value: U256::from(1500),
+                input: vec![0xaa, 0xbb, 0xcc].into(),
+            },
+            kind: CallKind::Call,
+            gas: 30000,
+        };
+
+        // Update the template
+        frame.update_js_object(&template, &mut context).unwrap();
+
+        // Verify values were updated
+        let get_gas = template.get(js_string!("getGas"), &mut context).unwrap();
+        let gas_result = get_gas.as_callable().unwrap().call(&template.clone().into(), &[], &mut context).unwrap();
+        assert_eq!(gas_result.to_number(&mut context).unwrap(), 30000.0);
+
+        let get_type = template.get(js_string!("getType"), &mut context).unwrap();
+        let type_result = get_type.as_callable().unwrap().call(&template.clone().into(), &[], &mut context).unwrap();
+        assert_eq!(type_result.to_string(&mut context).unwrap().to_std_string().unwrap(), "CALL");
+
+        let get_value = template.get(js_string!("getValue"), &mut context).unwrap();
+        let value_result = get_value.as_callable().unwrap().call(&template.clone().into(), &[], &mut context).unwrap();
+        assert_eq!(value_result.to_string(&mut context).unwrap().to_std_string().unwrap(), "1500");
+    }
+
+    #[test]
+    fn test_frame_result_template_creation() {
+        let mut context = Context::default();
+        register_builtins(&mut context).unwrap();
+
+        // Test that template creation works
+        let template = FrameResult::create_js_object_template(&mut context).unwrap();
+        
+        // Verify all expected functions exist
+        assert!(template.get(js_string!("getGasUsed"), &mut context).unwrap().is_callable());
+        assert!(template.get(js_string!("getOutput"), &mut context).unwrap().is_callable());
+        assert!(template.get(js_string!("getError"), &mut context).unwrap().is_callable());
+
+        // Test that template returns default values
+        let get_gas_used = template.get(js_string!("getGasUsed"), &mut context).unwrap();
+        let gas_result = get_gas_used.as_callable().unwrap().call(&template.clone().into(), &[], &mut context).unwrap();
+        assert_eq!(gas_result.to_number(&mut context).unwrap(), 0.0);
+    }
+
+    #[test]
+    fn test_frame_result_update_object() {
+        let mut context = Context::default();
+        register_builtins(&mut context).unwrap();
+
+        // Create template
+        let template = FrameResult::create_js_object_template(&mut context).unwrap();
+        
+        // Create frame result with test data
+        let result = FrameResult {
+            gas_used: 12345,
+            output: vec![0x11, 0x22, 0x33].into(),
+            error: Some("test error".to_string()),
+        };
+
+        // Update the template
+        result.update_js_object(&template, &mut context).unwrap();
+
+        // Verify values were updated
+        let get_gas_used = template.get(js_string!("getGasUsed"), &mut context).unwrap();
+        let gas_result = get_gas_used.as_callable().unwrap().call(&template.clone().into(), &[], &mut context).unwrap();
+        assert_eq!(gas_result.to_number(&mut context).unwrap(), 12345.0);
+
+        let get_error = template.get(js_string!("getError"), &mut context).unwrap();
+        let error_result = get_error.as_callable().unwrap().call(&template.clone().into(), &[], &mut context).unwrap();
+        assert_eq!(error_result.to_string(&mut context).unwrap().to_std_string().unwrap(), "test error");
+
+        let get_output = template.get(js_string!("getOutput"), &mut context).unwrap();
+        let output_result = get_output.as_callable().unwrap().call(&template.clone().into(), &[], &mut context).unwrap();
+        assert!(output_result.is_object());
     }
 }
