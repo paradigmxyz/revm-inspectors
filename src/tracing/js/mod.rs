@@ -971,11 +971,7 @@ mod tests {
         let res = run_trace(code, None, true);
 
         assert_eq!(
-            res.as_array()
-                .unwrap()
-                .into_iter()
-                .map(|v| v.as_u64().unwrap_or(0))
-                .collect::<Vec<u64>>(),
+            res.as_array().unwrap().iter().map(|v| v.as_u64().unwrap_or(0)).collect::<Vec<u64>>(),
             vec![0, 3, 3]
         );
     }
