@@ -62,7 +62,6 @@ std = [
     "serde_json/std",
     "revm/std",
     "thiserror/std",
-    "js-tracer",
 ]
 serde = ["dep:serde", "revm/serde"]
 js-tracer = ["dep:boa_engine", "dep:boa_gc"]
