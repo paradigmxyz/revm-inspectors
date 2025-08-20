@@ -408,15 +408,19 @@ impl CallTraceNode {
             call_frame.error = self.trace.as_error_msg(TraceStyle::Geth);
         }
 
+        #[allow(clippy::needless_update)]
         if include_logs && !self.logs.is_empty() {
             call_frame.logs = self
                 .logs
                 .iter()
-                .map(|log| CallLogFrame {
+                .map(|log|
+                    // TODO: add position after https://github.com/alloy-rs/alloy/pull/2748
+                    CallLogFrame {
                     address: Some(self.execution_address()),
                     topics: Some(log.raw_log.topics().to_vec()),
                     data: Some(log.raw_log.data.clone()),
                     position: Some(log.position),
+                    ..Default::default()
                 })
                 .collect();
         }
