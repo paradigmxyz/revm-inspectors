@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.28.1) - 2025-08-20
+
+### Features
+
+- [js] Add logic to count current opcode cost instead of cumulative ([#336](https://github.com/paradigmxyz/revm-inspectors/issues/336))
+
+### Miscellaneous Tasks
+
+- Make fns private ([#337](https://github.com/paradigmxyz/revm-inspectors/issues/337))
+
 ## [0.28.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.28.0) - 2025-08-12
 
 ### Dependencies
@@ -19,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Miscellaneous Tasks
 
+- Release 0.28.0
 - Rm log clone ([#333](https://github.com/paradigmxyz/revm-inspectors/issues/333))
 - Decoded cleanups
 
