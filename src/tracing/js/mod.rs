@@ -223,12 +223,12 @@ impl JsInspector {
     }
 
     /// Calculate op cost based on previous gas spent and new spent value
-    pub fn get_op_cost(&self, spent: u64) -> u64 {
+    fn get_op_cost(&self, spent: u64) -> u64 {
         spent.saturating_sub(self.previous_gas_spent)
     }
 
     /// Set the new previous gas spent value
-    pub fn set_previous_gas_spent(&mut self, spent: u64) {
+    fn set_previous_gas_spent(&mut self, spent: u64) {
         self.previous_gas_spent = spent;
     }
 
