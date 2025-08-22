@@ -292,10 +292,16 @@ impl<'a> GethTraceBuilder<'a> {
             let mut pre_state =
                 AccountState::from_account_info(db_acc.nonce, db_acc.balance, pre_code);
 
+            let post_code = if code_enabled {
+                changed_acc.info.code.as_ref().map(|code| code.original_bytes())
+            } else {
+                None
+            };
+            
             let mut post_state = AccountState::from_account_info(
                 changed_acc.info.nonce,
                 changed_acc.info.balance,
-                changed_acc.info.code.as_ref().map(|code| code.original_bytes()),
+                post_code,
             );
 
             // handle storage changes
