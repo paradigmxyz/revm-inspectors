@@ -5,10 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.29.0) - 2025-08-25
+
+### Dependencies
+
+- Bump to revm 29 ([#341](https://github.com/paradigmxyz/revm-inspectors/issues/341))
+
 ## [0.28.2](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.28.2) - 2025-08-23
 
 ### Miscellaneous Tasks
 
+- Release 0.28.2
 - Clippy defense ([#339](https://github.com/paradigmxyz/revm-inspectors/issues/339))
 - Add clone to storage inspector ([#340](https://github.com/paradigmxyz/revm-inspectors/issues/340))
 - Add default init callframe ([#338](https://github.com/paradigmxyz/revm-inspectors/issues/338))
