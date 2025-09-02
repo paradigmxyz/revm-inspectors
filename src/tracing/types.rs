@@ -687,8 +687,7 @@ impl CallTraceStep {
             error: self.as_error(),
             gas: self.gas_remaining,
             gas_cost: self.gas_cost,
-            #[allow(clippy::useless_conversion)] // TODO https://github.com/alloy-rs/alloy/pull/2730
-            op: self.op.to_string().into(),
+            op: self.op.as_str().into(),
             pc: self.pc as u64,
             refund_counter: (self.gas_refund_counter > 0).then_some(self.gas_refund_counter),
             // Filled, if not disabled manually
