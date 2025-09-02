@@ -20,10 +20,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        rust: ["stable", "nightly", "1.86"] # MSRV
+        rust: ["stable", "nightly", "1.88"] # MSRV
         flags: ["", "--all-features"]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
@@ -32,17 +32,17 @@ jobs:
           cache-on-failure: true
       # Only run tests on latest stable and above
       - name: build
-        if: ${{ matrix.rust == '1.86' }} # MSRV
+        if: ${{ matrix.rust == '1.88' }} # MSRV
         run: cargo build --workspace ${{ matrix.flags }}
       - name: test
-        if: ${{ matrix.rust != '1.86' }} # MSRV
+        if: ${{ matrix.rust != '1.88' }} # MSRV
         run: cargo test --workspace ${{ matrix.flags }}
 
   feature-checks:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: taiki-e/install-action@cargo-hack
       - uses: Swatinem/rust-cache@v2
@@ -55,7 +55,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@clippy
       - uses: Swatinem/rust-cache@v2
         with:
@@ -68,7 +68,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
         with:
@@ -84,7 +84,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt

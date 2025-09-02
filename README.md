@@ -2,12 +2,12 @@
 
 Common [`revm`] inspector implementations.
 
-Originally part of [`reth`] as the [`reth-revm-inspectors`] crate.
+Originally part of [`reth`] as the `reth-revm-inspectors` crate.
 
 ## Users
 
-* [`reth`]
-* [`foundry`]
+- [`reth`]
+- [`foundry`]
 
 [`revm`]: https://github.com/bluealloy/revm/
 [`reth`]: https://github.com/paradigmxyz/reth/

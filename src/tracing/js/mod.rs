@@ -88,6 +88,8 @@ pub struct JsInspector {
     precompiles_registered: bool,
     /// Tracker for PC recorded in start_step
     last_start_step_pc: Option<usize>,
+    /// Tracks gas spent in the previous step to calculate individual opcode cost
+    previous_gas_spent: u64,
 }
 
 impl JsInspector {
@@ -194,6 +196,7 @@ impl JsInspector {
             call_stack: Default::default(),
             precompiles_registered: false,
             last_start_step_pc: None,
+            previous_gas_spent: 0,
         })
     }
 
@@ -217,6 +220,16 @@ impl JsInspector {
     /// By default
     pub fn set_runtime_limits(&mut self, limits: RuntimeLimits) {
         self.ctx.set_runtime_limits(limits);
+    }
+
+    /// Calculate op cost based on previous gas spent and new spent value
+    fn get_op_cost(&self, spent: u64) -> u64 {
+        spent.saturating_sub(self.previous_gas_spent)
+    }
+
+    /// Set the new previous gas spent value
+    fn set_previous_gas_spent(&mut self, spent: u64) {
+        self.previous_gas_spent = spent;
     }
 
     /// Calls the result function and returns the result as [serde_json::Value].
@@ -427,13 +440,15 @@ where
         let evm_memory = interp.memory.borrow();
         let (memory, _memory_guard) = MemoryRef::new(evm_memory);
         let active_call = self.active_call();
+
+        let gas_spent = interp.gas.spent();
         let step = StepLog {
             stack,
             op: interp.bytecode.opcode().into(),
             memory,
             pc: interp.bytecode.pc() as u64,
             gas_remaining: interp.gas.remaining(),
-            cost: interp.gas.spent(),
+            cost: self.get_op_cost(gas_spent),
             depth: context.journal_ref().depth() as u64,
             refund: interp.gas.refunded() as u64,
             error: None,
@@ -444,6 +459,8 @@ where
                 input: active_call.contract.input.clone(),
             },
         };
+
+        self.set_previous_gas_spent(gas_spent);
 
         if self.try_step(step, db).is_err() {
             interp
@@ -470,6 +487,8 @@ where
             let mem = interp.memory.borrow();
             let (memory, _memory_guard) = MemoryRef::new(mem);
             let active_call = self.active_call();
+            let gas_spent = interp.gas.spent();
+
             let step = StepLog {
                 stack,
                 // we can use REVERT opcode here because we checked that this was a revert
@@ -478,7 +497,7 @@ where
                 pc: self.last_start_step_pc.unwrap_or_default() as u64,
                 memory,
                 gas_remaining: interp.gas.remaining(),
-                cost: interp.gas.spent(),
+                cost: self.get_op_cost(gas_spent),
                 depth: context.journal_ref().depth() as u64,
                 refund: interp.gas.refunded() as u64,
                 error: interp
@@ -937,5 +956,23 @@ mod tests {
         }"#;
         let res = run_trace(code, None, true);
         assert_eq!(res.as_object().unwrap().values().map(|v| v.as_u64().unwrap()).sum::<u64>(), 0);
+    }
+
+    #[test]
+    fn test_individual_opcode_costs() {
+        let code = r#"{
+            res: [],
+            step: function(log) {
+                this.res.push(log.getCost());
+            },
+            fault: function() {},
+            result: function() { return this.res }
+        }"#;
+        let res = run_trace(code, None, true);
+
+        assert_eq!(
+            res.as_array().unwrap().iter().map(|v| v.as_u64().unwrap_or(0)).collect::<Vec<u64>>(),
+            vec![0, 3, 3]
+        );
     }
 }

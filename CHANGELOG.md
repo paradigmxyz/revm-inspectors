@@ -5,10 +5,55 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.29.0) - 2025-08-25
+
+### Dependencies
+
+- Bump to revm 29 ([#341](https://github.com/paradigmxyz/revm-inspectors/issues/341))
+
+## [0.28.2](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.28.2) - 2025-08-23
+
+### Miscellaneous Tasks
+
+- Release 0.28.2
+- Clippy defense ([#339](https://github.com/paradigmxyz/revm-inspectors/issues/339))
+- Add clone to storage inspector ([#340](https://github.com/paradigmxyz/revm-inspectors/issues/340))
+- Add default init callframe ([#338](https://github.com/paradigmxyz/revm-inspectors/issues/338))
+
+## [0.28.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.28.1) - 2025-08-20
+
+### Features
+
+- [js] Add logic to count current opcode cost instead of cumulative ([#336](https://github.com/paradigmxyz/revm-inspectors/issues/336))
+
+### Miscellaneous Tasks
+
+- Release 0.28.1
+- Make fns private ([#337](https://github.com/paradigmxyz/revm-inspectors/issues/337))
+
+## [0.28.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.28.0) - 2025-08-12
+
+### Dependencies
+
+- [deps] Bump revm 28.0.0, msrv 1.88 required for revm ([#334](https://github.com/paradigmxyz/revm-inspectors/issues/334))
+
+### Features
+
+- Reused call trace stack ([#325](https://github.com/paradigmxyz/revm-inspectors/issues/325))
+- Boxed the decoded field ([#326](https://github.com/paradigmxyz/revm-inspectors/issues/326))
+- Updated msrv to 1.86.0 ([#331](https://github.com/paradigmxyz/revm-inspectors/issues/331))
+
+### Miscellaneous Tasks
+
+- Release 0.28.0
+- Rm log clone ([#333](https://github.com/paradigmxyz/revm-inspectors/issues/333))
+- Decoded cleanups
+
 ## [0.27.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.27.1) - 2025-07-21
 
 ### Miscellaneous Tasks
 
+- Release 0.27.1
 - Use hashmap default ([#330](https://github.com/paradigmxyz/revm-inspectors/issues/330))
 
 ## [0.27.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.27.0) - 2025-07-21
