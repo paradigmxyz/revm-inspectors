@@ -257,6 +257,11 @@ impl TracingInspector {
         !self.trace_stack.is_empty()
     }
 
+    /// Returns how many logs we already recorded.
+    fn log_count(&self) -> usize {
+        self.traces.nodes().iter().map(|trace| trace.log_count()).sum()
+    }
+
     /// Returns true if this a call to a precompile contract.
     ///
     /// Returns true if the `to` address is a precompile contract and the value is zero.
@@ -576,9 +581,15 @@ where
 
     fn log(&mut self, _interp: &mut Interpreter, _context: &mut CTX, log: Log) {
         if self.config.record_logs {
+            // index starts at 0
+            let log_count = self.log_count();
             let trace = self.last_trace();
             trace.ordering.push(TraceMemberOrder::Log(trace.logs.len()));
-            trace.logs.push(CallLog::from(log).with_position(trace.children.len() as u64));
+            trace.logs.push(
+                CallLog::from(log)
+                    .with_position(trace.children.len() as u64)
+                    .with_index(log_count as u64),
+            );
         }
     }
 

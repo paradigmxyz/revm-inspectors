@@ -178,20 +178,29 @@ pub struct CallLog {
     pub decoded: Option<Box<DecodedCallLog>>,
     /// The position of the log relative to subcalls within the same trace.
     pub position: u64,
+    /// The position of the log relative to subcalls within the same trace.
+    pub index: u64,
 }
 
 impl From<Log> for CallLog {
     /// Converts a [`Log`] into a [`CallLog`].
     fn from(log: Log) -> Self {
-        Self { position: Default::default(), raw_log: log.data, decoded: None }
+        Self { position: Default::default(), raw_log: log.data, decoded: None, index: 0 }
     }
 }
 
 impl CallLog {
     /// Sets the position of the log.
     #[inline]
-    pub fn with_position(mut self, position: u64) -> Self {
+    pub const fn with_position(mut self, position: u64) -> Self {
         self.position = position;
+        self
+    }
+
+    /// Sets index of the log in the transaction.
+    #[inline]
+    pub const fn with_index(mut self, index: u64) -> Self {
+        self.index = index;
         self
     }
 
@@ -273,6 +282,12 @@ impl CallTraceNode {
                 }
             }
         }
+    }
+
+    /// Returns how many logs this trace already has.
+    #[inline]
+    pub(crate) fn log_count(&self) -> usize {
+        self.logs.len()
     }
 
     /// Returns true if this is a call to a precompile
@@ -439,19 +454,16 @@ impl CallTraceNode {
             call_frame.error = self.trace.as_error_msg(TraceStyle::Geth);
         }
 
-        #[allow(clippy::needless_update)]
         if include_logs && !self.logs.is_empty() {
             call_frame.logs = self
                 .logs
                 .iter()
-                .map(|log|
-                    // TODO: add position after https://github.com/alloy-rs/alloy/pull/2748
-                    CallLogFrame {
+                .map(|log| CallLogFrame {
                     address: Some(self.execution_address()),
                     topics: Some(log.raw_log.topics().to_vec()),
                     data: Some(log.raw_log.data.clone()),
                     position: Some(log.position),
-                    ..Default::default()
+                    index: Some(log.index),
                 })
                 .collect();
         }
