@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.2](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.29.2) - 2025-09-10
+
+### Bug Fixes
+
+- [`ci`] Feature checks failing due to `std::` use ([#348](https://github.com/paradigmxyz/revm-inspectors/issues/348))
+
+### Miscellaneous Tasks
+
+- Remove clippy.toml ([#346](https://github.com/paradigmxyz/revm-inspectors/issues/346))
+- Remove debug ([#345](https://github.com/paradigmxyz/revm-inspectors/issues/345))
+
 ## [0.29.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.29.1) - 2025-09-02
 
 ### Features
@@ -13,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Miscellaneous Tasks
 
+- Release 0.29.1
 - [ci] Upgrade checkout to v5 ([#342](https://github.com/paradigmxyz/revm-inspectors/issues/342))
 
 ### Refactor
