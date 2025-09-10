@@ -9,7 +9,7 @@ use revm::{
     },
     Inspector,
 };
-use std::fmt;
+use core::fmt;
 
 // This is the maximum number of edges that can be tracked. There is a tradeoff between performance
 // and precision (less collisions).
