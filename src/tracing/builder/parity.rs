@@ -334,7 +334,7 @@ impl ParityTraceBuilder {
                     let mut instructions = Vec::with_capacity(current.trace.steps.len());
 
                     for step in &current.trace.steps {
-                        let maybe_sub_call = if step.is_calllike_op() {
+                        let maybe_sub_call = if step.is_call_like_op() {
                             sub_stack.pop_front().flatten()
                         } else {
                             None
@@ -377,7 +377,7 @@ impl ParityTraceBuilder {
         step: &CallTraceStep,
         maybe_sub_call: Option<VmTrace>,
     ) -> VmInstruction {
-        let maybe_storage = step.storage_change.map(|storage_change| StorageDelta {
+        let maybe_storage = step.storage_change.as_ref().map(|storage_change| StorageDelta {
             key: storage_change.key,
             val: storage_change.value,
         });
@@ -389,7 +389,7 @@ impl ParityTraceBuilder {
 
         let maybe_execution = Some(VmExecutedOperation {
             used: step.gas_remaining,
-            push: step.push_stack.clone().unwrap_or_default(),
+            push: step.push_stack.clone().unwrap_or_default().into(),
             mem: maybe_memory,
             store: maybe_storage,
         });

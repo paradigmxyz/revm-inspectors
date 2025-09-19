@@ -445,7 +445,7 @@ impl TracingInspector {
         let stack = if self.config.record_stack_snapshots.is_all()
             || self.config.record_stack_snapshots.is_full()
         {
-            Some(interp.stack.data().clone())
+            Some(interp.stack.data().as_slice().into())
         } else {
             None
         };
@@ -519,7 +519,7 @@ impl TracingInspector {
         {
             // this can potentially underflow if the stack is malformed
             let start = interp.stack.len().saturating_sub(step.op.outputs() as usize);
-            step.push_stack = Some(interp.stack.data()[start..].to_vec());
+            step.push_stack = Some(interp.stack.data()[start..].into());
         }
 
         let journal = context.journal_ref().journal();
@@ -545,7 +545,7 @@ impl TracingInspector {
                     };
                     let change =
                         StorageChange { key: *key, value, had_value: Some(*had_value), reason };
-                    Some(change)
+                    Some(Box::new(change))
                 }
                 _ => None,
             };

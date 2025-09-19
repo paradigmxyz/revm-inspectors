@@ -273,7 +273,7 @@ impl CallTraceNode {
             let item = &mut stack[i];
 
             // If the opcode is a call, set the child trace id
-            if item.step.is_calllike_op() {
+            if item.step.is_call_like_op() {
                 // The opcode of this step is a call but it's possible that this step resulted
                 // in a revert or out of gas error in which case there's no actual child call executed and recorded: <https://github.com/paradigmxyz/reth/issues/3915>
                 if let Some(call_id) = self.children.get(child_id).copied() {
@@ -657,9 +657,9 @@ pub struct CallTraceStep {
     /// Current contract address
     pub contract: Address,
     /// Stack before step execution
-    pub stack: Option<Vec<U256>>,
+    pub stack: Option<Box<[U256]>>,
     /// The new stack items placed by this step if any
-    pub push_stack: Option<Vec<U256>>,
+    pub push_stack: Option<Box<[U256]>>,
     /// Memory before step execution.
     ///
     /// This will be `None` only if memory capture is disabled.
@@ -676,7 +676,7 @@ pub struct CallTraceStep {
     /// Gas cost of step execution
     pub gas_cost: u64,
     /// Change of the contract state after step execution (effect of the SLOAD/SSTORE instructions)
-    pub storage_change: Option<StorageChange>,
+    pub storage_change: Option<Box<StorageChange>>,
     /// Final status of the step
     ///
     /// This is set after the step was executed.
@@ -694,7 +694,7 @@ impl CallTraceStep {
     ///
     /// This sets memory and stack capture based on the `opts` parameter.
     pub(crate) fn convert_to_geth_struct_log(&self, opts: &GethDefaultTracingOptions) -> StructLog {
-        let mut log = StructLog {
+        StructLog {
             depth: self.depth,
             error: self.as_error(),
             gas: self.gas_remaining,
@@ -702,27 +702,25 @@ impl CallTraceStep {
             op: self.op.as_str().into(),
             pc: self.pc as u64,
             refund_counter: (self.gas_refund_counter > 0).then_some(self.gas_refund_counter),
-            // Filled, if not disabled manually
-            stack: None,
-            // Filled in `CallTraceArena::geth_trace` as a result of compounding all slot changes
-            return_data: None,
-            // Filled via trace object
+            stack: if opts.is_stack_enabled() {
+                self.stack.as_ref().map(|stack| stack.to_vec())
+            } else {
+                None
+            },
+            memory: if opts.is_memory_enabled() {
+                self.memory.as_ref().map(RecordedMemory::memory_chunks)
+            } else {
+                None
+            },
+
+            // Filled from external storage.
             storage: None,
-            // Only enabled if `opts.enable_memory` is true
-            memory: None,
-            // This is None in the rpc response
+            // Filled from `CallTraceNode`.
+            return_data: None,
+
+            // This is always `None` in the RPC response.
             memory_size: None,
-        };
-
-        if opts.is_stack_enabled() {
-            log.stack.clone_from(&self.stack);
         }
-
-        if opts.is_memory_enabled() {
-            log.memory = self.memory.as_ref().map(RecordedMemory::memory_chunks);
-        }
-
-        log
     }
 
     /// Returns true if the step is a STOP opcode
@@ -734,7 +732,7 @@ impl CallTraceStep {
     /// Returns true if the step is a call operation, any of
     /// CALL, CALLCODE, DELEGATECALL, STATICCALL, CREATE, CREATE2
     #[inline]
-    pub(crate) const fn is_calllike_op(&self) -> bool {
+    pub(crate) const fn is_call_like_op(&self) -> bool {
         matches!(
             self.op.get(),
             opcode::CALL
