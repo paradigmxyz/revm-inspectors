@@ -144,14 +144,17 @@ impl CallTrace {
         self.decoded.get_or_insert_with(Default::default)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn decoded_label<'a>(&'a self, fallback: &'a str) -> &'a str {
         self.decoded.as_ref().and_then(|d| d.label.as_deref()).unwrap_or(fallback)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn decoded_call_data(&self) -> Option<&DecodedCallData> {
         self.decoded.as_ref()?.call_data.as_ref()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn decoded_return_data(&self) -> Option<&str> {
         self.decoded.as_ref()?.return_data.as_deref()
     }
@@ -211,10 +214,12 @@ impl CallLog {
         self.decoded.get_or_insert_with(Default::default)
     }
 
+    #[allow(dead_code)]
     pub(crate) fn decoded_name(&self) -> Option<&str> {
         self.decoded.as_deref()?.name.as_deref()
     }
 
+    #[allow(dead_code)]
     pub(crate) fn decoded_params(&self) -> Option<&[(String, String)]> {
         self.decoded.as_deref()?.params.as_deref()
     }

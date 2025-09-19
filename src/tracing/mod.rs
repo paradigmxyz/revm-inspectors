@@ -9,7 +9,7 @@ use crate::{
         utils::gas_used,
     },
 };
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec::Vec};
 use core::{borrow::Borrow, mem};
 use revm::{
     bytecode::opcode::{self, OpCode},
