@@ -10,7 +10,7 @@ use crate::{
     },
 };
 use alloc::{boxed::Box, vec::Vec};
-use core::{borrow::Borrow, mem};
+use core::{borrow::Borrow, fmt, mem};
 use revm::{
     bytecode::opcode::{self, OpCode},
     context::{JournalTr, LocalContextTr},
@@ -420,7 +420,7 @@ impl TracingInspector {
 
         let record = self.config.should_record_opcode(op);
 
-        self.step_stack.push(StackStep { trace_idx, step_idx, record });
+        self.step_stack.push(StackStep::new(trace_idx, step_idx, record));
 
         if !record {
             return;
@@ -505,8 +505,8 @@ impl TracingInspector {
         interp: &mut Interpreter,
         context: &mut CTX,
     ) {
-        let StackStep { trace_idx, step_idx, record } =
-            self.step_stack.pop().expect("can't fill step without starting a step first");
+        let StackStepRepr { trace_idx, step_idx, record } =
+            self.step_stack.pop().expect("can't fill step without starting a step first").get();
 
         if !record {
             return;
@@ -671,20 +671,55 @@ where
 }
 
 /// Struct keeping track of internal inspector steps stack.
-#[derive(Clone, Copy, Debug)]
+///
+/// This is needed because many steps can be started before a single step is ended, such as in
+/// calls.
+///
+/// The representation is a packed version of the `StackStepRepr`.
+#[derive(Clone, Copy)]
 struct StackStep {
-    /// Whether this step should be recorded.
-    ///
-    /// This is set to `false` if [OpcodeFilter] is configured and this step's opcode is not
-    /// enabled for tracking
-    record: bool,
-    /// Idx of the trace node this step belongs.
+    // trace_idx: 32
+    // step_idx: 31
+    // record: 1
+    data: u64,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct StackStepRepr {
+    /// Index of the trace node this step belongs.
     trace_idx: usize,
-    /// Idx of this step in the [CallTrace::steps].
+    /// Index of this step in the [`CallTrace::steps`].
     ///
     /// Please note that if `record` is `false`, this will still contain a value, but the step will
     /// not appear in the steps list.
     step_idx: usize,
+    /// Whether this step should be recorded.
+    ///
+    /// This is set to `false` if [`OpcodeFilter`] is configured and this step's opcode is not
+    /// enabled for tracking.
+    record: bool,
+}
+
+impl fmt::Debug for StackStep {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.get().fmt(f)
+    }
+}
+
+impl StackStep {
+    fn new(trace_idx: usize, step_idx: usize, record: bool) -> Self {
+        debug_assert!(trace_idx < (1 << 32));
+        debug_assert!(step_idx < (1 << 31));
+        Self { data: (trace_idx as u64) << 32 | (step_idx as u32 as u64) << 1 | record as u64 }
+    }
+
+    fn get(self) -> StackStepRepr {
+        StackStepRepr {
+            trace_idx: (self.data >> 32) as usize,
+            step_idx: ((self.data >> 1) & ((1 << 31) - 1)) as usize,
+            record: self.data & 1 != 0,
+        }
+    }
 }
 
 /// Contains some contextual infos for a transaction execution that is made available to the JS
