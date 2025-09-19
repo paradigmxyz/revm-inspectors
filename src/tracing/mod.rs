@@ -450,9 +450,9 @@ impl TracingInspector {
             None
         };
         let returndata = if self.config.record_returndata_snapshots {
-            interp.return_data.buffer().to_vec().into()
+            interp.return_data.buffer().clone()
         } else {
-            Default::default()
+            Bytes::new()
         };
 
         let gas_used = gas_used(
@@ -465,8 +465,9 @@ impl TracingInspector {
         if self.config.record_immediate_bytes {
             let size = immediate_size(&interp.bytecode);
             if size != 0 {
-                immediate_bytes =
-                    Some(interp.bytecode.read_slice(size as usize + 1)[1..].to_vec().into());
+                immediate_bytes = Some(Bytes::copy_from_slice(
+                    &interp.bytecode.read_slice(size as usize + 1)[1..],
+                ));
             }
         }
 
