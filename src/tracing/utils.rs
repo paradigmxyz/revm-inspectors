@@ -126,7 +126,7 @@ pub(crate) fn maybe_revert_reason(output: &[u8]) -> Option<String> {
         }
         GenericRevertReason::RawString(err) => err,
     };
-    if reason.is_empty() {
+    if reason.is_empty() || reason.trim_matches('\0').is_empty() {
         None
     } else {
         Some(reason)
@@ -152,5 +152,18 @@ mod tests {
         let err = hex!("08c379a000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000024556e697377617056323a20494e53554646494349454e545f494e5055545f414d4f554e5400000000000000000000000000000000000000000000000000000080");
         let reason = maybe_revert_reason(&err[..]).unwrap();
         assert_eq!(reason, "UniswapV2: INSUFFICIENT_INPUT_AMOUNT");
+    }
+
+    #[test]
+    fn decode_revert_reason_with_null_bytes() {
+        let empty_err = GenericContractError::Revert("".into());
+        let encoded = empty_err.abi_encode();
+        assert!(maybe_revert_reason(&encoded).is_none());
+
+        let null_bytes_err = GenericContractError::Revert(
+            "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0".into(),
+        );
+        let encoded = null_bytes_err.abi_encode();
+        assert!(maybe_revert_reason(&encoded).is_none());
     }
 }
