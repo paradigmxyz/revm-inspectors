@@ -132,7 +132,7 @@ pub(crate) fn maybe_revert_reason(output: &[u8]) -> Option<String> {
                 Some(reason)
             }
         }
-        _ => return None,
+        _ => None,
     }
 }
 
