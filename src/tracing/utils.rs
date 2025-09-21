@@ -113,44 +113,26 @@ pub(crate) fn load_account_code<DB: DatabaseRef>(
     })
 }
 
-// Define selectors like Geth (Error(string) and Panic(uint256))
-const REVERT_SELECTOR: [u8; 4] = [0x08, 0xc3, 0x79, 0xa0]; // keccak256("Error(string)")[0:4]
-const PANIC_SELECTOR: [u8; 4] = [0x4e, 0x48, 0x7b, 0x71]; // keccak256("Panic(uint256)")[0:4]
-
 /// Returns a non-empty revert reason if the output is a revert/error.
 /// Follows Geth's UnpackRevert logic
 /// <https://github.com/ethereum/go-ethereum/blob/4414e2833f92f437d0a68b53ed95ac5756a90a16/accounts/abi/abi.go#L278>.
 #[inline]
 pub(crate) fn maybe_revert_reason(output: &[u8]) -> Option<String> {
-    if output.len() < 4 {
-        return None;
-    }
+    match GenericRevertReason::decode(output)? {
+        GenericRevertReason::ContractError(err) => {
+            let reason = match err {
+                // return the raw revert reason and don't use the revert's display message
+                ContractError::Revert(revert) => revert.reason,
+                err => err.to_string(),
+            };
 
-    // Check selector and attempt unpacking like Geth
-    if output[0..4] == REVERT_SELECTOR {
-        // Try to decode Error(string)
-        GenericRevertReason::decode(output).and_then(|reason| match reason {
-            GenericRevertReason::ContractError(ContractError::Revert(revert)) => {
-                let reason = revert.reason;
-                if reason.is_empty() || reason.trim_matches('\0').is_empty() {
-                    None
-                } else {
-                    Some(reason)
-                }
+            if reason.is_empty() || reason.trim_matches('\0').is_empty() {
+                None
+            } else {
+                Some(reason)
             }
-            _ => None,
-        })
-    } else if output[0..4] == PANIC_SELECTOR {
-        // Try to decode Panic(uint256)
-        GenericRevertReason::decode(output).and_then(|reason| match reason {
-            GenericRevertReason::ContractError(ContractError::Panic(panic)) => {
-                Some(panic.to_string())
-            }
-            _ => None,
-        })
-    } else {
-        // Invalid selector
-        None
+        }
+        _ => return None,
     }
 }
 
