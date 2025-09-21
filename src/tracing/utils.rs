@@ -113,23 +113,44 @@ pub(crate) fn load_account_code<DB: DatabaseRef>(
     })
 }
 
+// Define selectors like Geth (Error(string) and Panic(uint256))
+const REVERT_SELECTOR: [u8; 4] = [0x08, 0xc3, 0x79, 0xa0]; // keccak256("Error(string)")[0:4]
+const PANIC_SELECTOR: [u8; 4] = [0x4e, 0x48, 0x7b, 0x71]; // keccak256("Panic(uint256)")[0:4]
+
 /// Returns a non-empty revert reason if the output is a revert/error.
+/// Follows Geth's UnpackRevert logic
+/// <https://github.com/ethereum/go-ethereum/blob/4414e2833f92f437d0a68b53ed95ac5756a90a16/accounts/abi/abi.go#L278>.
 #[inline]
 pub(crate) fn maybe_revert_reason(output: &[u8]) -> Option<String> {
-    let reason = match GenericRevertReason::decode(output)? {
-        GenericRevertReason::ContractError(err) => {
-            match err {
-                // return the raw revert reason and don't use the revert's display message
-                ContractError::Revert(revert) => revert.reason,
-                err => err.to_string(),
+    if output.len() < 4 {
+        return None;
+    }
+
+    // Check selector and attempt unpacking like Geth
+    if output[0..4] == REVERT_SELECTOR {
+        // Try to decode Error(string)
+        GenericRevertReason::decode(output).and_then(|reason| match reason {
+            GenericRevertReason::ContractError(ContractError::Revert(revert)) => {
+                let reason = revert.reason;
+                if reason.is_empty() || reason.trim_matches('\0').is_empty() {
+                    None
+                } else {
+                    Some(reason)
+                }
             }
-        }
-        GenericRevertReason::RawString(err) => err,
-    };
-    if reason.is_empty() || reason.trim_matches('\0').is_empty() {
-        None
+            _ => None,
+        })
+    } else if output[0..4] == PANIC_SELECTOR {
+        // Try to decode Panic(uint256)
+        GenericRevertReason::decode(output).and_then(|reason| match reason {
+            GenericRevertReason::ContractError(ContractError::Panic(panic)) => {
+                Some(panic.to_string())
+            }
+            _ => None,
+        })
     } else {
-        Some(reason)
+        // Invalid selector
+        None
     }
 }
 
@@ -160,10 +181,35 @@ mod tests {
         let encoded = empty_err.abi_encode();
         assert!(maybe_revert_reason(&encoded).is_none());
 
-        let null_bytes_err = GenericContractError::Revert(
-            "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0".into(),
-        );
+        let null_bytes_err =
+            GenericContractError::Revert(String::from_utf8(vec![0u8; 32]).unwrap().into());
         let encoded = null_bytes_err.abi_encode();
         assert!(maybe_revert_reason(&encoded).is_none());
+    }
+
+    #[test]
+    fn decode_revert_reason_with_invalid_selector() {
+        // Test data that doesn't start with revert or panic selector
+        let invalid_data = vec![0x12, 0x34, 0x56, 0x78]; // Invalid selector
+        assert_eq!(
+            maybe_revert_reason(&invalid_data),
+            None,
+            "Should return None for invalid selector"
+        );
+
+        // Test data too short
+        let short_data = vec![0x08, 0xc3]; // Only 2 bytes
+        assert_eq!(maybe_revert_reason(&short_data), None, "Should return None for data too short");
+
+        // Test valid string but with proper selector validation
+        let control_char_err = GenericContractError::Revert("\u{000f}.[l".into());
+        let encoded = control_char_err.abi_encode();
+        // This should now return the string since we're using Geth's validation logic
+        assert_eq!(maybe_revert_reason(&encoded), Some("\u{000f}.[l".to_string()));
+
+        // Test normal readable string
+        let readable_err = GenericContractError::Revert("Normal error message".into());
+        let encoded = readable_err.abi_encode();
+        assert_eq!(maybe_revert_reason(&encoded), Some("Normal error message".to_string()));
     }
 }
