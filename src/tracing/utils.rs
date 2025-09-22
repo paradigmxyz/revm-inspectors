@@ -194,4 +194,14 @@ mod tests {
         let encoded = readable_err.abi_encode();
         assert_eq!(maybe_revert_reason(&encoded), Some("Normal error message".to_string()));
     }
+
+    #[test]
+    fn decode_revert_reason_with_raw_string() {
+        let non_readable_data = "\u{9a62}\u{0002}".as_bytes();
+        assert_eq!(
+            maybe_revert_reason(non_readable_data),
+            None,
+            "Should return None for raw strings"
+        );
+    }
 }
