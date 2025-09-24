@@ -79,11 +79,11 @@ impl<'a> GethTraceBuilder<'a> {
         while let Some(CallTraceStepStackItem { trace_node, step, call_child_id }) =
             step_stack.pop_back()
         {
-            let mut log = step.convert_to_geth_struct_log(opts);
+            let mut log = step.convert_to_geth_struct_log(opts, trace_node.trace.depth as u64);
 
             // Fill in memory and storage depending on the options
             if opts.is_storage_enabled() {
-                let contract_storage = storage.entry(step.contract).or_default();
+                let contract_storage = storage.entry(trace_node.execution_address()).or_default();
                 if let Some(change) = &step.storage_change {
                     contract_storage.insert(change.key.into(), change.value.into());
                     log.storage = Some(contract_storage.clone());

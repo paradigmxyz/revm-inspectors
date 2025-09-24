@@ -652,15 +652,11 @@ pub enum DecodedTraceStep {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CallTraceStep {
     // Fields filled in `step`
-    /// Call depth
-    pub depth: u64,
     /// Program counter before step execution
     pub pc: usize,
     /// Opcode to be executed
     #[cfg_attr(feature = "serde", serde(with = "opcode_serde"))]
     pub op: OpCode,
-    /// Current contract address
-    pub contract: Address,
     /// Stack before step execution
     pub stack: Option<Box<[U256]>>,
     /// The new stack items placed by this step if any
@@ -698,9 +694,13 @@ impl CallTraceStep {
     /// Converts this step into a geth [StructLog]
     ///
     /// This sets memory and stack capture based on the `opts` parameter.
-    pub(crate) fn convert_to_geth_struct_log(&self, opts: &GethDefaultTracingOptions) -> StructLog {
+    pub(crate) fn convert_to_geth_struct_log(
+        &self,
+        opts: &GethDefaultTracingOptions,
+        depth: u64,
+    ) -> StructLog {
         StructLog {
-            depth: self.depth,
+            depth,
             error: self.as_error(),
             gas: self.gas_remaining,
             gas_cost: self.gas_cost,

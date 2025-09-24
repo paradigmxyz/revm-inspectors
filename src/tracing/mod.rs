@@ -17,7 +17,7 @@ use revm::{
     context_interface::ContextTr,
     inspector::JournalExt,
     interpreter::{
-        interpreter_types::{Immediates, InputsTr, Jumps, LoopControl, ReturnData, RuntimeFlag},
+        interpreter_types::{Immediates, Jumps, LoopControl, ReturnData, RuntimeFlag},
         CallInput, CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, Interpreter,
         InterpreterResult,
     },
@@ -474,10 +474,8 @@ impl TracingInspector {
         self.last_journal_len = context.journal_ref().journal().len();
 
         trace.trace.steps.push(CallTraceStep {
-            depth: context.journal().depth() as u64,
             pc: interp.bytecode.pc(),
             op,
-            contract: interp.input.target_address(),
             stack,
             push_stack: None,
             memory,
