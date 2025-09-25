@@ -747,7 +747,7 @@ impl CallInputExt for CallInputs {
             CallInput::SharedBuffer(range) => ctx
                 .local()
                 .shared_memory_buffer_slice(range.clone())
-                .map(|slice| Bytes::copy_from_slice(&*slice))
+                .map(|slice| Bytes::copy_from_slice(&slice))
                 .unwrap_or_default(),
             CallInput::Bytes(bytes) => bytes.clone(),
         }
