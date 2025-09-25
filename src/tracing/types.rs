@@ -688,8 +688,6 @@ pub struct CallTraceStep {
     pub decoded: Option<Box<DecodedTraceStep>>,
 }
 
-// === impl CallTraceStep ===
-
 impl CallTraceStep {
     /// Converts this step into a geth [StructLog]
     ///
