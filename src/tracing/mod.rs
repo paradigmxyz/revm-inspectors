@@ -743,14 +743,13 @@ pub(crate) trait CallInputExt {
 
 impl CallInputExt for CallInputs {
     fn input_data<CTX: ContextTr>(&self, ctx: &mut CTX) -> Bytes {
-        let input_bytes = match &self.input {
+        match &self.input {
             CallInput::SharedBuffer(range) => ctx
                 .local()
                 .shared_memory_buffer_slice(range.clone())
-                .map(|slice| Bytes::from(slice.to_vec()))
+                .map(|slice| Bytes::copy_from_slice(&*slice))
                 .unwrap_or_default(),
             CallInput::Bytes(bytes) => bytes.clone(),
-        };
-        input_bytes
+        }
     }
 }
