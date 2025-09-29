@@ -76,9 +76,7 @@ impl<'a> GethTraceBuilder<'a> {
         main_trace_node.push_steps_on_stack(&mut step_stack);
 
         // Iterate over the steps inside the given trace
-        while let Some(CallTraceStepStackItem { trace_node, step, call_child_id }) =
-            step_stack.pop_back()
-        {
+        while let Some(CallTraceStepStackItem { step, call_child_id }) = step_stack.pop_back() {
             let mut log = step.convert_to_geth_struct_log(opts);
 
             // Fill in memory and storage depending on the options
@@ -91,7 +89,7 @@ impl<'a> GethTraceBuilder<'a> {
             }
 
             if opts.is_return_data_enabled() {
-                log.return_data = Some(trace_node.trace.output.clone());
+                log.return_data = Some(step.returndata.clone());
             }
 
             // Add step to geth trace

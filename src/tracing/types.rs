@@ -264,11 +264,13 @@ impl CallTraceNode {
         let initial_len = stack.len();
 
         // First, extend the stack with all steps in reverse order
-        stack.extend(self.trace.steps.iter().rev().map(|step| CallTraceStepStackItem {
-            trace_node: self,
-            step,
-            call_child_id: None,
-        }));
+        stack.extend(
+            self.trace
+                .steps
+                .iter()
+                .rev()
+                .map(|step| CallTraceStepStackItem { step, call_child_id: None }),
+        );
 
         // Then, iterate over the inserted range in reverse to set call_child_id values
         // Since we inserted in reverse order, we need to process from the end to maintain
@@ -602,8 +604,6 @@ impl From<CallKind> for CallType {
 }
 
 pub(crate) struct CallTraceStepStackItem<'a> {
-    /// The trace node that contains this step
-    pub(crate) trace_node: &'a CallTraceNode,
     /// The step that this stack item represents
     pub(crate) step: &'a CallTraceStep,
     /// The index of the child call in the CallArena if this step's opcode is a call
