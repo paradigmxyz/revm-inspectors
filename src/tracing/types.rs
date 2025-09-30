@@ -264,13 +264,11 @@ impl CallTraceNode {
         let initial_len = stack.len();
 
         // First, extend the stack with all steps in reverse order
-        stack.extend(
-            self.trace
-                .steps
-                .iter()
-                .rev()
-                .map(|step| CallTraceStepStackItem { step, call_child_id: None }),
-        );
+        stack.extend(self.trace.steps.iter().rev().map(|step| CallTraceStepStackItem {
+            trace_node: self,
+            step,
+            call_child_id: None,
+        }));
 
         // Then, iterate over the inserted range in reverse to set call_child_id values
         // Since we inserted in reverse order, we need to process from the end to maintain
@@ -604,6 +602,8 @@ impl From<CallKind> for CallType {
 }
 
 pub(crate) struct CallTraceStepStackItem<'a> {
+    /// The trace node that contains this step
+    pub(crate) trace_node: &'a CallTraceNode,
     /// The step that this stack item represents
     pub(crate) step: &'a CallTraceStep,
     /// The index of the child call in the CallArena if this step's opcode is a call
@@ -652,15 +652,11 @@ pub enum DecodedTraceStep {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CallTraceStep {
     // Fields filled in `step`
-    /// Call depth
-    pub depth: u64,
     /// Program counter before step execution
     pub pc: usize,
     /// Opcode to be executed
     #[cfg_attr(feature = "serde", serde(with = "opcode_serde"))]
     pub op: OpCode,
-    /// Current contract address
-    pub contract: Address,
     /// Stack before step execution
     pub stack: Option<Box<[U256]>>,
     /// The new stack items placed by this step if any
@@ -692,15 +688,17 @@ pub struct CallTraceStep {
     pub decoded: Option<Box<DecodedTraceStep>>,
 }
 
-// === impl CallTraceStep ===
-
 impl CallTraceStep {
     /// Converts this step into a geth [StructLog]
     ///
     /// This sets memory and stack capture based on the `opts` parameter.
-    pub(crate) fn convert_to_geth_struct_log(&self, opts: &GethDefaultTracingOptions) -> StructLog {
+    pub(crate) fn convert_to_geth_struct_log(
+        &self,
+        opts: &GethDefaultTracingOptions,
+        depth: u64,
+    ) -> StructLog {
         StructLog {
-            depth: self.depth,
+            depth,
             error: self.as_error(),
             gas: self.gas_remaining,
             gas_cost: self.gas_cost,
