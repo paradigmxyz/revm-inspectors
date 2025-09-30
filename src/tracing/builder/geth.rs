@@ -91,7 +91,7 @@ impl<'a> GethTraceBuilder<'a> {
             }
 
             if opts.is_return_data_enabled() {
-                log.return_data = Some(trace_node.trace.output.clone());
+                log.return_data = Some(step.returndata.clone());
             }
 
             // Add step to geth trace
