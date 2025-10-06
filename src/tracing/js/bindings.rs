@@ -803,9 +803,13 @@ impl EvmDbRef {
 
     fn read_code(&self, address: JsValue, ctx: &mut Context) -> JsResult<JsUint8Array> {
         let acc = self.read_basic(address, ctx)?;
-        let code_hash = acc.map(|acc| acc.code_hash).unwrap_or(KECCAK_EMPTY);
+        let code_hash = acc.as_ref().map(|acc| acc.code_hash).unwrap_or(KECCAK_EMPTY);
         if code_hash == KECCAK_EMPTY {
             return JsUint8Array::from_iter(core::iter::empty(), ctx);
+        }
+
+        if let Some(bytecode) = acc.as_ref().and_then(|acc| acc.code.as_ref()) {
+            return to_uint8_array(bytecode.original_bytes().to_vec(), ctx);
         }
 
         let Some(Ok(bytecode)) = self.inner.db.0.with_inner(|db| db.code_by_hash_ref(code_hash))

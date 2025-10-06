@@ -87,6 +87,7 @@ pub(crate) fn register_builtins(ctx: &mut Context) -> JsResult<()> {
         3,
         NativeFunction::from_fn_ptr(to_contract2),
     )?;
+    ctx.register_global_callable(js_string!("slice"), 3, NativeFunction::from_fn_ptr(slice))?;
 
     Ok(())
 }
@@ -304,6 +305,26 @@ fn hex_decode_js_string(js_string: &JsString) -> JsResult<Vec<u8>> {
             JsNativeError::error()
                 .with_message(format!("invalid utf8 string {js_string:?}: {err}",)),
         )),
+    }
+}
+
+/// Returns a slice of the given value.
+pub(crate) fn slice(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    let val = args.get_or_undefined(0).clone();
+
+    let buf = bytes_from_value(val, ctx)?;
+    let start = args.get_or_undefined(1).to_number(ctx)? as usize;
+    let end = args.get_or_undefined(2).to_number(ctx)? as usize;
+
+    if start > end || end > buf.len() {
+        Err(JsError::from_native(JsNativeError::error().with_message(format!(
+            "Tracer accessed out of bound memory: available {}, start {}, end {}",
+            buf.len(),
+            start,
+            end
+        ))))
+    } else {
+        to_uint8_array_value(buf[start..end].iter().copied(), ctx)
     }
 }
 

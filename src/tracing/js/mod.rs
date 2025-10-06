@@ -410,7 +410,7 @@ impl JsInspector {
 
     /// Registers the precompiles in the JS context
     fn register_precompiles<CTX: ContextTr<Journal: JournalExt>>(&mut self, context: &mut CTX) {
-        if !self.precompiles_registered {
+        if self.precompiles_registered {
             return;
         }
         let precompiles = PrecompileList(context.journal().precompile_addresses().clone());
@@ -692,7 +692,7 @@ fn js_error_to_revert(err: JsError) -> InterpreterResult {
 mod tests {
     use super::*;
 
-    use alloy_primitives::{hex, Address};
+    use alloy_primitives::{bytes, hex, Address};
     use revm::{
         context::TxEnv,
         database::CacheDB,
@@ -974,5 +974,52 @@ mod tests {
             res.as_array().unwrap().iter().map(|v| v.as_u64().unwrap_or(0)).collect::<Vec<u64>>(),
             vec![0, 3, 3]
         );
+    }
+
+    #[test]
+    fn test_slice_builtin() {
+        let code = r#"{
+            res: [],
+            step: function(log) {
+                // Test slicing a hex string
+                var hex = '0xdeadbeefcafe';
+                this.res.push(toHex(slice(hex, 0, 2)));
+                this.res.push(toHex(slice(hex, 2, 4)));
+                this.res.push(toHex(slice(hex, 4, 6)));
+                
+                // Test slicing an array
+                var arr = [0x01, 0x02, 0x03, 0x04, 0x05];
+                this.res.push(toHex(slice(arr, 0, 3)));
+                this.res.push(toHex(slice(arr, 1, 4)));
+                
+                // Test slicing a Uint8Array
+                var uint8 = new Uint8Array([0xff, 0xee, 0xdd, 0xcc, 0xbb]);
+                this.res.push(toHex(slice(uint8, 0, 2)));
+                this.res.push(toHex(slice(uint8, 2, 5)));
+            },
+            fault: function() {},
+            result: function() { return this.res }
+        }"#;
+        let res = run_trace(code, Some(bytes!("0x00")), true);
+        assert_eq!(
+            res,
+            json!(["0xdead", "0xbeef", "0xcafe", "0x010203", "0x020304", "0xffee", "0xddccbb"])
+        );
+    }
+
+    #[test]
+    fn test_is_precompiled_builtin() {
+        let code = r#"{
+            res: [],
+            step: function(log) {
+                this.res.push(isPrecompiled("0x01"));
+                this.res.push(isPrecompiled("0x0000000000000000000000000000000000000002"));
+                this.res.push(isPrecompiled("0x0000000000000000000000000000000000000000"));
+            },
+            fault: function() {},
+            result: function() { return this.res }
+        }"#;
+        let res = run_trace(code, Some(bytes!("0x00")), true);
+        assert_eq!(res, json!([true, true, false]));
     }
 }
