@@ -337,7 +337,9 @@ impl JsInspector {
         if let Some(step_fn) = &self.step_fn {
             let step = step.into_js_object(&mut self.ctx)?;
             let db = db.into_js_object(&mut self.ctx)?;
-            step_fn.call(&(self.obj.clone().into()), &[step.into(), db.into()], &mut self.ctx)?;
+            step_fn
+                .call(&(self.obj.clone().into()), &[step.into(), db.into()], &mut self.ctx)
+                .inspect_err(|err| println!("{err:?}"))?;
         }
         Ok(())
     }
@@ -1021,5 +1023,35 @@ mod tests {
         }"#;
         let res = run_trace(code, Some(bytes!("0x00")), true);
         assert_eq!(res, json!([true, true, false]));
+    }
+
+    #[test]
+    fn test_has_own_property() {
+        let code = r#"{
+            res: [],
+            step: function(log) {
+                this.res.push(log.hasOwnProperty("stack"));
+            },
+            fault: function() {},
+            result: function() { return this.res }
+        }"#;
+        let res = run_trace(code, Some(bytes!("0x00")), true);
+        assert_eq!(res, json!([true]));
+    }
+
+    #[test]
+    fn test_slice_with_stack_values() {
+        let code = r#"{
+            res: [],
+            step: function(log) {
+                if ((log.stack.length() > 0) && log.memory.length() >= log.stack.peek(0)) {
+                    this.res.push(log.memory.slice(0, log.stack.peek(0)));
+                }
+            },
+            fault: function() {},
+            result: function() { return this.res }
+        }"#;
+        let res = run_trace(code, Some(bytes!("0x5F5F52600100")), true);
+        assert_eq!(res, json!([json!({}), json!({}), json!({"0": 0})]));
     }
 }
