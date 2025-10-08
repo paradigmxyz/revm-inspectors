@@ -337,9 +337,7 @@ impl JsInspector {
         if let Some(step_fn) = &self.step_fn {
             let step = step.into_js_object(&mut self.ctx)?;
             let db = db.into_js_object(&mut self.ctx)?;
-            step_fn
-                .call(&(self.obj.clone().into()), &[step.into(), db.into()], &mut self.ctx)
-                .inspect_err(|err| println!("{err:?}"))?;
+            step_fn.call(&(self.obj.clone().into()), &[step.into(), db.into()], &mut self.ctx)?;
         }
         Ok(())
     }
