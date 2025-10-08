@@ -313,8 +313,8 @@ pub(crate) fn slice(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResul
     let val = args.get_or_undefined(0).clone();
 
     let buf = bytes_from_value(val, ctx)?;
-    let start = args.get_or_undefined(1).to_number(ctx)? as usize;
-    let end = args.get_or_undefined(2).to_number(ctx)? as usize;
+    let start = args.get_or_undefined(1).to_numeric_number(ctx)? as usize;
+    let end = args.get_or_undefined(2).to_numeric_number(ctx)? as usize;
 
     if start > end || end > buf.len() {
         Err(JsError::from_native(JsNativeError::error().with_message(format!(
