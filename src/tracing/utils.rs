@@ -123,6 +123,8 @@ pub(crate) fn maybe_revert_reason(output: &[u8]) -> Option<String> {
             let reason = match err {
                 // return the raw revert reason and don't use the revert's display message
                 ContractError::Revert(revert) => revert.reason,
+                // return as geth panic error string
+                ContractError::Panic(panic) => panic.as_geth_str().to_string(),
                 err => err.to_string(),
             };
 
