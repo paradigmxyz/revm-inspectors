@@ -295,7 +295,12 @@ impl<'a> GethTraceBuilder<'a> {
             let mut post_state = AccountState::from_account_info(
                 changed_acc.info.nonce,
                 changed_acc.info.balance,
-                changed_acc.info.code.as_ref().map(|code| code.original_bytes()),
+                code_enabled
+                    .then(|| {
+                        // Note: the changed account from the state output always holds the code
+                        changed_acc.info.code.as_ref().map(|code| code.original_bytes())
+                    })
+                    .flatten(),
             );
 
             // handle storage changes
