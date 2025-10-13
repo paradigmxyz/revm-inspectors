@@ -504,3 +504,146 @@ fn test_geth_calltracer_nested_revert() {
     assert!(top_call.error.is_some(), "Top call should have an error");
     assert!(top_call.revert_reason.is_some(), "Top call should have a revert reason");
 }
+
+#[test]
+fn test_geth_prestate_disable_code_in_diff_mode() {
+    /*
+    Test that verifies the disableCode flag works correctly in diff mode for PreStateTracer.
+    When disableCode is true, code should be excluded from both pre and post states.
+    */
+    let mut evm = Context::mainnet().with_db(CacheDB::new(EmptyDB::default())).build_mainnet();
+
+    // Deploy a simple contract
+    let code = hex!("608060405234801561001057600080fd5b506103ac806100206000396000f3fe60806040526004361061003f5760003560e01c80630332ed131461014d5780636ae1ad40146101625780638384a00214610177578063de7eb4f31461018c575b60405134815233906000805160206103578339815191529060200160405180910390a2306001600160a01b0316636ae1ad406040518163ffffffff1660e01b8152600401600060405180830381600087803b15801561009d57600080fd5b505af19250505080156100ae575060015b50306001600160a01b0316630332ed136040518163ffffffff1660e01b8152600401600060405180830381600087803b1580156100ea57600080fd5b505af19250505080156100fb575060015b50306001600160a01b0316638384a0026040518163ffffffff1660e01b8152600401600060405180830381600087803b15801561013757600080fd5b505af115801561014b573d6000803e3d6000fd5b005b34801561015957600080fd5b5061014b6101a1565b34801561016e57600080fd5b5061014b610253565b34801561018357600080fd5b5061014b6102b7565b34801561019857600080fd5b5061014b6102dd565b306001600160a01b031663de7eb4f36040518163ffffffff1660e01b8152600401600060405180830381600087803b1580156101dc57600080fd5b505af11580156101f0573d6000803e3d6000fd5b505060405162461bcd60e51b8152602060048201526024808201527f6e6573746564456d6974576974684661696c75726541667465724e6573746564604482015263115b5a5d60e21b6064820152608401915061024a9050565b60405180910390fd5b6040516000815233906000805160206103578339815191529060200160405180910390a260405162461bcd60e51b81526020600482015260156024820152746e6573746564456d6974576974684661696c75726560581b604482015260640161024a565b6040516000815233906000805160206103578339815191529060200160405180910390a2565b6040516000815233906000805160206103578339815191529060200160405180910390a2306001600160a01b0316638384a0026040518163ffffffff1660e01b8152600401600060405180830381600087803b15801561033c57600080fd5b505af1158015610350573d6000803e3d6000fd5b5050505056fef950957d2407bed19dc99b718b46b4ce6090c05589006dfb86fd22c34865b23ea2646970667358221220090a696b9fbd22c7d1cc2a0b6d4a48c32d3ba892480713689a3145b73cfeb02164736f6c63430008130033");
+    let deployer = Address::ZERO;
+    let addr =
+        deploy_contract(&mut evm, code.into(), deployer, SpecId::LONDON).created_address().unwrap();
+
+    // Test with diff_mode=true and disable_code=true
+    let prestate_config_no_code = PreStateConfig {
+        diff_mode: Some(true),
+        disable_code: Some(true),
+        disable_storage: Some(false),
+    };
+
+    let mut insp = TracingInspector::new(TracingInspectorConfig::from_geth_prestate_config(
+        &prestate_config_no_code,
+    ));
+
+    let db = evm.ctx.db().clone();
+    let res = {
+        let mut evm_with_insp = evm.with_inspector(&mut insp);
+        evm_with_insp
+            .inspect_tx(TxEnv {
+                caller: deployer,
+                gas_limit: 1000000,
+                kind: TransactTo::Call(addr),
+                data: hex!("8384a002").into(), // nestedEmitWithSuccess() selector
+                nonce: 1,
+                ..Default::default()
+            })
+            .unwrap()
+    };
+    assert!(res.result.is_success());
+
+    let frame = insp
+        .with_transaction_gas_used(res.result.gas_used())
+        .geth_builder()
+        .geth_prestate_traces(&res, &prestate_config_no_code, db)
+        .unwrap();
+
+    // Verify that code is not present in either pre or post states when disable_code=true
+    match frame {
+        PreStateFrame::Diff(diff_mode) => {
+            // Check that no account in pre state has code
+            for (_, account_state) in diff_mode.pre.iter() {
+                assert!(
+                    account_state.code.is_none(),
+                    "Code should be None in pre state when disable_code=true"
+                );
+            }
+
+            // Check that no account in post state has code
+            for (_, account_state) in diff_mode.post.iter() {
+                assert!(
+                    account_state.code.is_none(),
+                    "Code should be None in post state when disable_code=true"
+                );
+            }
+        }
+        _ => panic!("Expected Diff mode PreStateFrame"),
+    }
+
+    // Now test with diff_mode=true and disable_code=false (default)
+    // To see code in the diff, we need to deploy during the traced transaction
+    let prestate_config_with_code = PreStateConfig {
+        diff_mode: Some(true),
+        disable_code: Some(false),
+        disable_storage: Some(false),
+    };
+
+    let mut insp2 = TracingInspector::new(TracingInspectorConfig::from_geth_prestate_config(
+        &prestate_config_with_code,
+    ));
+    let evm2 = Context::mainnet().with_db(CacheDB::new(EmptyDB::default())).build_mainnet();
+
+    let db2 = evm2.ctx.db().clone();
+    let res2 = {
+        let mut evm2_with_insp = evm2.with_inspector(&mut insp2);
+        // Deploy contract during traced transaction so code appears in diff
+        evm2_with_insp
+            .inspect_tx(TxEnv {
+                caller: deployer,
+                gas_limit: 1000000,
+                kind: TransactTo::Create,
+                data: code.into(),
+                nonce: 0,
+                ..Default::default()
+            })
+            .unwrap()
+    };
+    assert!(res2.result.is_success());
+
+    let frame2 = insp2
+        .with_transaction_gas_used(res2.result.gas_used())
+        .geth_builder()
+        .geth_prestate_traces(&res2, &prestate_config_with_code, db2)
+        .unwrap();
+
+    // Verify that code IS present when disable_code=false
+    match frame2 {
+        PreStateFrame::Diff(diff_mode) => {
+            let mut found_code = false;
+
+            // Check pre state for accounts with code
+            for (addr, account_state) in diff_mode.pre.iter() {
+                if let Some(code) = &account_state.code {
+                    assert!(
+                        !code.is_empty(),
+                        "Account {:?} in pre state has code field but it's empty",
+                        addr
+                    );
+                    found_code = true;
+                }
+            }
+
+            // Check post state for accounts with code
+            for (addr, account_state) in diff_mode.post.iter() {
+                if let Some(code) = &account_state.code {
+                    assert!(
+                        !code.is_empty(),
+                        "Account {:?} in post state has code field but it's empty",
+                        addr
+                    );
+                    found_code = true;
+                }
+            }
+
+            assert!(
+                found_code,
+                "When disable_code=false, at least one account should have code in the diff"
+            );
+        }
+        _ => panic!("Expected Diff mode PreStateFrame"),
+    }
+}
