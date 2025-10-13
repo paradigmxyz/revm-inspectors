@@ -199,7 +199,7 @@ impl StepLog {
             error,
             contract,
         } = self;
-        let obj = JsObject::default();
+        let obj = JsObject::with_object_proto(ctx.intrinsics());
 
         // fields
         let op = op.into_js_object(ctx)?;
@@ -252,7 +252,7 @@ impl MemoryRef {
     }
 
     pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
-        let obj = JsObject::default();
+        let obj = JsObject::with_object_proto(ctx.intrinsics());
         let len = self.len();
 
         let length = FunctionObjectBuilder::new(
@@ -269,8 +269,8 @@ impl MemoryRef {
             ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, args, memory, ctx| {
-                    let start = args.get_or_undefined(0).to_number(ctx)?;
-                    let end = args.get_or_undefined(1).to_number(ctx)?;
+                    let start = args.get_or_undefined(0).to_numeric_number(ctx)?;
+                    let end = args.get_or_undefined(1).to_numeric_number(ctx)?;
                     if end < start || start < 0. || (end as usize) > memory.len() {
                         return Err(JsError::from_native(JsNativeError::typ().with_message(
                             format!(
@@ -298,7 +298,7 @@ impl MemoryRef {
             ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, args, memory, ctx| {
-                    let offset_f64 = args.get_or_undefined(0).to_number(ctx)?;
+                    let offset_f64 = args.get_or_undefined(0).to_numeric_number(ctx)?;
                     let len = memory.len();
                     let offset = offset_f64 as usize;
                     if len < offset + 32 || offset_f64 < 0. {
@@ -379,7 +379,7 @@ pub(crate) struct OpObj(pub(crate) u8);
 
 impl OpObj {
     pub(crate) fn into_js_object(self, context: &mut Context) -> JsResult<JsObject> {
-        let obj = JsObject::default();
+        let obj = JsObject::with_object_proto(context.intrinsics());
         let value = self.0;
         let is_push = (PUSH0..=PUSH32).contains(&value);
 
@@ -403,7 +403,7 @@ impl OpObj {
                 // We always want an OpCode, even it is unknown because it could be an additional
                 // opcode that not a known constant.
                 let op = unsafe { OpCode::new_unchecked(value) };
-                let s = op.to_string();
+                let s = op.as_str();
                 Ok(JsValue::from(js_string!(s)))
             }),
         )
@@ -457,7 +457,7 @@ impl StackRef {
     }
 
     pub(crate) fn into_js_object(self, context: &mut Context) -> JsResult<JsObject> {
-        let obj = JsObject::default();
+        let obj = JsObject::with_object_proto(context.intrinsics());
         let len = self.0.with_inner(|stack| stack.len()).unwrap_or_default();
         let length = FunctionObjectBuilder::new(
             context.realm(),
@@ -471,7 +471,7 @@ impl StackRef {
             context.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, args, stack, ctx| {
-                    let idx_f64 = args.get_or_undefined(0).to_number(ctx)?;
+                    let idx_f64 = args.get_or_undefined(0).to_numeric_number(ctx)?;
                     let idx = idx_f64 as usize;
                     if len <= idx || idx_f64 < 0. {
                         return Err(JsError::from_native(JsNativeError::typ().with_message(
@@ -513,7 +513,7 @@ impl Contract {
     /// Caution: this expects a global property `bigint` to be present.
     pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
         let Self { caller, contract, value, input } = self;
-        let obj = JsObject::default();
+        let obj = JsObject::with_object_proto(ctx.intrinsics());
 
         let get_caller = FunctionObjectBuilder::new(
             ctx.realm(),
@@ -570,7 +570,7 @@ pub(crate) struct FrameResult {
 impl FrameResult {
     pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
         let Self { gas_used, output, error } = self;
-        let obj = JsObject::default();
+        let obj = JsObject::with_object_proto(ctx.intrinsics());
 
         let output = to_uint8_array_value(output, ctx)?;
         let get_output = FunctionObjectBuilder::new(
@@ -605,7 +605,7 @@ pub(crate) struct CallFrame {
 impl CallFrame {
     pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
         let Self { contract: Contract { caller, contract, value, input }, kind, gas } = self;
-        let obj = JsObject::default();
+        let obj = JsObject::with_object_proto(ctx.intrinsics());
 
         let get_from = FunctionObjectBuilder::new(
             ctx.realm(),
@@ -708,7 +708,7 @@ impl JsEvmContext {
             transaction_ctx,
             error,
         } = self;
-        let obj = JsObject::default();
+        let obj = JsObject::with_object_proto(ctx.intrinsics());
 
         // add properties
 
@@ -803,9 +803,13 @@ impl EvmDbRef {
 
     fn read_code(&self, address: JsValue, ctx: &mut Context) -> JsResult<JsUint8Array> {
         let acc = self.read_basic(address, ctx)?;
-        let code_hash = acc.map(|acc| acc.code_hash).unwrap_or(KECCAK_EMPTY);
+        let code_hash = acc.as_ref().map(|acc| acc.code_hash).unwrap_or(KECCAK_EMPTY);
         if code_hash == KECCAK_EMPTY {
             return JsUint8Array::from_iter(core::iter::empty(), ctx);
+        }
+
+        if let Some(bytecode) = acc.as_ref().and_then(|acc| acc.code.as_ref()) {
+            return to_uint8_array(bytecode.original_bytes().to_vec(), ctx);
         }
 
         let Some(Ok(bytecode)) = self.inner.db.0.with_inner(|db| db.code_by_hash_ref(code_hash))
@@ -845,7 +849,7 @@ impl EvmDbRef {
     }
 
     pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
-        let obj = JsObject::default();
+        let obj = JsObject::with_object_proto(ctx.intrinsics());
         let exists = FunctionObjectBuilder::new(
             ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(

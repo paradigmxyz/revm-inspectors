@@ -79,19 +79,19 @@ impl<'a> GethTraceBuilder<'a> {
         while let Some(CallTraceStepStackItem { trace_node, step, call_child_id }) =
             step_stack.pop_back()
         {
-            let mut log = step.convert_to_geth_struct_log(opts);
+            let mut log = step.convert_to_geth_struct_log(opts, trace_node.trace.depth as u64);
 
             // Fill in memory and storage depending on the options
             if opts.is_storage_enabled() {
-                let contract_storage = storage.entry(step.contract).or_default();
-                if let Some(change) = step.storage_change {
+                let contract_storage = storage.entry(trace_node.execution_address()).or_default();
+                if let Some(change) = &step.storage_change {
                     contract_storage.insert(change.key.into(), change.value.into());
                     log.storage = Some(contract_storage.clone());
                 }
             }
 
             if opts.is_return_data_enabled() {
-                log.return_data = Some(trace_node.trace.output.clone());
+                log.return_data = Some(step.returndata.clone());
             }
 
             // Add step to geth trace
@@ -292,16 +292,15 @@ impl<'a> GethTraceBuilder<'a> {
             let mut pre_state =
                 AccountState::from_account_info(db_acc.nonce, db_acc.balance, pre_code);
 
-            let post_code = if code_enabled {
-                changed_acc.info.code.as_ref().map(|code| code.original_bytes())
-            } else {
-                None
-            };
-            
             let mut post_state = AccountState::from_account_info(
                 changed_acc.info.nonce,
                 changed_acc.info.balance,
-                post_code,
+                code_enabled
+                    .then(|| {
+                        // Note: the changed account from the state output always holds the code
+                        changed_acc.info.code.as_ref().map(|code| code.original_bytes())
+                    })
+                    .flatten(),
             );
 
             // handle storage changes

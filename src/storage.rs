@@ -11,7 +11,7 @@ use revm::{
 };
 
 /// An Inspector that tracks warm and cold storage slot accesses.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, Clone)]
 pub struct StorageInspector {
     /// Tracks storage slots and access counter.
     accessed_slots: HashMap<Address, HashMap<B256, u64>>,

@@ -526,9 +526,9 @@ fn test_geth_prestate_disable_code_in_diff_mode() {
         disable_storage: Some(false),
     };
 
-    let mut insp = TracingInspector::new(
-        TracingInspectorConfig::from_geth_prestate_config(&prestate_config_no_code),
-    );
+    let mut insp = TracingInspector::new(TracingInspectorConfig::from_geth_prestate_config(
+        &prestate_config_no_code,
+    ));
 
     let db = evm.ctx.db().clone();
     let res = {
@@ -562,7 +562,7 @@ fn test_geth_prestate_disable_code_in_diff_mode() {
                     "Code should be None in pre state when disable_code=true"
                 );
             }
-            
+
             // Check that no account in post state has code
             for (_, account_state) in diff_mode.post.iter() {
                 assert!(
@@ -582,9 +582,9 @@ fn test_geth_prestate_disable_code_in_diff_mode() {
         disable_storage: Some(false),
     };
 
-    let mut insp2 = TracingInspector::new(
-        TracingInspectorConfig::from_geth_prestate_config(&prestate_config_with_code),
-    );
+    let mut insp2 = TracingInspector::new(TracingInspectorConfig::from_geth_prestate_config(
+        &prestate_config_with_code,
+    ));
     let evm2 = Context::mainnet().with_db(CacheDB::new(EmptyDB::default())).build_mainnet();
 
     let db2 = evm2.ctx.db().clone();
@@ -618,8 +618,11 @@ fn test_geth_prestate_disable_code_in_diff_mode() {
             // Check pre state for accounts with code
             for (addr, account_state) in diff_mode.pre.iter() {
                 if let Some(code) = &account_state.code {
-                    assert!(!code.is_empty(),
-                           "Account {:?} in pre state has code field but it's empty", addr);
+                    assert!(
+                        !code.is_empty(),
+                        "Account {:?} in pre state has code field but it's empty",
+                        addr
+                    );
                     found_code = true;
                 }
             }
@@ -627,14 +630,19 @@ fn test_geth_prestate_disable_code_in_diff_mode() {
             // Check post state for accounts with code
             for (addr, account_state) in diff_mode.post.iter() {
                 if let Some(code) = &account_state.code {
-                    assert!(!code.is_empty(),
-                           "Account {:?} in post state has code field but it's empty", addr);
+                    assert!(
+                        !code.is_empty(),
+                        "Account {:?} in post state has code field but it's empty",
+                        addr
+                    );
                     found_code = true;
                 }
             }
 
-            assert!(found_code,
-                   "When disable_code=false, at least one account should have code in the diff");
+            assert!(
+                found_code,
+                "When disable_code=false, at least one account should have code in the diff"
+            );
         }
         _ => panic!("Expected Diff mode PreStateFrame"),
     }
