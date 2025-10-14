@@ -79,6 +79,9 @@ impl<'a> GethTraceBuilder<'a> {
         while let Some(CallTraceStepStackItem { trace_node, step, call_child_id }) =
             step_stack.pop_back()
         {
+            // We increment the depth by one because steps that are part of call at depth N should
+            // have depth N + 1. For example, steps inside of a top-level call should
+            // have depth 1.
             let mut log = step.convert_to_geth_struct_log(opts, trace_node.trace.depth as u64 + 1);
 
             // Fill in memory and storage depending on the options
