@@ -47,6 +47,7 @@ impl MuxInspector {
 
         // Process each tracer configuration
         for (tracer_type, tracer_config) in config.0 {
+            #[allow(unreachable_patterns)]
             match tracer_type {
                 GethDebugBuiltInTracerType::FourByteTracer => {
                     if tracer_config.is_some() {
@@ -88,6 +89,10 @@ impl MuxInspector {
                     configs.push((tracer_type, TraceConfig::FlatCall(flatcall_config)));
                 }
                 GethDebugBuiltInTracerType::MuxTracer => {
+                    return Err(Error::UnexpectedConfig(tracer_type));
+                }
+                _ => {
+                    // keep this so that new variants can be supported
                     return Err(Error::UnexpectedConfig(tracer_type));
                 }
             }
