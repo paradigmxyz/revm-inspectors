@@ -64,40 +64,34 @@ impl CallTraceArena {
         kind: PushTraceKind,
         new_trace: CallTrace,
     ) -> usize {
-        loop {
-            match new_trace.depth {
-                // The entry node, just update it
-                0 => {
-                    self.arena[0].trace = new_trace;
-                    return 0;
-                }
-                // We found the parent node, add the new trace as a child
-                _ if self.arena[entry].trace.depth == new_trace.depth - 1 => {
-                    let id = self.arena.len();
-                    let node = CallTraceNode {
-                        parent: Some(entry),
-                        trace: new_trace,
-                        idx: id,
-                        ..Default::default()
-                    };
-                    self.arena.push(node);
-
-                    // also track the child in the parent node
-                    if kind.is_attach_to_parent() {
-                        let parent = &mut self.arena[entry];
-                        let trace_location = parent.children.len();
-                        parent.ordering.push(TraceMemberOrder::Call(trace_location));
-                        parent.children.push(id);
-                    }
-
-                    return id;
-                }
-                _ => {
-                    // We haven't found the parent node, go deeper
-                    entry = *self.arena[entry].children.last().expect("Disconnected trace");
-                }
-            }
+        // The entry node, just update it.
+        if new_trace.depth == 0 {
+            self.arena[0].trace = new_trace;
+            return 0;
         }
+
+        // Otherwise, we need to find the parent node and add the new trace as a child.
+        while self.arena[entry].trace.depth != new_trace.depth - 1 {
+            entry = *self.arena[entry].children.last().expect("Disconnected trace");
+        }
+
+        let idx = self.arena.len();
+        self.arena.push(CallTraceNode {
+            parent: Some(entry),
+            trace: new_trace,
+            idx,
+            ..Default::default()
+        });
+
+        // Also track the child in the parent node.
+        if kind.is_attach_to_parent() {
+            let parent = &mut self.arena[entry];
+            let trace_location = parent.children.len();
+            parent.ordering.push(TraceMemberOrder::Call(trace_location));
+            parent.children.push(idx);
+        }
+
+        idx
     }
 }
 
