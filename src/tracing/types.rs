@@ -49,6 +49,10 @@ pub struct DecodedCallTrace {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CallTrace {
     /// The depth of the call.
+    ///
+    /// Zero represents the root trace node.
+    ///
+    /// The depth of a call's steps is the depth of the call plus one.
     pub depth: usize,
     /// Whether the call was successful.
     pub success: bool,
