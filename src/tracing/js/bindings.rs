@@ -400,7 +400,7 @@ impl OpObj {
         let to_string = FunctionObjectBuilder::new(
             context.realm(),
             NativeFunction::from_copy_closure(move |_this, _args, _ctx| {
-                if let Some(op) =  OpCode::new(value) {
+                if let Some(op) = OpCode::new(value) {
                     let s = op.as_str();
                     Ok(JsValue::from(js_string!(s)))
                 } else {
