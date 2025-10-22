@@ -400,11 +400,13 @@ impl OpObj {
         let to_string = FunctionObjectBuilder::new(
             context.realm(),
             NativeFunction::from_copy_closure(move |_this, _args, _ctx| {
-                // We always want an OpCode, even it is unknown because it could be an additional
-                // opcode that not a known constant.
-                let op = unsafe { OpCode::new_unchecked(value) };
-                let s = op.as_str();
-                Ok(JsValue::from(js_string!(s)))
+                if let Some(op) =  OpCode::new(value) {
+                    let s = op.as_str();
+                    Ok(JsValue::from(js_string!(s)))
+                } else {
+                    // <https://github.com/ethereum/go-ethereum/blob/7c107c2691fa66a1da60e2b95f5946c3a3921b00/core/vm/opcodes.go#L461-L461>
+                    Ok(JsValue::from(js_string!(format!("opcode {:x} not defined", value))))
+                }
             }),
         )
         .length(0)
