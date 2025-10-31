@@ -98,7 +98,7 @@ pub(crate) fn register_builtins(ctx: &mut Context) -> JsResult<()> {
 
 /// Converts an array, hex string or Uint8Array to a byte array.
 pub(crate) fn bytes_from_value(val: JsValue, context: &mut Context) -> JsResult<Vec<u8>> {
-    if let Some(obj) = val.as_object().into_iter().next() {
+    if let Some(obj) = val.as_object() {
         if obj.is::<TypedArray>() {
             let array: JsTypedArray = JsTypedArray::from_object(obj)?;
             let len = array.length(context)?;
