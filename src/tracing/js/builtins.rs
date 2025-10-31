@@ -34,7 +34,11 @@ pub(crate) fn to_serde_value(val: JsValue, ctx: &mut Context) -> JsResult<serde_
             )
         })
     } else {
-        val.to_json(ctx)
+        val.to_json(ctx)?.ok_or_else(|| {
+            JsError::from_native(
+                JsNativeError::error().with_message("failed to convert JsValue to JSON"),
+            )
+        })
     }
 }
 
@@ -94,7 +98,7 @@ pub(crate) fn register_builtins(ctx: &mut Context) -> JsResult<()> {
 
 /// Converts an array, hex string or Uint8Array to a byte array.
 pub(crate) fn bytes_from_value(val: JsValue, context: &mut Context) -> JsResult<Vec<u8>> {
-    if let Some(obj) = val.as_object().cloned() {
+    if let Some(obj) = val.as_object() {
         if obj.is::<TypedArray>() {
             let array: JsTypedArray = JsTypedArray::from_object(obj)?;
             let len = array.length(context)?;
@@ -126,7 +130,7 @@ pub(crate) fn bytes_from_value(val: JsValue, context: &mut Context) -> JsResult<
     }
 
     if let Some(js_string) = val.as_string() {
-        return hex_decode_js_string(js_string);
+        return hex_decode_js_string(&js_string);
     }
 
     Err(JsError::from_native(
