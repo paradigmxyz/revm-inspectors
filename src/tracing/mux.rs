@@ -198,12 +198,22 @@ where
     }
 
     #[inline]
-    fn log(&mut self, interp: &mut Interpreter, context: &mut CTX, log: Log) {
+    fn log(&mut self, context: &mut CTX, log: Log) {
         if let Some(ref mut inspector) = self.four_byte {
-            inspector.log(interp, context, log.clone());
+            inspector.log(context, log.clone());
         }
         if let Some(ref mut inspector) = self.tracing {
-            inspector.log(interp, context, log);
+            inspector.log(context, log);
+        }
+    }
+
+    #[inline]
+    fn log_full(&mut self, interp: &mut Interpreter, context: &mut CTX, log: Log) {
+        if let Some(ref mut inspector) = self.four_byte {
+            inspector.log_full(interp, context, log.clone());
+        }
+        if let Some(ref mut inspector) = self.tracing {
+            inspector.log_full(interp, context, log);
         }
     }
 
