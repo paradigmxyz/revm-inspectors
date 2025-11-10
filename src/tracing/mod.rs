@@ -587,7 +587,7 @@ where
         }
     }
 
-    fn log(&mut self, _interp: &mut Interpreter, _context: &mut CTX, log: Log) {
+    fn log(&mut self, _context: &mut CTX, log: Log) {
         if self.config.record_logs {
             // index starts at 0
             let log_count = self.log_count();

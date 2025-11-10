@@ -16,7 +16,7 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
-use alloy_primitives::{Address, Bytes, Log, U256};
+use alloy_primitives::{Address, Bytes, U256};
 pub use boa_engine::vm::RuntimeLimits;
 use boa_engine::{js_string, Context, JsError, JsObject, JsResult, JsValue, Source};
 use core::borrow::Borrow;
@@ -511,8 +511,6 @@ where
             let _ = self.try_fault(step, db);
         }
     }
-
-    fn log(&mut self, _interp: &mut Interpreter, _context: &mut CTX, _log: Log) {}
 
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         self.register_precompiles(context);
