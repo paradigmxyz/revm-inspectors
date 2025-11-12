@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.33.0) - 2025-11-12
+
+### Dependencies
+
+- Bump to revm 33 ([#381](https://github.com/paradigmxyz/revm-inspectors/issues/381))
+- Bump revm 30.0.2 ([#380](https://github.com/paradigmxyz/revm-inspectors/issues/380))
+- Bump revm 30.0.2 ([#379](https://github.com/paradigmxyz/revm-inspectors/issues/379))
+
 ## [0.32.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.32.0) - 2025-11-03
 
 ### Bug Fixes
@@ -23,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Miscellaneous Tasks
 
+- Release 0.32.0
 - Update `Boa` to v0.21.0 ([#375](https://github.com/paradigmxyz/revm-inspectors/issues/375))
 
 ### Refactor
