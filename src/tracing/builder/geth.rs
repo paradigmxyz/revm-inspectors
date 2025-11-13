@@ -319,7 +319,15 @@ impl<'a> GethTraceBuilder<'a> {
 
             // determine the change type
             let pre_change = if changed_acc.is_created() {
-                AccountChangeKind::Create
+                // if the account was created _and_ selfdestructed we need to treat it as modified,
+                // so that it is retained later in `diff_traces`
+                // See <https://etherscan.io/tx/0x391f4b6a382d3bcc3120adc2ea8c62003e604e487d97281129156fd284a1a89d>
+                // <https://github.com/paradigmxyz/reth/issues/19703#issuecomment-3527067849>
+                if changed_acc.is_selfdestructed() {
+                    AccountChangeKind::Modify
+                } else {
+                    AccountChangeKind::Create
+                }
             } else {
                 AccountChangeKind::Modify
             };
