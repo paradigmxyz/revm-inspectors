@@ -288,12 +288,11 @@ impl<'a> GethTraceBuilder<'a> {
         storage_enabled: bool,
     ) -> Result<PreStateFrame, DB::Error> {
         let account_diffs = state.iter().map(|(addr, acc)| (*addr, acc));
-        let account_diffs_len = account_diffs.len();
         let mut state_diff = DiffMode::default();
         let mut account_change_kinds =
-            HashMap::with_capacity_and_hasher(account_diffs_len, Default::default());
+            HashMap::with_capacity_and_hasher(account_diffs.len(), Default::default());
         let mut created_on_empty_accounts =
-            HashSet::with_capacity_and_hasher(account_diffs_len, Default::default());
+            HashSet::with_capacity_and_hasher(account_diffs.len(), Default::default());
         for (addr, changed_acc) in account_diffs {
             let db_acc = db.basic_ref(addr)?.unwrap_or_default();
 
