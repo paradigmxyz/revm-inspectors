@@ -59,6 +59,9 @@ pub mod js;
 mod mux;
 pub use mux::{Error as MuxError, MuxInspector};
 
+mod debug;
+pub use debug::{DebugInspector, DebugInspectorError};
+
 /// An inspector that collects call traces.
 ///
 /// This [Inspector] can be hooked into revm's EVM which then calls the inspector
