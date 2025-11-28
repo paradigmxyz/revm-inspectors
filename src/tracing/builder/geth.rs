@@ -10,7 +10,7 @@ use alloc::{
     vec::Vec,
 };
 use alloy_primitives::{
-    map::{Entry, HashMap, HashSet},
+    map::{Entry, HashMap},
     Address, Bytes, B256, U256,
 };
 use alloy_rpc_types_trace::geth::{
@@ -291,8 +291,6 @@ impl<'a> GethTraceBuilder<'a> {
         let mut state_diff = DiffMode::default();
         let mut account_change_kinds =
             HashMap::with_capacity_and_hasher(account_diffs.len(), Default::default());
-        let mut created_on_empty_accounts =
-            HashSet::with_capacity_and_hasher(account_diffs.len(), Default::default());
         for (addr, changed_acc) in account_diffs {
             let db_acc = db.basic_ref(addr)?.unwrap_or_default();
 
@@ -324,7 +322,7 @@ impl<'a> GethTraceBuilder<'a> {
             state_diff.pre.insert(addr, pre_state);
 
             // determine the change type
-            let pre_change = if changed_acc.is_created() {
+            let pre_change = if changed_acc.is_created() && account_was_empty(&db_acc) {
                 AccountChangeKind::Create
             } else {
                 AccountChangeKind::Modify
@@ -336,9 +334,6 @@ impl<'a> GethTraceBuilder<'a> {
             };
 
             account_change_kinds.insert(addr, (pre_change, post_change));
-            if changed_acc.is_created() && account_was_empty(&db_acc) {
-                created_on_empty_accounts.insert(addr);
-            }
 
             // Don't insert selfdestructed accounts into post state
             if !changed_acc.is_selfdestructed() {
@@ -353,7 +348,6 @@ impl<'a> GethTraceBuilder<'a> {
             &mut state_diff.pre,
             &mut state_diff.post,
             account_change_kinds,
-            created_on_empty_accounts,
         );
         Ok(PreStateFrame::Diff(state_diff))
     }
@@ -365,7 +359,6 @@ impl<'a> GethTraceBuilder<'a> {
         pre: &mut BTreeMap<Address, AccountState>,
         post: &mut BTreeMap<Address, AccountState>,
         change_type: HashMap<Address, (AccountChangeKind, AccountChangeKind)>,
-        created_on_empty: HashSet<Address>,
     ) {
         post.retain(|addr, post_state| {
             // Don't keep destroyed accounts in the post state
@@ -380,8 +373,11 @@ impl<'a> GethTraceBuilder<'a> {
             true
         });
 
-        // Don't keep accounts that were created on empty addresses in the pre state
-        pre.retain(|addr, _pre_state| !created_on_empty.contains(addr));
+        // Don't keep created accounts the pre state
+        pre.retain(|addr, _pre_state| {
+            // only keep accounts that are not created
+            change_type.get(addr).map(|ty| !ty.0.is_created()).unwrap_or(true)
+        });
     }
 
     /// Traces ERC-7562 calls using the call tracer.
