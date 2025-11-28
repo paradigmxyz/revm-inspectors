@@ -40,10 +40,6 @@ impl GethTraceBuilder<'static> {
     }
 }
 
-fn account_was_empty(account: &AccountInfo) -> bool {
-    account.balance.is_zero() && account.nonce == 0 && account.code_hash == KECCAK_EMPTY
-}
-
 impl<'a> GethTraceBuilder<'a> {
     /// Returns a new instance of the builder from [`Cow::Borrowed`]
     pub fn new_borrowed(nodes: &'a [CallTraceNode]) -> GethTraceBuilder<'a> {
@@ -322,6 +318,10 @@ impl<'a> GethTraceBuilder<'a> {
             state_diff.pre.insert(addr, pre_state);
 
             // determine the change type
+            // if the account was created _and_ not empty we need to treat it as modified,
+            // so that it is retained later in `diff_traces`
+            // See <https://etherscan.io/tx/0x391f4b6a382d3bcc3120adc2ea8c62003e604e487d97281129156fd284a1a89d>
+            // <https://github.com/paradigmxyz/reth/issues/19703#issuecomment-3527067849>
             let pre_change = if changed_acc.is_created() && account_was_empty(&db_acc) {
                 AccountChangeKind::Create
             } else {
@@ -344,11 +344,7 @@ impl<'a> GethTraceBuilder<'a> {
         // ensure we're only keeping changed entries
         state_diff.retain_changed().remove_zero_storage_values();
 
-        self.diff_traces(
-            &mut state_diff.pre,
-            &mut state_diff.post,
-            account_change_kinds,
-        );
+        self.diff_traces(&mut state_diff.pre, &mut state_diff.post, account_change_kinds);
         Ok(PreStateFrame::Diff(state_diff))
     }
 
@@ -574,6 +570,10 @@ impl<'a> GethTraceBuilder<'a> {
             CallKind::AuthCall => CallFrameType::Call,
         }
     }
+}
+
+fn account_was_empty(account: &AccountInfo) -> bool {
+    account.balance.is_zero() && account.nonce == 0 && account.code_hash == KECCAK_EMPTY
 }
 
 #[cfg(test)]
