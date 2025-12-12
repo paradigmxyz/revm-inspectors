@@ -297,10 +297,10 @@ impl<'a> GethTraceBuilder<'a> {
                 changed_acc.info.balance,
                 code_enabled
                     .then(|| {
-                        // Note: the changed account from the state output always holds the code
                         if changed_acc.info.code_hash == db_acc.code_hash {
                             pre_code.clone()
                         } else {
+                            // Note: the changed account from the state output always holds the code
                             changed_acc.info.code.as_ref().map(|code| code.original_bytes())
                         }
                     })
