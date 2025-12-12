@@ -292,19 +292,23 @@ impl<'a> GethTraceBuilder<'a> {
 
             let pre_code = code_enabled.then(|| load_account_code(&db, &db_acc)).flatten();
 
-            let mut pre_state =
-                AccountState::from_account_info(db_acc.nonce, db_acc.balance, pre_code);
-
             let mut post_state = AccountState::from_account_info(
                 changed_acc.info.nonce,
                 changed_acc.info.balance,
                 code_enabled
                     .then(|| {
-                        // Note: the changed account from the state output always holds the code
-                        changed_acc.info.code.as_ref().map(|code| code.original_bytes())
+                        if changed_acc.info.code_hash == db_acc.code_hash {
+                            pre_code.clone()
+                        } else {
+                            // Note: the changed account from the state output always holds the code
+                            changed_acc.info.code.as_ref().map(|code| code.original_bytes())
+                        }
                     })
                     .flatten(),
             );
+
+            let mut pre_state =
+                AccountState::from_account_info(db_acc.nonce, db_acc.balance, pre_code);
 
             // handle storage changes
             if storage_enabled {
