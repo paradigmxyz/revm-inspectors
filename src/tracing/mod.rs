@@ -534,8 +534,6 @@ impl TracingInspector {
         }
 
         let journal = context.journal_ref().journal();
-
-        // If journal has not changed, there is no state change to be recorded.
         if self.config.record_state_diff {
             let op = step.op.get();
 
