@@ -534,7 +534,9 @@ impl TracingInspector {
         }
 
         let journal = context.journal_ref().journal();
-        if self.config.record_state_diff {
+
+        // If journal has not changed, there is no state change to be recorded.
+        if self.config.record_state_diff && journal.len() != self.last_journal_len {
             let op = step.op.get();
 
             step.storage_change = if matches!(op, opcode::SLOAD | opcode::SSTORE) {
