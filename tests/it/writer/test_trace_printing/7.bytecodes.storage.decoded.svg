@@ -1,7 +1,7 @@
 <svg width="1448px" height="380px" xmlns="http://www.w3.org/2000/svg">
   <style>
     .fg { fill: #AAAAAA }
-    .bg { background: #000000 }
+    .bg { fill: #000000 }
     .fg-cyan { fill: #00AAAA }
     .fg-green { fill: #00AA00 }
     .container {
@@ -52,7 +52,7 @@
 </tspan>
     <tspan x="10px" y="316px"><tspan>    ├─  storage changes:</tspan>
 </tspan>
-    <tspan x="10px" y="334px"><tspan>    │   @ 0: 70 → 71</tspan>
+    <tspan x="10px" y="334px"><tspan>    │   @ 0: 69 → 71</tspan>
 </tspan>
     <tspan x="10px" y="352px"><tspan>    └─ </tspan><tspan class="fg-green">← [Return]</tspan>
 </tspan>

@@ -1,7 +1,7 @@
-<svg width="1835px" height="146px" xmlns="http://www.w3.org/2000/svg">
+<svg width="1835px" height="182px" xmlns="http://www.w3.org/2000/svg">
   <style>
     .fg { fill: #AAAAAA }
-    .bg { background: #000000 }
+    .bg { fill: #000000 }
     .fg-cyan { fill: #00AAAA }
     .fg-green { fill: #00AA00 }
     .container {
@@ -28,9 +28,13 @@
 </tspan>
     <tspan x="10px" y="100px"><tspan>    │           data: </tspan><tspan class="fg-cyan">0x0000000000000000000000000000000000000000000000000000000000000020000000000000000000000000000000000000000000000000000000000000000c68692066726f6d206c6f67320000000000000000000000000000000000000000</tspan>
 </tspan>
-    <tspan x="10px" y="118px"><tspan>    └─ </tspan><tspan class="fg-green">← [Stop]</tspan>
+    <tspan x="10px" y="118px"><tspan>    ├─  storage changes:</tspan>
 </tspan>
-    <tspan x="10px" y="136px">
+    <tspan x="10px" y="136px"><tspan>    │   @ 0: &lt;warmed&gt; 69</tspan>
+</tspan>
+    <tspan x="10px" y="154px"><tspan>    └─ </tspan><tspan class="fg-green">← [Stop]</tspan>
+</tspan>
+    <tspan x="10px" y="172px">
 </tspan>
   </text>
 
