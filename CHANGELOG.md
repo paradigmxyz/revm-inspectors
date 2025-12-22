@@ -5,12 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.2](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.33.2) - 2025-12-12
+
+### Bug Fixes
+
+- Use pre code if hash matches ([#387](https://github.com/paradigmxyz/revm-inspectors/issues/387))
+
+### Testing
+
+- Add test for string error decode ([#386](https://github.com/paradigmxyz/revm-inspectors/issues/386))
+
 ## [0.33.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.33.1) - 2025-12-05
 
 ### Features
 
 - Upstream DebugInspector from reth ([#384](https://github.com/paradigmxyz/revm-inspectors/issues/384))
 - Fix geth prestate filtering for prefunded creations ([#383](https://github.com/paradigmxyz/revm-inspectors/issues/383))
+
+### Miscellaneous Tasks
+
+- Release 0.33.1
 
 ## [0.33.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.33.0) - 2025-11-12
 

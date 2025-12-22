@@ -206,4 +206,12 @@ mod tests {
             "Should return None for raw strings"
         );
     }
+
+    // <https://github.com/paradigmxyz/revm-inspectors/pull/353#issuecomment-36146608124>
+    #[test]
+    fn decode_string_revert() {
+        let err = hex!("0x08c379a0000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000214661696c656420746f2076657269667920424950333232207369676e617475726500000000000000000000000000000000000000000000000000000000000000");
+        let reason = maybe_revert_reason(&err[..]).unwrap();
+        assert_eq!(reason, "Failed to verify BIP322 signature".to_string());
+    }
 }
