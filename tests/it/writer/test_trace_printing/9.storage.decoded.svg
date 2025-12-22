@@ -1,7 +1,7 @@
-<svg width="768px" height="92px" xmlns="http://www.w3.org/2000/svg">
+<svg width="768px" height="128px" xmlns="http://www.w3.org/2000/svg">
   <style>
     .fg { fill: #AAAAAA }
-    .bg { background: #000000 }
+    .bg { fill: #000000 }
     .fg-cyan { fill: #00AAAA }
     .fg-green { fill: #00AA00 }
     .container {
@@ -22,9 +22,13 @@
 </tspan>
     <tspan x="10px" y="46px"><tspan>    ├─ emit Log1(</tspan><tspan class="fg-cyan">foo: 0x0000000000000000000000000000000000000000000000000000000000000048</tspan><tspan>)</tspan>
 </tspan>
-    <tspan x="10px" y="64px"><tspan>    └─ </tspan><tspan class="fg-green">← [Return]</tspan>
+    <tspan x="10px" y="64px"><tspan>    ├─  storage changes:</tspan>
 </tspan>
-    <tspan x="10px" y="82px">
+    <tspan x="10px" y="82px"><tspan>    │   @ 0: &lt;warmed&gt; 72</tspan>
+</tspan>
+    <tspan x="10px" y="100px"><tspan>    └─ </tspan><tspan class="fg-green">← [Return]</tspan>
+</tspan>
+    <tspan x="10px" y="118px">
 </tspan>
   </text>
 
