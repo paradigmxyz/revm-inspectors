@@ -123,13 +123,13 @@ where
         // for accurate create opcode gas tracking, we need to deduct the gas limit from the opcode
         // gas, because otherwise the create opcodes would include the total gas consumed within the
         // create itself, but we want to track how much gas the create opcode itself consumes.
-        let opcode = match inputs.scheme {
+        let opcode = match inputs.scheme() {
             CreateScheme::Create => opcode::CREATE,
             CreateScheme::Create2 { .. } => opcode::CREATE2,
             CreateScheme::Custom { .. } => return None,
         };
 
-        self.subtract_gas_limit(opcode, inputs.gas_limit);
+        self.subtract_gas_limit(opcode, inputs.gas_limit());
 
         None
     }
@@ -152,7 +152,7 @@ mod tests {
         bytecode::Bytecode,
         database::CacheDB,
         database_interface::EmptyDB,
-        interpreter::{gas::params::GasParams, interpreter::ExtBytecode, InputsImpl, SharedMemory},
+        interpreter::{interpreter::ExtBytecode, InputsImpl, SharedMemory},
         primitives::{hardfork::SpecId, Bytes},
         Context, MainContext,
     };
@@ -171,7 +171,6 @@ mod tests {
             false,
             SpecId::default(),
             u64::MAX,
-            GasParams::default(),
         );
         let db = CacheDB::new(EmptyDB::default());
 
@@ -202,7 +201,6 @@ mod tests {
             false,
             SpecId::default(),
             u64::MAX,
-            GasParams::default(),
         );
         let db = CacheDB::new(EmptyDB::default());
 
