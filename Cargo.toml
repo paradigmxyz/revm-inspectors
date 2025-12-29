@@ -64,6 +64,12 @@ std = [
     "thiserror/std",
 ]
 serde = ["dep:serde", "revm/serde"]
+serde-skip-trace-steps = [
+    "skip-trace-steps-ser",
+    "skip-trace-steps-deser",
+]
+skip-trace-steps-ser = []
+skip-trace-steps-deser = []
 js-tracer = ["dep:boa_engine", "dep:boa_gc"]
 
 [patch.crates-io]

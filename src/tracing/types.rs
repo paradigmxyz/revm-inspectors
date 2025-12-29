@@ -99,6 +99,11 @@ pub struct CallTrace {
     /// The final status of the call.
     pub status: Option<InstructionResult>,
     /// Opcode-level execution steps.
+    #[cfg_attr(all(feature = "serde", feature = "skip-trace-steps-ser"), serde(skip_serializing))]
+    #[cfg_attr(
+        all(feature = "serde", feature = "skip-trace-steps-deser"),
+        serde(skip_deserializing)
+    )]
     pub steps: Vec<CallTraceStep>,
     /// Optional complementary decoded call data.
     pub decoded: Option<Box<DecodedCallTrace>>,
