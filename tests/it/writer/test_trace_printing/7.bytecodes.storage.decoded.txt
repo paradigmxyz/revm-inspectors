@@ -15,5 +15,5 @@
     │   │   └─ ← [Return]
     │   └─ ← ret1, ret2
     ├─  storage changes:
-    │   @ 0: 69 → 71
+    │   @ 0: 70 → 71
     └─ ← [Return]

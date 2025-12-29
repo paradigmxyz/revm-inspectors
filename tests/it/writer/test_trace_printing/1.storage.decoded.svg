@@ -1,7 +1,7 @@
-<svg width="740px" height="110px" xmlns="http://www.w3.org/2000/svg">
+<svg width="740px" height="74px" xmlns="http://www.w3.org/2000/svg">
   <style>
     .fg { fill: #AAAAAA }
-    .bg { fill: #000000 }
+    .bg { background: #000000 }
     .fg-green { fill: #00AA00 }
     .container {
       padding: 0 10px;
@@ -19,13 +19,9 @@
   <text xml:space="preserve" class="container fg">
     <tspan x="10px" y="28px"><tspan>  [2348] </tspan><tspan class="fg-green">Counter</tspan><tspan>::</tspan><tspan class="fg-green">number</tspan><tspan>()</tspan>
 </tspan>
-    <tspan x="10px" y="46px"><tspan>    ├─  storage changes:</tspan>
+    <tspan x="10px" y="46px"><tspan>    └─ </tspan><tspan class="fg-green">← [Return]</tspan><tspan> 0</tspan>
 </tspan>
-    <tspan x="10px" y="64px"><tspan>    │   @ 0: &lt;warmed&gt; 0</tspan>
-</tspan>
-    <tspan x="10px" y="82px"><tspan>    └─ </tspan><tspan class="fg-green">← [Return]</tspan><tspan> 0</tspan>
-</tspan>
-    <tspan x="10px" y="100px">
+    <tspan x="10px" y="64px">
 </tspan>
   </text>
 

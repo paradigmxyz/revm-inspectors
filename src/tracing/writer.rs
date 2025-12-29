@@ -5,7 +5,7 @@ use super::{
     },
     CallTraceArena,
 };
-use alloc::{format, string::String};
+use alloc::{format, string::String, vec::Vec};
 use alloy_primitives::{address, hex, map::HashMap, Address, B256, U256};
 use anstyle::{AnsiColor, Color, Style};
 use colorchoice::ColorChoice;
@@ -495,62 +495,41 @@ impl<W: Write> TraceWriter<W> {
     }
 
     fn write_storage_changes(&mut self, node: &CallTraceNode) -> io::Result<()> {
-        enum StorageChange {
-            Changed { value: U256, had_value: U256 },
-            Warmed { value: U256 },
-        }
-
-        let mut changes = HashMap::new();
+        let mut changes_map = HashMap::new();
 
         // For each call trace, compact the results so we do not write the intermediate storage
         // writes
         for step in &node.trace.steps {
             if let Some(change) = &step.storage_change {
-                changes
-                    .entry(&change.key)
-                    .and_modify(|entry| match entry {
-                        StorageChange::Changed { value, .. } => {
-                            *value = change.value;
-                        }
-                        StorageChange::Warmed { value } => {
-                            *entry =
-                                StorageChange::Changed { value: change.value, had_value: *value };
-                        }
-                    })
-                    .or_insert_with(|| {
-                        if let Some(had_value) = change.had_value {
-                            StorageChange::Changed { value: change.value, had_value }
-                        } else {
-                            StorageChange::Warmed { value: change.value }
-                        }
-                    });
+                let (_first, last) = changes_map.entry(&change.key).or_insert((change, change));
+                *last = change;
             }
         }
+
+        let changes = changes_map
+            .iter()
+            .filter_map(|(&&key, &(first, last))| {
+                let value_before = first.had_value.unwrap_or_default();
+                let value_after = last.value;
+                if value_before == value_after {
+                    return None;
+                }
+                Some((key, value_before, value_after))
+            })
+            .collect::<Vec<_>>();
 
         if !changes.is_empty() {
             self.write_branch()?;
             writeln!(self.writer, " storage changes:")?;
-            for (key, change) in changes {
+            for (key, value_before, value_after) in changes {
                 self.write_pipes()?;
-                match change {
-                    StorageChange::Changed { value, had_value } => {
-                        writeln!(
-                            self.writer,
-                            "  @ {key}: {value_before} → {value_after}",
-                            key = num_or_hex(*key),
-                            value_before = num_or_hex(had_value),
-                            value_after = num_or_hex(value),
-                        )?;
-                    }
-                    StorageChange::Warmed { value } => {
-                        writeln!(
-                            self.writer,
-                            "  @ {key}: <warmed> {value_after}",
-                            key = num_or_hex(*key),
-                            value_after = num_or_hex(value),
-                        )?;
-                    }
-                }
+                writeln!(
+                    self.writer,
+                    "  @ {key}: {value_before} → {value_after}",
+                    key = num_or_hex(key),
+                    value_before = num_or_hex(value_before),
+                    value_after = num_or_hex(value_after),
+                )?;
             }
         }
 

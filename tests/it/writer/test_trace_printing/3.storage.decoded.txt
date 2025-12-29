@@ -1,4 +1,2 @@
   [2348] Counter::number()
-    ├─  storage changes:
-    │   @ 0: <warmed> 1
     └─ ← [Return] 1
