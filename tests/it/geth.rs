@@ -141,9 +141,7 @@ fn test_geth_erc7562_tracer() {
     let (ctx, inspector) = evm.ctx_inspector();
     let tx_env = ctx.tx().clone();
     let block_env = ctx.block().clone();
-    let trace = inspector
-        .get_result(None, &tx_env, &block_env, &res, ctx.db_mut())
-        .unwrap();
+    let trace = inspector.get_result(None, &tx_env, &block_env, &res, ctx.db_mut()).unwrap();
 
     match trace {
         GethTrace::Erc7562Tracer(frame) => {
