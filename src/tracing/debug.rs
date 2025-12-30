@@ -5,8 +5,9 @@ use crate::tracing::{
 use alloc::{boxed::Box, string::String};
 use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::geth::{
-    mux::MuxConfig, CallConfig, FourByteFrame, GethDebugBuiltInTracerType, GethDebugTracerType,
-    GethDebugTracingOptions, GethDefaultTracingOptions, GethTrace, NoopFrame, PreStateConfig,
+    erc7562::Erc7562Config, mux::MuxConfig, CallConfig, FourByteFrame, GethDebugBuiltInTracerType,
+    GethDebugTracerType, GethDebugTracingOptions, GethDefaultTracingOptions, GethTrace, NoopFrame,
+    PreStateConfig,
 };
 use revm::{
     context_interface::{
@@ -42,6 +43,8 @@ pub enum DebugInspector {
     Mux(MuxInspector, MuxConfig),
     /// FlatCallTracer
     FlatCallTracer(TracingInspector),
+    /// Erc7562Tracer
+    Erc7562Tracer(TracingInspector, Erc7562Config),
     /// Default tracer
     Default(TracingInspector, GethDefaultTracingOptions),
     #[cfg(feature = "js-tracer")]
@@ -104,6 +107,22 @@ impl DebugInspector {
                             TracingInspectorConfig::from_flat_call_config(&flat_call_config),
                         ))
                     }
+                    GethDebugBuiltInTracerType::Erc7562Tracer => {
+                        let config = if tracer_config.is_null() {
+                            Erc7562Config::default()
+                        } else {
+                            tracer_config
+                                .from_value()
+                                .map_err(|_| DebugInspectorError::InvalidTracerConfig)?
+                        };
+
+                        Self::Erc7562Tracer(
+                            TracingInspector::new(
+                                TracingInspectorConfig::from_geth_erc7562_config(&config),
+                            ),
+                            config,
+                        )
+                    }
                     _ => {
                         // Note: this match is non-exhaustive in case we need to add support for
                         // additional tracers
@@ -149,6 +168,7 @@ impl DebugInspector {
             Self::CallTracer(inspector, _)
             | Self::PreStateTracer(inspector, _)
             | Self::FlatCallTracer(inspector)
+            | Self::Erc7562Tracer(inspector, _)
             | Self::Default(inspector, _) => inspector.fuse(),
             Self::Noop(_) => {}
             Self::Mux(inspector, config) => {
@@ -208,6 +228,13 @@ impl DebugInspector {
                     .into_localized_transaction_traces(tx_info)
                     .into()
             }
+            Self::Erc7562Tracer(inspector, config) => {
+                inspector.set_transaction_gas_limit(tx_env.gas_limit());
+                inspector
+                    .geth_builder()
+                    .geth_erc7562_traces(config.clone(), res.result.gas_used(), db)
+                    .into()
+            }
             Self::Default(inspector, config) => {
                 inspector.set_transaction_gas_limit(tx_env.gas_limit());
                 inspector
@@ -241,6 +268,7 @@ macro_rules! delegate {
             Self::CallTracer($insp, _) => Inspector::<CTX>::$method($insp, $($arg),*),
             Self::PreStateTracer($insp, _) => Inspector::<CTX>::$method($insp, $($arg),*),
             Self::FlatCallTracer($insp) => Inspector::<CTX>::$method($insp, $($arg),*),
+            Self::Erc7562Tracer($insp, _) => Inspector::<CTX>::$method($insp, $($arg),*),
             Self::Default($insp, _) => Inspector::<CTX>::$method($insp, $($arg),*),
             Self::Noop($insp) => Inspector::<CTX>::$method($insp, $($arg),*),
             Self::Mux($insp, _) => Inspector::<CTX>::$method($insp, $($arg),*),

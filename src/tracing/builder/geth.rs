@@ -472,7 +472,7 @@ impl<'a> GethTraceBuilder<'a> {
                 if matches!(op, opcode::EXTCODESIZE | opcode::EXTCODECOPY | opcode::EXTCODEHASH) {
                     if let Some(stack) = &step.stack {
                         if let Some(item) = stack.get(stack.len().saturating_sub(1)) {
-                            let address = Address::from(item.to_be_bytes());
+                            let address = Address::from_word((*item).into());
                             ext_code_access_info.push(format!("{address:?}"));
                             if let Entry::Vacant(e) = contract_size.entry(address) {
                                 if let Ok(Some(account)) = db.basic_ref(address) {

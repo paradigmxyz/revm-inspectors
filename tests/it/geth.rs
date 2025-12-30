@@ -1,12 +1,13 @@
 //! Geth tests
 use crate::utils::deploy_contract;
-use alloy_primitives::{hex, map::HashMap, Address, Bytes, TxKind};
+use alloy_primitives::{address, hex, map::HashMap, Address, Bytes, TxKind, B256};
 use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::geth::{
-    mux::MuxConfig, CallConfig, FlatCallConfig, GethDebugBuiltInTracerType, GethDebugTracerConfig,
-    GethTrace, PreStateConfig, PreStateFrame,
+    erc7562::Erc7562Config, mux::MuxConfig, CallConfig, FlatCallConfig, GethDebugBuiltInTracerType,
+    GethDebugTracerConfig, GethDebugTracingOptions, GethTrace, PreStateConfig, PreStateFrame,
 };
 use revm::{
+    bytecode::{opcode, Bytecode},
     context::TxEnv,
     context_interface::{ContextTr, TransactTo},
     database::CacheDB,
@@ -14,9 +15,12 @@ use revm::{
     handler::EvmTr,
     inspector::InspectorEvmTr,
     primitives::hardfork::SpecId,
+    state::AccountInfo,
     Context, InspectEvm, MainBuilder, MainContext,
 };
-use revm_inspectors::tracing::{MuxInspector, TracingInspector, TracingInspectorConfig};
+use revm_inspectors::tracing::{
+    DebugInspector, MuxInspector, TracingInspector, TracingInspectorConfig,
+};
 
 #[test]
 fn test_geth_calltracer_logs() {
@@ -102,6 +106,52 @@ fn test_geth_calltracer_logs() {
     // third subcall succeeded, one log
     assert_eq!(call_frame.calls[2].logs.len(), 1);
     assert!(call_frame.calls[2].error.is_none());
+}
+
+#[test]
+fn test_geth_erc7562_tracer() {
+    let code = hex!("6001600052602060002060005500");
+    let account = address!("1000000000000000000000000000000000000001");
+    let caller = address!("1000000000000000000000000000000000000002");
+
+    let context =
+        Context::mainnet().with_db(CacheDB::<EmptyDB>::default()).modify_db_chained(|db| {
+            db.insert_account_info(
+                account,
+                AccountInfo { code: Some(Bytecode::new_raw(code.into())), ..Default::default() },
+            );
+        });
+
+    let opts = GethDebugTracingOptions::erc7562_tracer(Erc7562Config::default());
+    let mut inspector = DebugInspector::new(opts).unwrap();
+    let mut evm = context.build_mainnet().with_inspector(&mut inspector);
+
+    let res = evm
+        .inspect_tx(TxEnv {
+            caller,
+            gas_limit: 1000000,
+            kind: TransactTo::Call(account),
+            data: Bytes::default(),
+            nonce: 0,
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(res.result.is_success(), "{res:#?}");
+
+    let (ctx, inspector) = evm.ctx_inspector();
+    let tx_env = ctx.tx().clone();
+    let block_env = ctx.block().clone();
+    let trace = inspector.get_result(None, &tx_env, &block_env, &res, ctx.db_mut()).unwrap();
+
+    match trace {
+        GethTrace::Erc7562Tracer(frame) => {
+            assert!(frame.used_opcodes.contains_key(&opcode::KECCAK256));
+            assert!(frame.used_opcodes.contains_key(&opcode::SSTORE));
+            assert!(frame.accessed_slots.writes.contains_key(&B256::ZERO));
+            assert!(!frame.keccak.is_empty());
+        }
+        _ => panic!("Expected Erc7562Tracer"),
+    }
 }
 
 #[test]
