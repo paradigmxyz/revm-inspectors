@@ -650,15 +650,15 @@ where
     }
 
     fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
-        let nonce = context.journal_mut().load_account(inputs.caller).ok()?.info.nonce;
+        let nonce = context.journal_mut().load_account(inputs.caller()).ok()?.info.nonce;
         self.start_trace_on_call(
             context,
             inputs.created_address(nonce),
-            inputs.init_code.clone(),
-            inputs.value,
-            inputs.scheme.into(),
-            inputs.caller,
-            inputs.gas_limit,
+            inputs.init_code().clone(),
+            inputs.value(),
+            inputs.scheme().into(),
+            inputs.caller(),
+            inputs.gas_limit(),
             Some(false),
         );
         None
