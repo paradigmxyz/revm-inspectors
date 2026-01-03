@@ -1,2 +1,2 @@
-  [22452] Counter::increment()
+  [22518] Counter::increment()
     └─ ← [Return]

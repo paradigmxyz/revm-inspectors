@@ -18,7 +18,7 @@
   <rect width="100%" height="100%" y="0" rx="4.5" class="bg" />
 
   <text xml:space="preserve" class="container fg">
-    <tspan x="10px" y="28px"><tspan>  [4642] </tspan><tspan class="fg-green">Counter</tspan><tspan>::</tspan><tspan class="fg-green">log2</tspan><tspan>()</tspan>
+    <tspan x="10px" y="28px"><tspan>  [4664] </tspan><tspan class="fg-green">Counter</tspan><tspan>::</tspan><tspan class="fg-green">log2</tspan><tspan>()</tspan>
 </tspan>
     <tspan x="10px" y="46px"><tspan>    ├─ emit Log2(</tspan><tspan class="fg-cyan">foo: 0x0000000000000000000000000000000000000000000000000000000000000048, bar: 0x000000000000000000000000000000000000000000000000000000000000007b</tspan><tspan>)</tspan>
 </tspan>
