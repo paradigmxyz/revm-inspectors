@@ -569,15 +569,15 @@ where
     fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
         self.register_precompiles(context);
 
-        let nonce = context.journal_mut().load_account(inputs.caller).unwrap().info.nonce;
+        let nonce = context.journal_mut().load_account(inputs.caller()).unwrap().info.nonce;
         let contract = inputs.created_address(nonce);
         self.push_call(
             contract,
-            inputs.init_code.clone(),
-            inputs.value,
-            inputs.scheme.into(),
-            inputs.caller,
-            inputs.gas_limit,
+            inputs.init_code().clone(),
+            inputs.value(),
+            inputs.scheme().into(),
+            inputs.caller(),
+            inputs.gas_limit(),
         );
 
         if self.can_call_enter() {
