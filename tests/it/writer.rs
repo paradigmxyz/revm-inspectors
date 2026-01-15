@@ -1,4 +1,4 @@
-use crate::utils::{inspect_deploy_contract, write_traces_with};
+use crate::utils::{inspect_deploy_contract, write_traces, write_traces_with};
 use alloy_primitives::{address, b256, bytes, hex, Address, B256, U256};
 use alloy_sol_types::{sol, SolCall};
 use colorchoice::ColorChoice;
@@ -285,4 +285,118 @@ fn assert_traces(
             do_assert(config.clone(), ".decoded", tracer);
         }
     }
+}
+
+/// Test that empty calldata with successful call shows "receive" instead of "fallback".
+///
+/// Regression test for https://github.com/foundry-rs/foundry/issues/12962
+///
+/// When a contract is called with empty calldata and the call succeeds, the trace should
+/// show `receive()` (since that's what Solidity invokes for empty calldata calls), not
+/// `fallback()`.
+#[test]
+fn test_receive_vs_fallback_empty_calldata() {
+    // Deploy a minimal contract that just STOPs immediately (runtime = 0x00).
+    // Deploy the contract using a minimal constructor that just returns the runtime code.
+    // Constructor: PUSH1 0x01, PUSH1 0x0c, PUSH1 0x00, CODECOPY, PUSH1 0x01, PUSH1 0x00, RETURN
+    // Then the runtime code (0x00 = STOP)
+    let initcode = bytes!(
+        "6001" // PUSH1 0x01 (size of runtime code)
+        "600c" // PUSH1 0x0c (offset where runtime code starts in initcode)
+        "6000" // PUSH1 0x00 (memory destination)
+        "39"   // CODECOPY
+        "6001" // PUSH1 0x01 (size to return)
+        "6000" // PUSH1 0x00 (memory offset)
+        "f3"   // RETURN
+        "00"   // Runtime code: STOP
+    );
+
+    let mut evm = Context::mainnet()
+        .with_db(CacheDB::new(EmptyDB::default()))
+        .build_mainnet_with_inspector(TracingInspector::new(TracingInspectorConfig::all()));
+
+    let address = inspect_deploy_contract(
+        &mut evm,
+        initcode,
+        Address::default(),
+        SpecId::CANCUN,
+    )
+    .created_address()
+    .unwrap();
+
+    // Call with empty calldata - should show receive() for successful empty-data calls
+    evm.set_inspector(TracingInspector::new(TracingInspectorConfig::all()));
+    let result = evm
+        .inspect_tx_commit(
+            TxEnv::builder()
+                .data(bytes!()) // Empty calldata
+                .kind(TransactTo::Call(address))
+                .gas_priority_fee(None)
+                .nonce(1)
+                .build_fill(),
+        )
+        .unwrap();
+
+    assert!(result.is_success(), "Call with empty calldata should succeed");
+
+    let trace_output = write_traces(evm.inspector());
+
+    // The trace should show "receive" not "fallback" for empty calldata + success
+    assert!(
+        trace_output.contains("::receive"),
+        "Empty calldata call should show 'receive' in trace, got:\n{trace_output}"
+    );
+    assert!(
+        !trace_output.contains("::fallback"),
+        "Empty calldata call should NOT show 'fallback' in trace, got:\n{trace_output}"
+    );
+}
+
+/// Test that non-empty calldata (< 4 bytes) with successful call shows "fallback".
+#[test]
+fn test_fallback_short_calldata() {
+    // Simple contract that STOPs on any call
+    let initcode = bytes!(
+        "6001600c60003960016000f300" // Deploy STOP
+    );
+
+    let mut evm = Context::mainnet()
+        .with_db(CacheDB::new(EmptyDB::default()))
+        .build_mainnet_with_inspector(TracingInspector::new(TracingInspectorConfig::all()));
+
+    let address = inspect_deploy_contract(
+        &mut evm,
+        initcode,
+        Address::default(),
+        SpecId::CANCUN,
+    )
+    .created_address()
+    .unwrap();
+
+    // Call with short calldata (1-3 bytes) - should show fallback()
+    evm.set_inspector(TracingInspector::new(TracingInspectorConfig::all()));
+    let result = evm
+        .inspect_tx_commit(
+            TxEnv::builder()
+                .data(bytes!("ab")) // Short calldata (1 byte)
+                .kind(TransactTo::Call(address))
+                .gas_priority_fee(None)
+                .nonce(1)
+                .build_fill(),
+        )
+        .unwrap();
+
+    assert!(result.is_success(), "Call with short calldata should succeed");
+
+    let trace_output = write_traces(evm.inspector());
+
+    // Short non-empty calldata should show "fallback"
+    assert!(
+        trace_output.contains("::fallback("),
+        "Short calldata call should show 'fallback' in trace, got:\n{trace_output}"
+    );
+    assert!(
+        !trace_output.contains("::receive("),
+        "Short calldata call should NOT show 'receive' in trace, got:\n{trace_output}"
+    );
 }
