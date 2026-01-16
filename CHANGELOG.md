@@ -5,11 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.34.0) - 2026-01-16
+
+### Features
+
+- Stage revm to 34.0.0 ([#385](https://github.com/paradigmxyz/revm-inspectors/issues/385))
+- Add support for erc7562 tracer ([#392](https://github.com/paradigmxyz/revm-inspectors/issues/392))
+
 ## [0.33.2](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.33.2) - 2025-12-12
 
 ### Bug Fixes
 
 - Use pre code if hash matches ([#387](https://github.com/paradigmxyz/revm-inspectors/issues/387))
+
+### Miscellaneous Tasks
+
+- Release 0.33.2
 
 ### Testing
 
