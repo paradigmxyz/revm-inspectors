@@ -78,7 +78,7 @@ jobs:
           RUSTDOCFLAGS: "--cfg docsrs -D warnings"
 
   deny:
-    uses: ithacaxyz/ci/.github/workflows/deny.yml@main
+    uses: tempoxyz/ci/.github/workflows/deny.yml@main
 
   fmt:
     runs-on: ubuntu-latest
