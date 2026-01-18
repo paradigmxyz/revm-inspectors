@@ -59,6 +59,9 @@ pub mod js;
 mod mux;
 pub use mux::{Error as MuxError, MuxInspector};
 
+mod debug;
+pub use debug::{DebugInspector, DebugInspectorError};
+
 /// An inspector that collects call traces.
 ///
 /// This [Inspector] can be hooked into revm's EVM which then calls the inspector
@@ -587,7 +590,7 @@ where
         }
     }
 
-    fn log(&mut self, _interp: &mut Interpreter, _context: &mut CTX, log: Log) {
+    fn log(&mut self, _context: &mut CTX, log: Log) {
         if self.config.record_logs {
             // index starts at 0
             let log_count = self.log_count();
@@ -647,15 +650,15 @@ where
     }
 
     fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
-        let nonce = context.journal_mut().load_account(inputs.caller).ok()?.info.nonce;
+        let nonce = context.journal_mut().load_account(inputs.caller()).ok()?.info.nonce;
         self.start_trace_on_call(
             context,
             inputs.created_address(nonce),
-            inputs.init_code.clone(),
-            inputs.value,
-            inputs.scheme.into(),
-            inputs.caller,
-            inputs.gas_limit,
+            inputs.init_code().clone(),
+            inputs.value(),
+            inputs.scheme().into(),
+            inputs.caller(),
+            inputs.gas_limit(),
             Some(false),
         );
         None

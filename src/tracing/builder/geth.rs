@@ -22,7 +22,7 @@ use revm::{
     bytecode::opcode,
     context_interface::result::{HaltReasonTr, ResultAndState},
     primitives::KECCAK_EMPTY,
-    state::EvmState,
+    state::{AccountInfo, EvmState},
     DatabaseRef,
 };
 
@@ -292,19 +292,23 @@ impl<'a> GethTraceBuilder<'a> {
 
             let pre_code = code_enabled.then(|| load_account_code(&db, &db_acc)).flatten();
 
-            let mut pre_state =
-                AccountState::from_account_info(db_acc.nonce, db_acc.balance, pre_code);
-
             let mut post_state = AccountState::from_account_info(
                 changed_acc.info.nonce,
                 changed_acc.info.balance,
                 code_enabled
                     .then(|| {
-                        // Note: the changed account from the state output always holds the code
-                        changed_acc.info.code.as_ref().map(|code| code.original_bytes())
+                        if changed_acc.info.code_hash == db_acc.code_hash {
+                            pre_code.clone()
+                        } else {
+                            // Note: the changed account from the state output always holds the code
+                            changed_acc.info.code.as_ref().map(|code| code.original_bytes())
+                        }
                     })
                     .flatten(),
             );
+
+            let mut pre_state =
+                AccountState::from_account_info(db_acc.nonce, db_acc.balance, pre_code);
 
             // handle storage changes
             if storage_enabled {
@@ -316,10 +320,13 @@ impl<'a> GethTraceBuilder<'a> {
             }
 
             state_diff.pre.insert(addr, pre_state);
-            state_diff.post.insert(addr, post_state);
 
             // determine the change type
-            let pre_change = if changed_acc.is_created() {
+            // if the account was created _and_ not empty we need to treat it as modified,
+            // so that it is retained later in `diff_traces`
+            // See <https://etherscan.io/tx/0x391f4b6a382d3bcc3120adc2ea8c62003e604e487d97281129156fd284a1a89d>
+            // <https://github.com/paradigmxyz/reth/issues/19703#issuecomment-3527067849>
+            let pre_change = if changed_acc.is_created() && account_was_empty(&db_acc) {
                 AccountChangeKind::Create
             } else {
                 AccountChangeKind::Modify
@@ -331,6 +338,11 @@ impl<'a> GethTraceBuilder<'a> {
             };
 
             account_change_kinds.insert(addr, (pre_change, post_change));
+
+            // Don't insert selfdestructed accounts into post state
+            if !changed_acc.is_selfdestructed() {
+                state_diff.post.insert(addr, post_state);
+            }
         }
 
         // ensure we're only keeping changed entries
@@ -460,7 +472,7 @@ impl<'a> GethTraceBuilder<'a> {
                 if matches!(op, opcode::EXTCODESIZE | opcode::EXTCODECOPY | opcode::EXTCODEHASH) {
                     if let Some(stack) = &step.stack {
                         if let Some(item) = stack.get(stack.len().saturating_sub(1)) {
-                            let address = Address::from(item.to_be_bytes());
+                            let address = Address::from_word((*item).into());
                             ext_code_access_info.push(format!("{address:?}"));
                             if let Entry::Vacant(e) = contract_size.entry(address) {
                                 if let Ok(Some(account)) = db.basic_ref(address) {
@@ -560,6 +572,63 @@ impl<'a> GethTraceBuilder<'a> {
             CallKind::Create => CallFrameType::Create,
             CallKind::Create2 => CallFrameType::Create2,
             CallKind::AuthCall => CallFrameType::Call,
+        }
+    }
+}
+
+fn account_was_empty(account: &AccountInfo) -> bool {
+    account.balance.is_zero() && account.nonce == 0 && account.code_hash == KECCAK_EMPTY
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloy_primitives::{address, U256};
+    use revm::{
+        database::CacheDB,
+        database_interface::EmptyDB,
+        state::{Account, AccountInfo},
+    };
+
+    #[test]
+    fn prestate_diff_keeps_prefunded_created_accounts() {
+        let mut state = EvmState::default();
+        let prefunded_addr = address!("1000000000000000000000000000000000000001");
+        let empty_addr = address!("2000000000000000000000000000000000000002");
+
+        let mut prefunded_account = Account::default();
+        prefunded_account.mark_created();
+        prefunded_account.info.balance = U256::from(1);
+        prefunded_account.info.nonce = 1;
+        state.insert(prefunded_addr, prefunded_account);
+
+        let mut empty_account = Account::default();
+        empty_account.mark_created();
+        empty_account.info.nonce = 1;
+        state.insert(empty_addr, empty_account);
+
+        let mut db = CacheDB::new(EmptyDB::default());
+        db.insert_account_info(
+            prefunded_addr,
+            AccountInfo { balance: U256::from(10), ..Default::default() },
+        );
+
+        let builder = GethTraceBuilder::new(Vec::new());
+        let frame =
+            builder.geth_prestate_diff_traces(&state, db, false, false).expect("diff frame");
+
+        match frame {
+            PreStateFrame::Diff(diff) => {
+                assert!(
+                    diff.pre.contains_key(&prefunded_addr),
+                    "prefunded contract must remain in prestate diff"
+                );
+                assert!(
+                    !diff.pre.contains_key(&empty_addr),
+                    "contracts created on empty addresses are still filtered out"
+                );
+            }
+            _ => panic!("expected diff prestate frame"),
         }
     }
 }

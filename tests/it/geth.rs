@@ -1,12 +1,13 @@
 //! Geth tests
 use crate::utils::deploy_contract;
-use alloy_primitives::{hex, map::HashMap, Address, Bytes, TxKind};
+use alloy_primitives::{address, hex, map::HashMap, Address, Bytes, TxKind, B256};
 use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::geth::{
-    mux::MuxConfig, CallConfig, FlatCallConfig, GethDebugBuiltInTracerType, GethDebugTracerConfig,
-    GethTrace, PreStateConfig, PreStateFrame,
+    erc7562::Erc7562Config, mux::MuxConfig, CallConfig, FlatCallConfig, GethDebugBuiltInTracerType,
+    GethDebugTracerConfig, GethDebugTracingOptions, GethTrace, PreStateConfig, PreStateFrame,
 };
 use revm::{
+    bytecode::{opcode, Bytecode},
     context::TxEnv,
     context_interface::{ContextTr, TransactTo},
     database::CacheDB,
@@ -14,9 +15,12 @@ use revm::{
     handler::EvmTr,
     inspector::InspectorEvmTr,
     primitives::hardfork::SpecId,
+    state::AccountInfo,
     Context, InspectEvm, MainBuilder, MainContext,
 };
-use revm_inspectors::tracing::{MuxInspector, TracingInspector, TracingInspectorConfig};
+use revm_inspectors::tracing::{
+    DebugInspector, MuxInspector, TracingInspector, TracingInspectorConfig,
+};
 
 #[test]
 fn test_geth_calltracer_logs() {
@@ -102,6 +106,52 @@ fn test_geth_calltracer_logs() {
     // third subcall succeeded, one log
     assert_eq!(call_frame.calls[2].logs.len(), 1);
     assert!(call_frame.calls[2].error.is_none());
+}
+
+#[test]
+fn test_geth_erc7562_tracer() {
+    let code = hex!("6001600052602060002060005500");
+    let account = address!("1000000000000000000000000000000000000001");
+    let caller = address!("1000000000000000000000000000000000000002");
+
+    let context =
+        Context::mainnet().with_db(CacheDB::<EmptyDB>::default()).modify_db_chained(|db| {
+            db.insert_account_info(
+                account,
+                AccountInfo { code: Some(Bytecode::new_raw(code.into())), ..Default::default() },
+            );
+        });
+
+    let opts = GethDebugTracingOptions::erc7562_tracer(Erc7562Config::default());
+    let mut inspector = DebugInspector::new(opts).unwrap();
+    let mut evm = context.build_mainnet().with_inspector(&mut inspector);
+
+    let res = evm
+        .inspect_tx(TxEnv {
+            caller,
+            gas_limit: 1000000,
+            kind: TransactTo::Call(account),
+            data: Bytes::default(),
+            nonce: 0,
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(res.result.is_success(), "{res:#?}");
+
+    let (ctx, inspector) = evm.ctx_inspector();
+    let tx_env = ctx.tx().clone();
+    let block_env = ctx.block().clone();
+    let trace = inspector.get_result(None, &tx_env, &block_env, &res, ctx.db_mut()).unwrap();
+
+    match trace {
+        GethTrace::Erc7562Tracer(frame) => {
+            assert!(frame.used_opcodes.contains_key(&opcode::KECCAK256));
+            assert!(frame.used_opcodes.contains_key(&opcode::SSTORE));
+            assert!(frame.accessed_slots.writes.contains_key(&B256::ZERO));
+            assert!(!frame.keccak.is_empty());
+        }
+        _ => panic!("Expected Erc7562Tracer"),
+    }
 }
 
 #[test]
@@ -700,4 +750,112 @@ fn test_geth_calltracer_null_bytes_revert_reason_omitted() {
             .contains_key("revertReason"),
         "revertReason field should not be present in JSON when containing only null bytes"
     );
+}
+
+#[test]
+fn test_geth_prestate_diff_selfdestruct_london() {
+    test_geth_prestate_diff_selfdestruct(SpecId::LONDON);
+}
+
+#[test]
+fn test_geth_prestate_diff_selfdestruct_cancun() {
+    test_geth_prestate_diff_selfdestruct(SpecId::CANCUN);
+}
+
+fn test_geth_prestate_diff_selfdestruct(spec_id: SpecId) {
+    /*
+    contract DummySelfDestruct {
+        constructor() payable {}
+        function close() public {
+            selfdestruct(payable(msg.sender));
+        }
+    }
+    */
+
+    // simple contract that selfdestructs when a function is called
+    let code = hex!("608080604052606b908160108239f3fe6004361015600c57600080fd5b6000803560e01c6343d726d614602157600080fd5b346032578060031936011260325733ff5b80fdfea2646970667358221220f393fc6be90126d52315ccd38ae6608ac4fd5bef4c59e119e280b2a2b149d0dc64736f6c63430008190033");
+
+    let deployer = alloy_primitives::address!("341348115259a8bf69f1f50101c227fced83bac6");
+    let value = alloy_primitives::U256::from(69);
+
+    // Deploy the contract in a separate transaction first
+    let mut context = Context::mainnet()
+        .with_db(CacheDB::<EmptyDB>::default())
+        .modify_db_chained(|db| {
+            db.insert_account_info(
+                deployer,
+                revm::state::AccountInfo { balance: value, ..Default::default() },
+            );
+        })
+        .modify_cfg_chained(|cfg| cfg.spec = spec_id);
+
+    context.modify_tx(|tx| tx.value = value);
+    let mut evm = context.build_mainnet();
+    let output = deploy_contract(&mut evm, code.into(), deployer, spec_id);
+    let addr = output.created_address().unwrap();
+
+    // Create inspector with diff mode enabled
+    let prestate_config = PreStateConfig {
+        diff_mode: Some(true),
+        disable_code: Some(false),
+        disable_storage: Some(false),
+    };
+    let insp =
+        TracingInspector::new(TracingInspectorConfig::from_geth_prestate_config(&prestate_config));
+
+    let db = evm.ctx().db().clone();
+    let mut evm = evm.with_inspector(insp);
+
+    let res = evm
+        .inspect_tx(TxEnv {
+            caller: deployer,
+            gas_limit: 1000000,
+            kind: TransactTo::Call(addr),
+            data: hex!("43d726d6").into(),
+            nonce: 1,
+            ..Default::default()
+        })
+        .unwrap();
+
+    assert!(res.result.is_success(), "{res:#?}");
+
+    // Get the prestate diff traces
+    let insp = evm.into_inspector();
+    let frame = insp
+        .with_transaction_gas_used(res.result.gas_used())
+        .geth_builder()
+        .geth_prestate_traces(&res, &prestate_config, db)
+        .unwrap();
+
+    match frame {
+        PreStateFrame::Diff(diff_mode) => {
+            // In LONDON, selfdestruct actually destroys the account
+            // In CANCUN+, due to EIP-6780, selfdestruct on an existing contract only transfers
+            // funds and doesn't actually destroy it
+            let is_post_cancun = spec_id >= SpecId::CANCUN;
+
+            if is_post_cancun {
+                // In CANCUN+, the account is NOT selfdestructed (just balance transfer)
+                // so it WILL be in post state with a changed balance
+                assert!(
+                    diff_mode.post.contains_key(&addr),
+                    "In CANCUN+, non-selfdestructed account should be in post state"
+                );
+            } else {
+                // In pre-CANCUN (e.g. LONDON), the account IS selfdestructed
+                // so it should NOT be in the post state
+                assert!(
+                    !diff_mode.post.contains_key(&addr),
+                    "Selfdestructed account should NOT be in post state (LONDON)"
+                );
+
+                // The account should be in pre state since it existed before
+                assert!(
+                    diff_mode.pre.contains_key(&addr),
+                    "Selfdestructed account should be in pre state (LONDON)"
+                );
+            }
+        }
+        _ => panic!("Expected Diff mode PreStateFrame"),
+    }
 }

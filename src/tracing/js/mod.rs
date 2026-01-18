@@ -16,7 +16,7 @@ use alloc::{
     string::{String, ToString},
     vec::Vec,
 };
-use alloy_primitives::{Address, Bytes, Log, U256};
+use alloy_primitives::{Address, Bytes, U256};
 pub use boa_engine::vm::RuntimeLimits;
 use boa_engine::{js_string, Context, JsError, JsObject, JsResult, JsValue, Source};
 use core::borrow::Borrow;
@@ -136,14 +136,13 @@ impl JsInspector {
         let obj =
             ctx.eval(Source::from_bytes(code.as_bytes())).map_err(JsInspectorError::EvalCode)?;
 
-        let obj = obj.as_object().cloned().ok_or(JsInspectorError::ExpectedJsObject)?;
+        let obj = obj.as_object().ok_or(JsInspectorError::ExpectedJsObject)?;
 
         // ensure all the fields are callables, if present
 
         let result_fn = obj
             .get(js_string!("result"), &mut ctx)?
             .as_object()
-            .cloned()
             .ok_or(JsInspectorError::ResultFunctionMissing)?;
         if !result_fn.is_callable() {
             return Err(JsInspectorError::ResultFunctionMissing);
@@ -152,21 +151,17 @@ impl JsInspector {
         let fault_fn = obj
             .get(js_string!("fault"), &mut ctx)?
             .as_object()
-            .cloned()
             .ok_or(JsInspectorError::FaultFunctionMissing)?;
         if !fault_fn.is_callable() {
             return Err(JsInspectorError::FaultFunctionMissing);
         }
 
-        let enter_fn = obj
-            .get(js_string!("enter"), &mut ctx)?
-            .as_object()
-            .cloned()
-            .filter(|o| o.is_callable());
+        let enter_fn =
+            obj.get(js_string!("enter"), &mut ctx)?.as_object().filter(|o| o.is_callable());
         let exit_fn =
-            obj.get(js_string!("exit"), &mut ctx)?.as_object().cloned().filter(|o| o.is_callable());
+            obj.get(js_string!("exit"), &mut ctx)?.as_object().filter(|o| o.is_callable());
         let step_fn =
-            obj.get(js_string!("step"), &mut ctx)?.as_object().cloned().filter(|o| o.is_callable());
+            obj.get(js_string!("step"), &mut ctx)?.as_object().filter(|o| o.is_callable());
 
         let _js_config_value =
             JsValue::from_json(&config, &mut ctx).map_err(JsInspectorError::InvalidJsonConfig)?;
@@ -517,8 +512,6 @@ where
         }
     }
 
-    fn log(&mut self, _interp: &mut Interpreter, _context: &mut CTX, _log: Log) {}
-
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
         self.register_precompiles(context);
 
@@ -576,15 +569,15 @@ where
     fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
         self.register_precompiles(context);
 
-        let nonce = context.journal_mut().load_account(inputs.caller).unwrap().info.nonce;
+        let nonce = context.journal_mut().load_account(inputs.caller()).unwrap().info.nonce;
         let contract = inputs.created_address(nonce);
         self.push_call(
             contract,
-            inputs.init_code.clone(),
-            inputs.value,
-            inputs.scheme.into(),
-            inputs.caller,
-            inputs.gas_limit,
+            inputs.init_code().clone(),
+            inputs.value(),
+            inputs.scheme().into(),
+            inputs.caller(),
+            inputs.gas_limit(),
         );
 
         if self.can_call_enter() {
@@ -986,12 +979,12 @@ mod tests {
                 this.res.push(toHex(slice(hex, 0, 2)));
                 this.res.push(toHex(slice(hex, 2, 4)));
                 this.res.push(toHex(slice(hex, 4, 6)));
-                
+
                 // Test slicing an array
                 var arr = [0x01, 0x02, 0x03, 0x04, 0x05];
                 this.res.push(toHex(slice(arr, 0, 3)));
                 this.res.push(toHex(slice(arr, 1, 4)));
-                
+
                 // Test slicing a Uint8Array
                 var uint8 = new Uint8Array([0xff, 0xee, 0xdd, 0xcc, 0xbb]);
                 this.res.push(toHex(slice(uint8, 0, 2)));

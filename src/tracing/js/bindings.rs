@@ -1142,10 +1142,8 @@ mod tests {
 
         let obj = res.as_object().unwrap();
 
-        let result_fn =
-            obj.get(js_string!("result"), &mut context).unwrap().as_object().cloned().unwrap();
-        let setup_fn =
-            obj.get(js_string!("setup"), &mut context).unwrap().as_object().cloned().unwrap();
+        let result_fn = obj.get(js_string!("result"), &mut context).unwrap().as_object().unwrap();
+        let setup_fn = obj.get(js_string!("setup"), &mut context).unwrap().as_object().unwrap();
 
         let db = CacheDB::new(EmptyDB::new());
         let state = EvmState::default();
@@ -1184,10 +1182,8 @@ mod tests {
 
         let obj = eval.as_object().unwrap();
 
-        let result_fn =
-            obj.get(js_string!("result"), &mut context).unwrap().as_object().cloned().unwrap();
-        let step_fn =
-            obj.get(js_string!("step"), &mut context).unwrap().as_object().cloned().unwrap();
+        let result_fn = obj.get(js_string!("result"), &mut context).unwrap().as_object().unwrap();
+        let step_fn = obj.get(js_string!("step"), &mut context).unwrap().as_object().unwrap();
 
         let mut stack = Stack::new();
         let _ = stack.push(U256::from(35000));
@@ -1276,10 +1272,8 @@ mod tests {
 
         let obj = eval.as_object().unwrap();
 
-        let result_fn =
-            obj.get(js_string!("result"), &mut context).unwrap().as_object().cloned().unwrap();
-        let step_fn =
-            obj.get(js_string!("step"), &mut context).unwrap().as_object().cloned().unwrap();
+        let result_fn = obj.get(js_string!("result"), &mut context).unwrap().as_object().unwrap();
+        let step_fn = obj.get(js_string!("step"), &mut context).unwrap().as_object().unwrap();
 
         let mut stack = Stack::new();
         let _ = stack.push(U256::from(35000));
