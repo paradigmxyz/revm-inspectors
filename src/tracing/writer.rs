@@ -501,8 +501,11 @@ impl<W: Write> TraceWriter<W> {
         // writes
         for step in &node.trace.steps {
             if let Some(change) = &step.storage_change {
-                let (_first, last) = changes_map.entry(&change.key).or_insert((change, change));
-                *last = change;
+                // Only handle storage changes, signalled by `had_value` being `Some`.
+                if change.had_value.is_some() {
+                    let (_first, last) = changes_map.entry(&change.key).or_insert((change, change));
+                    *last = change;
+                }
             }
         }
 

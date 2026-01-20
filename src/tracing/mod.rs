@@ -539,26 +539,33 @@ impl TracingInspector {
         if self.config.record_state_diff && journal.len() != self.last_journal_len {
             let op = step.op.get();
 
-            let journal_entry = journal.last();
+            step.storage_change = if matches!(op, opcode::SLOAD | opcode::SSTORE) {
+                let reason = match op {
+                    opcode::SLOAD => StorageChangeReason::SLOAD,
+                    opcode::SSTORE => StorageChangeReason::SSTORE,
+                    _ => unreachable!(),
+                };
 
-            step.storage_change = match (op, journal_entry) {
-                (
-                    opcode::SLOAD | opcode::SSTORE,
-                    Some(JournalEntry::StorageChanged { address, key, had_value }),
-                ) => {
-                    // SAFETY: (Address,key) exists if part if StorageChange
-                    let value =
-                        context.journal_ref().evm_state()[address].storage[key].present_value();
-                    let reason = match op {
-                        opcode::SLOAD => StorageChangeReason::SLOAD,
-                        opcode::SSTORE => StorageChangeReason::SSTORE,
-                        _ => unreachable!(),
-                    };
-                    let change =
-                        StorageChange { key: *key, value, had_value: Some(*had_value), reason };
-                    Some(Box::new(change))
+                match journal.last() {
+                    Some(JournalEntry::StorageChanged { address, key, had_value }) => {
+                        // SAFETY: (Address,key) exists if part if StorageChange
+                        let value =
+                            context.journal_ref().evm_state()[address].storage[key].present_value();
+                        let change =
+                            StorageChange { key: *key, value, had_value: Some(*had_value), reason };
+                        Some(Box::new(change))
+                    }
+                    Some(JournalEntry::StorageWarmed { key, address }) => {
+                        // SAFETY: (Address,key) exists if part if StorageChange
+                        let value =
+                            context.journal_ref().evm_state()[address].storage[key].present_value();
+                        let change = StorageChange { key: *key, value, had_value: None, reason };
+                        Some(Box::new(change))
+                    }
+                    _ => None,
                 }
-                _ => None,
+            } else {
+                None
             };
         }
 
