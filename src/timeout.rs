@@ -250,12 +250,7 @@ where
         None
     }
 
-    fn create_end(
-        &mut self,
-        ctx: &mut CTX,
-        _inputs: &CreateInputs,
-        _outcome: &mut CreateOutcome,
-    ) {
+    fn create_end(&mut self, ctx: &mut CTX, _inputs: &CreateInputs, _outcome: &mut CreateOutcome) {
         self.check_and_set_error(ctx);
     }
 }
