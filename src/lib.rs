@@ -36,4 +36,7 @@ pub mod edge_cov;
 /// An inspector for tracking storage access.
 pub mod storage;
 
+/// Timeout and cancellation inspectors for limiting EVM execution.
+pub mod timeout;
+
 pub use colorchoice::ColorChoice;
