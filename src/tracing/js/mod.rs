@@ -1,5 +1,6 @@
 //! Javascript inspector
 
+use crate::timeout::{check_timeout, check_timeout_end, check_timeout_step};
 use crate::tracing::{
     config::TraceStyle,
     js::{
@@ -24,7 +25,6 @@ use revm::{
     bytecode::OpCode,
     context::JournalTr,
     context_interface::{
-        context::ContextError,
         result::{ExecutionResult, HaltReasonTr, Output, ResultAndState},
         Block, ContextTr, TransactTo, Transaction,
     },
@@ -451,16 +451,8 @@ where
     }
 
     fn step(&mut self, interp: &mut Interpreter, context: &mut CTX) {
-        // Check timeout during step if interval is configured
-        if let Some(ref config) = self.timeout_config {
-            if self.timeout_state.should_check_step(config)
-                && self.timeout_state.should_stop(config)
-            {
-                let msg = self.timeout_state.error_message(config);
-                *context.error() = Err(ContextError::Custom(msg.to_string()));
-                return;
-            }
-        }
+        check_timeout_step!(self, context);
+
         // if this is a revert we need to manually record this so that we can use it in the
         // step_end fn
         self.last_start_step_pc = Some(interp.bytecode.pc());
@@ -553,14 +545,7 @@ where
     }
 
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
-        // Check timeout at call boundaries
-        if let Some(ref config) = self.timeout_config {
-            if self.timeout_state.should_stop(config) {
-                let msg = self.timeout_state.error_message(config);
-                *context.error() = Err(ContextError::Custom(msg.to_string()));
-                return None;
-            }
-        }
+        check_timeout!(self, context);
 
         self.register_precompiles(context);
 
@@ -601,13 +586,7 @@ where
     }
 
     fn call_end(&mut self, context: &mut CTX, _inputs: &CallInputs, outcome: &mut CallOutcome) {
-        // Check timeout at call end
-        if let Some(ref config) = self.timeout_config {
-            if self.timeout_state.should_stop(config) {
-                let msg = self.timeout_state.error_message(config);
-                *context.error() = Err(ContextError::Custom(msg.to_string()));
-            }
-        }
+        check_timeout_end!(self, context);
 
         if self.can_call_exit() {
             let frame_result = FrameResult {
@@ -624,14 +603,7 @@ where
     }
 
     fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
-        // Check timeout at create boundaries
-        if let Some(ref config) = self.timeout_config {
-            if self.timeout_state.should_stop(config) {
-                let msg = self.timeout_state.error_message(config);
-                *context.error() = Err(ContextError::Custom(msg.to_string()));
-                return None;
-            }
-        }
+        check_timeout!(self, context);
 
         self.register_precompiles(context);
 
@@ -664,13 +636,7 @@ where
         _inputs: &CreateInputs,
         outcome: &mut CreateOutcome,
     ) {
-        // Check timeout at create end
-        if let Some(ref config) = self.timeout_config {
-            if self.timeout_state.should_stop(config) {
-                let msg = self.timeout_state.error_message(config);
-                *context.error() = Err(ContextError::Custom(msg.to_string()));
-            }
-        }
+        check_timeout_end!(self, context);
 
         if self.can_call_exit() {
             let frame_result = FrameResult {

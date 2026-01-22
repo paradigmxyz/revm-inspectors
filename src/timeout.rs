@@ -1,11 +1,9 @@
 //! Timeout configuration for limiting EVM execution time.
 //!
 //! This module provides [`TimeoutConfig`] for configuring execution time limits
-//! and external cancellation signals. It can be used with [`TracingInspector`] and
-//! [`JsInspector`] via their timeout configuration methods.
-//!
-//! [`TracingInspector`]: crate::tracing::TracingInspector
-//! [`JsInspector`]: crate::tracing::js::JsInspector
+//! and external cancellation signals. It can be used with
+//! [`TracingInspector`](crate::tracing::TracingInspector) and
+//! [`JsInspector`](crate::tracing::js::JsInspector) via their timeout configuration methods.
 //!
 //! # Example
 //!
@@ -193,6 +191,59 @@ impl TimeoutState {
         "execution cancelled"
     }
 }
+
+/// Macro to check timeout at call/create boundaries and return early if triggered.
+///
+/// Use this in `call` and `create` inspector methods.
+macro_rules! check_timeout {
+    ($self:expr, $ctx:expr) => {
+        if let Some(ref config) = $self.timeout_config {
+            if $self.timeout_state.should_stop(config) {
+                let msg = $self.timeout_state.error_message(config);
+                *$ctx.error() =
+                    Err(revm::context_interface::context::ContextError::Custom(msg.to_string()));
+                return None;
+            }
+        }
+    };
+}
+
+/// Macro to check timeout at call/create end boundaries.
+///
+/// Use this in `call_end` and `create_end` inspector methods.
+macro_rules! check_timeout_end {
+    ($self:expr, $ctx:expr) => {
+        if let Some(ref config) = $self.timeout_config {
+            if $self.timeout_state.should_stop(config) {
+                let msg = $self.timeout_state.error_message(config);
+                *$ctx.error() =
+                    Err(revm::context_interface::context::ContextError::Custom(msg.to_string()));
+            }
+        }
+    };
+}
+
+/// Macro to check timeout during step execution with interval checking.
+///
+/// Use this in `step` inspector methods.
+macro_rules! check_timeout_step {
+    ($self:expr, $ctx:expr) => {
+        if let Some(ref config) = $self.timeout_config {
+            if $self.timeout_state.should_check_step(config)
+                && $self.timeout_state.should_stop(config)
+            {
+                let msg = $self.timeout_state.error_message(config);
+                *$ctx.error() =
+                    Err(revm::context_interface::context::ContextError::Custom(msg.to_string()));
+                return;
+            }
+        }
+    };
+}
+
+pub(crate) use check_timeout;
+pub(crate) use check_timeout_end;
+pub(crate) use check_timeout_step;
 
 #[cfg(all(test, feature = "std"))]
 mod tests {
