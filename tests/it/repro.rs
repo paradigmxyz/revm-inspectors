@@ -29,14 +29,9 @@ use alloy_hardforks::{ethereum::mainnet::*, EthereumHardfork};
 use alloy_primitives::{Address, Bytes, U256};
 use alloy_rpc_types_trace::geth::{AccountState, PreStateConfig, PreStateFrame};
 use revm::{
-    bytecode::Bytecode,
-    context::TxEnv,
-    context_interface::TransactTo,
-    database::CacheDB,
-    database_interface::EmptyDB,
-    primitives::hardfork::SpecId,
-    state::AccountInfo,
-    Context, InspectEvm, MainBuilder, MainContext,
+    bytecode::Bytecode, context::TxEnv, context_interface::TransactTo, database::CacheDB,
+    database_interface::EmptyDB, primitives::hardfork::SpecId, state::AccountInfo, Context,
+    InspectEvm, MainBuilder, MainContext,
 };
 use revm_inspectors::tracing::{TracingInspector, TracingInspectorConfig};
 use serde::Deserialize;
@@ -201,8 +196,6 @@ impl ReproContext {
             ..Default::default()
         }
     }
-
-
 }
 
 const TX_SELFDESTRUCT: &str = include_str!("../../testdata/repro/tx-selfdestruct.json");
