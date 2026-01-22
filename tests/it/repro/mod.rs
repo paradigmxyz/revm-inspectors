@@ -3,30 +3,44 @@
 //! This module provides reusable tooling for replaying transactions with prestate data
 //! captured from mainnet using the prestate tracer.
 //!
+//! The prestate JSON fixture should be the raw RPC response from `debug_traceCall` or
+//! `debug_traceTransaction` with the prestate tracer. Transaction data is provided
+//! separately as a constructed `TxEnv`.
+//!
 //! # Example
 //!
 //! ```ignore
 //! use crate::repro::ReproContext;
 //!
-//! const FIXTURE: &str = include_str!("../../../testdata/repro/my-fixture.json");
+//! // Raw prestate tracer RPC response (copy-paste from RPC)
+//! const PRESTATE: &str = include_str!("../../../testdata/repro/my-prestate.json");
 //!
 //! #[test]
 //! fn test_my_trace() {
-//!     let ctx = ReproContext::load(FIXTURE);
-//!     let config = PreStateConfig::default();
+//!     let ctx = ReproContext::from_prestate_response(PRESTATE)
+//!         .with_block_number(19660754); // or .with_spec_id(SpecId::CANCUN)
+//!
+//!     // Construct TxEnv from transaction data
+//!     let tx_env = TxEnv {
+//!         caller: address!("..."),
+//!         kind: TransactTo::Call(address!("...")),
+//!         data: hex!("...").into(),
+//!         nonce: 123,
+//!         gas_limit: 150000,
+//!         ..Default::default()
+//!     };
 //!
 //!     let mut inspector = TracingInspector::new(
-//!         TracingInspectorConfig::from_geth_prestate_config(&config)
+//!         TracingInspectorConfig::from_geth_prestate_config(&PreStateConfig::default())
 //!     );
 //!
-//!     let db = ctx.db.clone();
 //!     let mut evm = Context::mainnet()
 //!         .with_db(ctx.db.clone())
 //!         .modify_cfg_chained(|cfg| cfg.spec = ctx.spec_id)
 //!         .build_mainnet()
 //!         .with_inspector(&mut inspector);
 //!
-//!     let res = evm.inspect_tx(ctx.tx_env()).unwrap();
+//!     let res = evm.inspect_tx(tx_env).unwrap();
 //!     // ... assertions on trace results
 //! }
 //! ```
@@ -34,34 +48,14 @@
 mod prestate;
 
 use alloy_hardforks::{ethereum::mainnet::*, EthereumHardfork};
-use alloy_primitives::{Address, Bytes, U256};
+use alloy_primitives::Address;
 use alloy_rpc_types_trace::geth::AccountState;
 use revm::{
-    bytecode::Bytecode, context::TxEnv, context_interface::TransactTo, database::CacheDB,
-    database_interface::EmptyDB, primitives::hardfork::SpecId, state::AccountInfo,
+    bytecode::Bytecode, database::CacheDB, database_interface::EmptyDB,
+    primitives::hardfork::SpecId, state::AccountInfo,
 };
 use serde::Deserialize;
 use std::collections::BTreeMap;
-
-/// A test fixture containing transaction and prestate data.
-#[derive(Debug, Deserialize)]
-pub struct ReproTestFixture {
-    pub description: String,
-    pub block_number: u64,
-    pub transaction: TxData,
-    pub prestate: BTreeMap<Address, AccountState>,
-}
-
-/// Transaction data from a fixture.
-#[derive(Debug, Deserialize)]
-pub struct TxData {
-    pub from: Address,
-    pub to: Option<Address>,
-    pub input: Bytes,
-    pub value: Option<U256>,
-    pub gas: U256,
-    pub nonce: U256,
-}
 
 /// Convert an Ethereum hardfork to a revm SpecId.
 pub fn spec_id_from_ethereum_hardfork(hardfork: EthereumHardfork) -> SpecId {
@@ -163,44 +157,73 @@ pub fn build_db_from_prestate(prestate: &BTreeMap<Address, AccountState>) -> Cac
     db
 }
 
-/// Context for replaying a transaction from a fixture.
-#[derive(Debug)]
+/// Wrapper for parsing raw prestate tracer RPC response.
+///
+/// Handles both direct prestate maps and JSON-RPC wrapped responses.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum PrestateResponse {
+    /// Direct prestate map (e.g., from `result` field)
+    Direct(BTreeMap<Address, AccountState>),
+    /// JSON-RPC wrapped response
+    Wrapped { result: BTreeMap<Address, AccountState> },
+}
+
+impl PrestateResponse {
+    fn into_prestate(self) -> BTreeMap<Address, AccountState> {
+        match self {
+            Self::Direct(prestate) => prestate,
+            Self::Wrapped { result } => result,
+        }
+    }
+}
+
+/// Context for replaying a transaction with prestate data.
+///
+/// The prestate is loaded from a JSON fixture (raw RPC response format).
+/// Transaction data is provided separately via RLP bytes or constructed `TxEnv`.
+#[derive(Debug, Clone)]
 pub struct ReproContext {
-    pub fixture: ReproTestFixture,
+    /// The prestate accounts loaded from the fixture.
+    pub prestate: BTreeMap<Address, AccountState>,
+    /// The EVM spec to use for execution.
     pub spec_id: SpecId,
+    /// The database populated with prestate.
     pub db: CacheDB<EmptyDB>,
 }
 
 impl ReproContext {
-    /// Load a ReproContext from a JSON fixture string.
-    pub fn load(json: &str) -> Self {
-        let fixture: ReproTestFixture = serde_json::from_str(json).expect("valid fixture");
-        let spec_id = spec_id_from_block(fixture.block_number);
-        let db = build_db_from_prestate(&fixture.prestate);
+    /// Create a ReproContext from a raw prestate tracer RPC response.
+    ///
+    /// Accepts both the raw `result` field content or the full JSON-RPC response.
+    ///
+    /// # Example
+    /// ```ignore
+    /// // Direct prestate map
+    /// let ctx = ReproContext::from_prestate_response(r#"{"0x1234...": {"balance": "0x0"}}"#);
+    ///
+    /// // Or full JSON-RPC response
+    /// let ctx = ReproContext::from_prestate_response(r#"{"jsonrpc":"2.0","id":1,"result":{...}}"#);
+    /// ```
+    pub fn from_prestate_response(json: &str) -> Self {
+        let response: PrestateResponse = serde_json::from_str(json).expect("valid prestate JSON");
+        let prestate = response.into_prestate();
+        let db = build_db_from_prestate(&prestate);
 
-        Self { fixture, spec_id, db }
+        Self { prestate, spec_id: SpecId::PRAGUE, db }
     }
 
-    /// Load a ReproContext with a specific SpecId override.
-    #[allow(dead_code)]
-    pub fn load_with_spec(json: &str, spec_id: SpecId) -> Self {
-        let fixture: ReproTestFixture = serde_json::from_str(json).expect("valid fixture");
-        let db = build_db_from_prestate(&fixture.prestate);
-
-        Self { fixture, spec_id, db }
+    /// Set the spec ID (hardfork) for EVM execution.
+    #[must_use]
+    pub fn with_spec_id(mut self, spec_id: SpecId) -> Self {
+        self.spec_id = spec_id;
+        self
     }
 
-    /// Create a TxEnv from the fixture's transaction data.
-    pub fn tx_env(&self) -> TxEnv {
-        let tx = &self.fixture.transaction;
-        TxEnv {
-            caller: tx.from,
-            gas_limit: tx.gas.try_into().unwrap_or(u64::MAX),
-            kind: tx.to.map(TransactTo::Call).unwrap_or(TransactTo::Create),
-            data: tx.input.clone(),
-            value: tx.value.unwrap_or_default(),
-            nonce: tx.nonce.try_into().unwrap_or(0),
-            ..Default::default()
-        }
+    /// Set the spec ID based on a mainnet block number.
+    #[must_use]
+    pub fn with_block_number(mut self, block_number: u64) -> Self {
+        self.spec_id = spec_id_from_block(block_number);
+        self
     }
 }

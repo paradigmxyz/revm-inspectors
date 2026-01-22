@@ -1,15 +1,7 @@
 {
-  "description": "Mainnet tx 0x391f4b6a382d3bcc3120adc2ea8c62003e604e487d97281129156fd284a1a89d - selfdestruct via USDT withdrawal",
-  "block_number": 19660754,
-  "transaction": {
-    "from": "0xa7fb5ca286fc3fd67525629048a4de3ba24cba2e",
-    "to": "0xc77ad0a71008d7094a62cfbd250a2eb2afdf2776",
-    "input": "0xf3fef3a3000000000000000000000000dac17f958d2ee523a2206206994597c13d831ec700000000000000000000000000000000000000000000000000000000000f6b64",
-    "value": "0x0",
-    "gas": "0x249f0",
-    "nonce": "0x39af8"
-  },
-  "prestate": {
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": {
     "0x5cf6756af36644fc13b2d5d8637a50ae7e6c5fef": {
       "balance": "0x1b1989a1deedbd"
     },
