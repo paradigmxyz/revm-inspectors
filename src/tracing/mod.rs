@@ -1,5 +1,6 @@
 use crate::{
     opcode::immediate_size,
+    timeout::{TimeoutConfig, TimeoutState},
     tracing::{
         arena::PushTraceKind,
         types::{
@@ -9,12 +10,12 @@ use crate::{
         utils::gas_used,
     },
 };
-use alloc::{boxed::Box, vec::Vec};
+use alloc::{boxed::Box, string::ToString, vec::Vec};
 use core::{borrow::Borrow, mem};
 use revm::{
     bytecode::opcode::{self, OpCode},
     context::{JournalTr, LocalContextTr},
-    context_interface::ContextTr,
+    context_interface::{context::ContextError, ContextTr},
     inspector::JournalExt,
     interpreter::{
         interpreter_types::{Immediates, Jumps, LoopControl, ReturnData, RuntimeFlag},
@@ -92,12 +93,48 @@ pub struct TracingInspector {
     ///
     /// All `Vec<CallTraceStep>` are always empty but may have capacity.
     reusable_step_vecs: Vec<Vec<CallTraceStep>>,
+    /// Optional timeout configuration.
+    timeout_config: Option<TimeoutConfig>,
+    /// Timeout state tracking.
+    timeout_state: TimeoutState,
 }
 
 impl TracingInspector {
     /// Returns a new instance for the given config
     pub fn new(config: TracingInspectorConfig) -> Self {
         Self { config, ..Default::default() }
+    }
+
+    /// Set a timeout configuration for this inspector.
+    ///
+    /// When configured, the inspector will check for timeout/cancellation at call boundaries
+    /// and optionally during step execution (if a check interval is set).
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use revm_inspectors::timeout::TimeoutConfig;
+    /// use revm_inspectors::tracing::{TracingInspector, TracingInspectorConfig};
+    /// use std::time::Duration;
+    ///
+    /// let timeout = TimeoutConfig::new(Duration::from_secs(5))
+    ///     .with_check_interval(1000);
+    /// let inspector = TracingInspector::new(TracingInspectorConfig::default_geth())
+    ///     .with_timeout(timeout);
+    /// ```
+    pub fn with_timeout(mut self, timeout: TimeoutConfig) -> Self {
+        self.timeout_config = Some(timeout);
+        self
+    }
+
+    /// Set a timeout configuration for this inspector.
+    pub fn set_timeout(&mut self, timeout: TimeoutConfig) {
+        self.timeout_config = Some(timeout);
+    }
+
+    /// Returns the timeout configuration if set.
+    pub fn timeout_config(&self) -> Option<&TimeoutConfig> {
+        self.timeout_config.as_ref()
     }
 
     /// Resets the inspector to its initial state of [Self::new].
@@ -113,10 +150,13 @@ impl TracingInspector {
             last_journal_len,
             spec_id,
             record_step_end,
+            timeout_state,
             // kept
             config,
             reusable_step_vecs,
+            timeout_config,
         } = self;
+        let _ = timeout_config;
 
         // if we record steps we can reuse the individual calltracestep vecs
         if config.record_steps {
@@ -135,6 +175,7 @@ impl TracingInspector {
         spec_id.take();
         *last_journal_len = 0;
         *record_step_end = false;
+        *timeout_state = TimeoutState::default();
     }
 
     /// Resets the inspector to it's initial state of [Self::new].
@@ -583,8 +624,23 @@ impl<CTX> Inspector<CTX> for TracingInspector
 where
     CTX: ContextTr<Journal: JournalExt>,
 {
+    fn initialize_interp(&mut self, _interp: &mut Interpreter, _context: &mut CTX) {
+        self.timeout_state.reset();
+    }
+
     #[inline]
     fn step(&mut self, interp: &mut Interpreter, context: &mut CTX) {
+        // Check timeout during step if interval is configured
+        if let Some(ref config) = self.timeout_config {
+            if self.timeout_state.should_check_step(config)
+                && self.timeout_state.should_stop(config)
+            {
+                let msg = self.timeout_state.error_message(config);
+                *context.error() = Err(ContextError::Custom(msg.to_string()));
+                return;
+            }
+        }
+
         if self.config.record_steps {
             self.start_step(interp, context);
         }
@@ -612,6 +668,15 @@ where
     }
 
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
+        // Check timeout at call boundaries
+        if let Some(ref config) = self.timeout_config {
+            if self.timeout_state.should_stop(config) {
+                let msg = self.timeout_state.error_message(config);
+                *context.error() = Err(ContextError::Custom(msg.to_string()));
+                return None;
+            }
+        }
+
         // determine correct `from` and `to` based on the call scheme
         let (from, to) = match inputs.scheme {
             CallScheme::DelegateCall | CallScheme::CallCode => {
@@ -652,11 +717,27 @@ where
         None
     }
 
-    fn call_end(&mut self, _: &mut CTX, _inputs: &CallInputs, outcome: &mut CallOutcome) {
+    fn call_end(&mut self, context: &mut CTX, _inputs: &CallInputs, outcome: &mut CallOutcome) {
+        // Check timeout at call end
+        if let Some(ref config) = self.timeout_config {
+            if self.timeout_state.should_stop(config) {
+                let msg = self.timeout_state.error_message(config);
+                *context.error() = Err(ContextError::Custom(msg.to_string()));
+            }
+        }
         self.fill_trace_on_call_end(&outcome.result, None);
     }
 
     fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
+        // Check timeout at create boundaries
+        if let Some(ref config) = self.timeout_config {
+            if self.timeout_state.should_stop(config) {
+                let msg = self.timeout_state.error_message(config);
+                *context.error() = Err(ContextError::Custom(msg.to_string()));
+                return None;
+            }
+        }
+
         let nonce = context.journal_mut().load_account(inputs.caller()).ok()?.info.nonce;
         self.start_trace_on_call(
             context,
@@ -673,10 +754,17 @@ where
 
     fn create_end(
         &mut self,
-        _context: &mut CTX,
+        context: &mut CTX,
         _inputs: &CreateInputs,
         outcome: &mut CreateOutcome,
     ) {
+        // Check timeout at create end
+        if let Some(ref config) = self.timeout_config {
+            if self.timeout_state.should_stop(config) {
+                let msg = self.timeout_state.error_message(config);
+                *context.error() = Err(ContextError::Custom(msg.to_string()));
+            }
+        }
         self.fill_trace_on_call_end(&outcome.result, outcome.address);
     }
 

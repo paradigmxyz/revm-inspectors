@@ -1,112 +1,68 @@
-//! Configurable timeout inspector for limiting EVM execution time.
+//! Timeout configuration for limiting EVM execution time.
 //!
-//! This module provides a [`TimeoutInspector`] that can be used to limit the wall-clock time
-//! spent on EVM execution. It supports:
+//! This module provides [`TimeoutConfig`] for configuring execution time limits
+//! and external cancellation signals. It can be used with [`TracingInspector`] and
+//! [`JsInspector`] via their timeout configuration methods.
 //!
-//! - Duration-based timeouts (check if elapsed time exceeds a limit)
-//! - Configurable check intervals (check every N opcodes instead of every step)
-//! - External cancellation via an [`AtomicBool`] signal
+//! [`TracingInspector`]: crate::tracing::TracingInspector
+//! [`JsInspector`]: crate::tracing::js::JsInspector
 //!
 //! # Example
 //!
 //! ```rust,ignore
-//! use revm_inspectors::timeout::TimeoutInspector;
+//! use revm_inspectors::timeout::TimeoutConfig;
+//! use revm_inspectors::tracing::{TracingInspector, TracingInspectorConfig};
 //! use std::time::Duration;
 //! use std::sync::Arc;
 //! use std::sync::atomic::AtomicBool;
 //!
-//! // Create a timeout inspector that checks every 1000 opcodes
-//! let inspector = TimeoutInspector::new(Duration::from_secs(5))
+//! // Create a timeout config
+//! let timeout = TimeoutConfig::new(Duration::from_secs(5))
 //!     .with_check_interval(1000);
+//!
+//! // Use with TracingInspector
+//! let config = TracingInspectorConfig::default_geth();
+//! let inspector = TracingInspector::new(config).with_timeout(timeout);
 //!
 //! // Or with an external cancellation signal
 //! let cancel = Arc::new(AtomicBool::new(false));
-//! let inspector = TimeoutInspector::new(Duration::from_secs(5))
-//!     .with_signal(cancel.clone())
-//!     .with_check_interval(1000);
+//! let timeout = TimeoutConfig::new(Duration::from_secs(5))
+//!     .with_signal(cancel.clone());
 //!
 //! // Cancel from another task/thread
 //! cancel.store(true, std::sync::atomic::Ordering::Relaxed);
-//!
-//! // Or cancellation-only (no timeout)
-//! let inspector = TimeoutInspector::cancellation_only(cancel.clone());
 //! ```
 
-use alloc::{string::ToString, sync::Arc};
+use alloc::sync::Arc;
 use core::sync::atomic::{AtomicBool, Ordering};
-use revm::{
-    context_interface::{context::ContextError, ContextTr},
-    interpreter::{CallInputs, CallOutcome, CreateInputs, CreateOutcome, Interpreter},
-    Inspector,
-};
 
 #[cfg(feature = "std")]
 use std::time::{Duration, Instant};
 
-/// A revm [`Inspector`] that limits execution time and supports external cancellation.
+/// Configuration for execution timeout and cancellation.
 ///
-/// This inspector will stop execution when:
-/// - The configured duration has elapsed (requires `std` feature)
-/// - An external cancellation signal is received via [`AtomicBool`]
-///
-/// ## Check Points
-///
-/// The timeout/cancellation is checked at:
-/// - The start of each call (`call`, `create`)
-/// - The end of each call (`call_end`, `create_end`)
-/// - During step execution if `check_interval` is configured
-///
-/// ## Usage Note
-///
-/// When the timeout is triggered, it will set a [`ContextError::Custom`] error.
-/// To avoid inspecting invalid data, this inspector should be the OUTERMOST inspector
-/// in any multi-inspector setup.
-///
-/// ## no_std Support
-///
-/// When compiled without `std`, only the cancellation signal functionality is available.
-/// Use [`TimeoutInspector::cancellation_only`] to create an inspector that only checks
-/// the external signal.
-#[derive(Debug)]
-pub struct TimeoutInspector {
+/// This can be used to limit execution time and/or allow external cancellation
+/// of EVM execution. Useful for preventing runaway execution when tracing with
+/// overrides like max gas limit and zero gas price.
+#[derive(Debug, Clone)]
+pub struct TimeoutConfig {
     /// Maximum duration for execution (requires std).
     #[cfg(feature = "std")]
-    duration: Option<Duration>,
-    /// Execution start time (requires std).
-    #[cfg(feature = "std")]
-    execution_start: Instant,
+    pub(crate) duration: Option<Duration>,
     /// External cancellation signal. When set to `true`, execution will be stopped.
-    signal: Option<Arc<AtomicBool>>,
-    /// Check interval: if `Some(n)`, only check during step every `n` opcodes.
+    pub(crate) signal: Option<Arc<AtomicBool>>,
+    /// Check interval: if `Some(n)`, check timeout every `n` opcodes during step.
     /// If `None`, only check at call/create boundaries.
-    check_interval: Option<u64>,
-    /// Counter for opcodes executed since last check.
-    opcode_counter: u64,
+    pub(crate) check_interval: Option<u64>,
 }
 
 #[cfg(feature = "std")]
-impl TimeoutInspector {
-    /// Create a new timeout inspector with the given duration.
+impl TimeoutConfig {
+    /// Create a new timeout configuration with the given duration.
     ///
-    /// The inspector will stop execution after the given duration has passed.
+    /// The execution will stop after the given duration has passed.
     pub fn new(duration: Duration) -> Self {
-        Self {
-            duration: Some(duration),
-            execution_start: Instant::now(),
-            signal: None,
-            check_interval: None,
-            opcode_counter: 0,
-        }
-    }
-
-    /// Check if the timeout has been reached.
-    pub fn has_timed_out(&self) -> bool {
-        self.duration.is_some_and(|d| self.execution_start.elapsed() >= d)
-    }
-
-    /// Get the elapsed time since execution started.
-    pub fn elapsed(&self) -> Duration {
-        self.execution_start.elapsed()
+        Self { duration: Some(duration), signal: None, check_interval: None }
     }
 
     /// Get the configured duration.
@@ -115,8 +71,8 @@ impl TimeoutInspector {
     }
 }
 
-impl TimeoutInspector {
-    /// Create a cancellation-only inspector without a timeout duration.
+impl TimeoutConfig {
+    /// Create a cancellation-only configuration without a timeout duration.
     ///
     /// This is useful in `no_std` environments or when you only need external
     /// cancellation without time-based limits.
@@ -124,11 +80,8 @@ impl TimeoutInspector {
         Self {
             #[cfg(feature = "std")]
             duration: None,
-            #[cfg(feature = "std")]
-            execution_start: Instant::now(),
             signal: Some(signal),
             check_interval: None,
-            opcode_counter: 0,
         }
     }
 
@@ -154,11 +107,6 @@ impl TimeoutInspector {
         self
     }
 
-    /// Set the external cancellation signal.
-    pub fn set_signal(&mut self, signal: Arc<AtomicBool>) {
-        self.signal = Some(signal);
-    }
-
     /// Returns a reference to the external cancellation signal if set.
     pub fn signal(&self) -> Option<&Arc<AtomicBool>> {
         self.signal.as_ref()
@@ -169,89 +117,80 @@ impl TimeoutInspector {
         self.signal.as_ref().is_some_and(|s| s.load(Ordering::Relaxed))
     }
 
-    /// Check if execution should stop (either timeout or cancellation).
-    pub fn should_stop(&self) -> bool {
-        #[cfg(feature = "std")]
-        if self.has_timed_out() {
-            return true;
-        }
-        self.is_cancelled()
-    }
-
-    /// Reset the execution state. Called during `initialize_interp`.
-    pub fn reset(&mut self) {
-        #[cfg(feature = "std")]
-        {
-            self.execution_start = Instant::now();
-        }
-        self.opcode_counter = 0;
-    }
-
     /// Get the check interval.
     pub const fn check_interval(&self) -> Option<u64> {
         self.check_interval
     }
+}
 
-    /// Check timeout/cancellation and set error if triggered.
-    #[inline]
-    fn check_and_set_error<CTX>(&self, ctx: &mut CTX)
-    where
-        CTX: ContextTr,
-    {
+/// Internal state for tracking timeout during execution.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct TimeoutState {
+    /// Execution start time (requires std).
+    #[cfg(feature = "std")]
+    execution_start: Option<Instant>,
+    /// Counter for opcodes executed since last check.
+    opcode_counter: u64,
+}
+
+impl TimeoutState {
+    /// Reset the state for a new execution.
+    pub(crate) fn reset(&mut self) {
         #[cfg(feature = "std")]
-        if self.has_timed_out() {
-            *ctx.error() = Err(ContextError::Custom("timeout during evm execution".to_string()));
-            return;
+        {
+            self.execution_start = Some(Instant::now());
         }
-        if self.is_cancelled() {
-            *ctx.error() = Err(ContextError::Custom("execution cancelled".to_string()));
+        self.opcode_counter = 0;
+    }
+
+    /// Check if execution has timed out.
+    #[cfg(feature = "std")]
+    pub(crate) fn has_timed_out(&self, config: &TimeoutConfig) -> bool {
+        match (self.execution_start, config.duration) {
+            (Some(start), Some(duration)) => start.elapsed() >= duration,
+            _ => false,
         }
     }
 
-    /// Check timeout during step execution, respecting the check interval.
-    #[inline]
-    fn check_step_timeout<CTX>(&mut self, ctx: &mut CTX)
-    where
-        CTX: ContextTr,
-    {
-        if let Some(interval) = self.check_interval {
+    /// Check if execution should stop (timeout or cancellation).
+    #[cfg(feature = "std")]
+    pub(crate) fn should_stop(&self, config: &TimeoutConfig) -> bool {
+        self.has_timed_out(config) || config.is_cancelled()
+    }
+
+    /// Check if execution should stop (cancellation only, for no_std).
+    #[cfg(not(feature = "std"))]
+    pub(crate) fn should_stop(&self, config: &TimeoutConfig) -> bool {
+        config.is_cancelled()
+    }
+
+    /// Check if we should check timeout during step execution.
+    /// Returns true if the interval counter has reached the check interval.
+    pub(crate) fn should_check_step(&mut self, config: &TimeoutConfig) -> bool {
+        if let Some(interval) = config.check_interval {
             self.opcode_counter += 1;
             if self.opcode_counter >= interval {
                 self.opcode_counter = 0;
-                self.check_and_set_error(ctx);
+                return true;
             }
         }
-    }
-}
-
-impl<CTX> Inspector<CTX> for TimeoutInspector
-where
-    CTX: ContextTr,
-{
-    fn initialize_interp(&mut self, _interp: &mut Interpreter, _ctx: &mut CTX) {
-        self.reset();
+        false
     }
 
-    fn step(&mut self, _interp: &mut Interpreter, ctx: &mut CTX) {
-        self.check_step_timeout(ctx);
+    /// Get the timeout error message.
+    #[cfg(feature = "std")]
+    pub(crate) fn error_message(&self, config: &TimeoutConfig) -> &'static str {
+        if self.has_timed_out(config) {
+            "timeout during evm execution"
+        } else {
+            "execution cancelled"
+        }
     }
 
-    fn call(&mut self, ctx: &mut CTX, _inputs: &mut CallInputs) -> Option<CallOutcome> {
-        self.check_and_set_error(ctx);
-        None
-    }
-
-    fn call_end(&mut self, ctx: &mut CTX, _inputs: &CallInputs, _outcome: &mut CallOutcome) {
-        self.check_and_set_error(ctx);
-    }
-
-    fn create(&mut self, ctx: &mut CTX, _inputs: &mut CreateInputs) -> Option<CreateOutcome> {
-        self.check_and_set_error(ctx);
-        None
-    }
-
-    fn create_end(&mut self, ctx: &mut CTX, _inputs: &CreateInputs, _outcome: &mut CreateOutcome) {
-        self.check_and_set_error(ctx);
+    /// Get the timeout error message (no_std version).
+    #[cfg(not(feature = "std"))]
+    pub(crate) fn error_message(&self, _config: &TimeoutConfig) -> &'static str {
+        "execution cancelled"
     }
 }
 
@@ -260,47 +199,46 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_timeout_inspector_creation() {
-        let inspector = TimeoutInspector::new(Duration::from_secs(5));
-        assert!(!inspector.has_timed_out());
-        assert!(!inspector.is_cancelled());
-        assert!(!inspector.should_stop());
-        assert_eq!(inspector.duration(), Some(Duration::from_secs(5)));
+    fn test_timeout_config_creation() {
+        let config = TimeoutConfig::new(Duration::from_secs(5));
+        assert_eq!(config.duration(), Some(Duration::from_secs(5)));
+        assert!(config.signal().is_none());
+        assert!(config.check_interval().is_none());
     }
 
     #[test]
-    fn test_timeout_inspector_with_signal() {
+    fn test_timeout_config_with_signal() {
         let signal = Arc::new(AtomicBool::new(false));
-        let inspector = TimeoutInspector::new(Duration::from_secs(5)).with_signal(signal.clone());
+        let config = TimeoutConfig::new(Duration::from_secs(5)).with_signal(signal.clone());
 
-        assert!(!inspector.is_cancelled());
+        assert!(!config.is_cancelled());
         signal.store(true, Ordering::Relaxed);
-        assert!(inspector.is_cancelled());
-        assert!(inspector.should_stop());
+        assert!(config.is_cancelled());
     }
 
     #[test]
-    fn test_timeout_inspector_with_interval() {
-        let inspector = TimeoutInspector::new(Duration::from_secs(5)).with_check_interval(1000);
-        assert_eq!(inspector.check_interval(), Some(1000));
+    fn test_timeout_config_with_interval() {
+        let config = TimeoutConfig::new(Duration::from_secs(5)).with_check_interval(1000);
+        assert_eq!(config.check_interval(), Some(1000));
     }
 
     #[test]
     fn test_cancellation_only() {
         let signal = Arc::new(AtomicBool::new(false));
-        let inspector = TimeoutInspector::cancellation_only(signal.clone());
+        let config = TimeoutConfig::cancellation_only(signal.clone());
 
-        assert!(inspector.duration().is_none());
-        assert!(!inspector.is_cancelled());
+        assert!(config.duration().is_none());
+        assert!(!config.is_cancelled());
         signal.store(true, Ordering::Relaxed);
-        assert!(inspector.is_cancelled());
-        assert!(inspector.should_stop());
+        assert!(config.is_cancelled());
     }
 
     #[test]
-    fn test_timeout_immediate() {
-        let inspector = TimeoutInspector::new(Duration::from_nanos(1));
+    fn test_timeout_state() {
+        let config = TimeoutConfig::new(Duration::from_nanos(1));
+        let mut state = TimeoutState::default();
+        state.reset();
         std::thread::sleep(Duration::from_millis(1));
-        assert!(inspector.has_timed_out());
+        assert!(state.has_timed_out(&config));
     }
 }

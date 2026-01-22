@@ -24,6 +24,7 @@ use revm::{
     bytecode::OpCode,
     context::JournalTr,
     context_interface::{
+        context::ContextError,
         result::{ExecutionResult, HaltReasonTr, Output, ResultAndState},
         Block, ContextTr, TransactTo, Transaction,
     },
@@ -90,6 +91,10 @@ pub struct JsInspector {
     last_start_step_pc: Option<usize>,
     /// Tracks gas spent in the previous step to calculate individual opcode cost
     previous_gas_spent: u64,
+    /// Optional timeout configuration.
+    timeout_config: Option<crate::timeout::TimeoutConfig>,
+    /// Timeout state tracking.
+    timeout_state: crate::timeout::TimeoutState,
 }
 
 impl JsInspector {
@@ -192,6 +197,8 @@ impl JsInspector {
             precompiles_registered: false,
             last_start_step_pc: None,
             previous_gas_spent: 0,
+            timeout_config: None,
+            timeout_state: Default::default(),
         })
     }
 
@@ -215,6 +222,25 @@ impl JsInspector {
     /// By default
     pub fn set_runtime_limits(&mut self, limits: RuntimeLimits) {
         self.ctx.set_runtime_limits(limits);
+    }
+
+    /// Set a timeout configuration for this inspector.
+    ///
+    /// When configured, the inspector will check for timeout/cancellation at call boundaries
+    /// and optionally during step execution (if a check interval is set).
+    pub fn with_timeout(mut self, timeout: crate::timeout::TimeoutConfig) -> Self {
+        self.timeout_config = Some(timeout);
+        self
+    }
+
+    /// Set a timeout configuration for this inspector.
+    pub fn set_timeout(&mut self, timeout: crate::timeout::TimeoutConfig) {
+        self.timeout_config = Some(timeout);
+    }
+
+    /// Returns the timeout configuration if set.
+    pub fn timeout_config(&self) -> Option<&crate::timeout::TimeoutConfig> {
+        self.timeout_config.as_ref()
     }
 
     /// Calculate op cost based on previous gas spent and new spent value
@@ -420,7 +446,21 @@ impl<CTX> Inspector<CTX> for JsInspector
 where
     CTX: ContextTr<Journal: JournalExt, Db: DatabaseRef>,
 {
+    fn initialize_interp(&mut self, _interp: &mut Interpreter, _context: &mut CTX) {
+        self.timeout_state.reset();
+    }
+
     fn step(&mut self, interp: &mut Interpreter, context: &mut CTX) {
+        // Check timeout during step if interval is configured
+        if let Some(ref config) = self.timeout_config {
+            if self.timeout_state.should_check_step(config)
+                && self.timeout_state.should_stop(config)
+            {
+                let msg = self.timeout_state.error_message(config);
+                *context.error() = Err(ContextError::Custom(msg.to_string()));
+                return;
+            }
+        }
         // if this is a revert we need to manually record this so that we can use it in the
         // step_end fn
         self.last_start_step_pc = Some(interp.bytecode.pc());
@@ -513,6 +553,15 @@ where
     }
 
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
+        // Check timeout at call boundaries
+        if let Some(ref config) = self.timeout_config {
+            if self.timeout_state.should_stop(config) {
+                let msg = self.timeout_state.error_message(config);
+                *context.error() = Err(ContextError::Custom(msg.to_string()));
+                return None;
+            }
+        }
+
         self.register_precompiles(context);
 
         // determine contract and caller based on the call scheme
@@ -551,7 +600,15 @@ where
         None
     }
 
-    fn call_end(&mut self, _context: &mut CTX, _inputs: &CallInputs, outcome: &mut CallOutcome) {
+    fn call_end(&mut self, context: &mut CTX, _inputs: &CallInputs, outcome: &mut CallOutcome) {
+        // Check timeout at call end
+        if let Some(ref config) = self.timeout_config {
+            if self.timeout_state.should_stop(config) {
+                let msg = self.timeout_state.error_message(config);
+                *context.error() = Err(ContextError::Custom(msg.to_string()));
+            }
+        }
+
         if self.can_call_exit() {
             let frame_result = FrameResult {
                 gas_used: outcome.result.gas.spent(),
@@ -567,6 +624,15 @@ where
     }
 
     fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
+        // Check timeout at create boundaries
+        if let Some(ref config) = self.timeout_config {
+            if self.timeout_state.should_stop(config) {
+                let msg = self.timeout_state.error_message(config);
+                *context.error() = Err(ContextError::Custom(msg.to_string()));
+                return None;
+            }
+        }
+
         self.register_precompiles(context);
 
         let nonce = context.journal_mut().load_account(inputs.caller()).unwrap().info.nonce;
@@ -594,10 +660,18 @@ where
 
     fn create_end(
         &mut self,
-        _context: &mut CTX,
+        context: &mut CTX,
         _inputs: &CreateInputs,
         outcome: &mut CreateOutcome,
     ) {
+        // Check timeout at create end
+        if let Some(ref config) = self.timeout_config {
+            if self.timeout_state.should_stop(config) {
+                let msg = self.timeout_state.error_message(config);
+                *context.error() = Err(ContextError::Custom(msg.to_string()));
+            }
+        }
+
         if self.can_call_exit() {
             let frame_result = FrameResult {
                 gas_used: outcome.result.gas.spent(),
