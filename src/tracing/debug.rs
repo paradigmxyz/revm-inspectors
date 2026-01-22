@@ -250,7 +250,7 @@ impl DebugInspector {
             Self::Js(inspector, _, _) => {
                 inspector.set_transaction_context(tx_context.unwrap_or_default());
                 let res = inspector
-                    .json_result(res.clone(), tx_env, block_env, db)
+                    .json_result(&res, tx_env, block_env, db)
                     .map_err(DebugInspectorError::JsInspector)?;
 
                 GethTrace::JS(res)

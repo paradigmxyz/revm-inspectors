@@ -57,6 +57,8 @@ pub use writer::{TraceWriter, TraceWriterConfig};
 pub mod js;
 
 mod mux;
+#[cfg(feature = "js-tracer")]
+pub use mux::MuxConfigExt;
 pub use mux::{Error as MuxError, MuxInspector};
 
 mod debug;

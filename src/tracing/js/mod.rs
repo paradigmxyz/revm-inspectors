@@ -56,6 +56,8 @@ pub const RECURSION_LIMIT: usize = 10_000;
 #[derive(Debug)]
 pub struct JsInspector {
     ctx: Context,
+    /// The javascript code provided to the inspector.
+    code: String,
     /// The javascript config provided to the inspector.
     _js_config_value: JsValue,
     /// The input config object.
@@ -132,9 +134,10 @@ impl JsInspector {
         register_builtins(&mut ctx)?;
 
         // evaluate the code
-        let code = format!("({code})");
-        let obj =
-            ctx.eval(Source::from_bytes(code.as_bytes())).map_err(JsInspectorError::EvalCode)?;
+        let code_to_evaluate = format!("({code})");
+        let obj = ctx
+            .eval(Source::from_bytes(code_to_evaluate.as_bytes()))
+            .map_err(JsInspectorError::EvalCode)?;
 
         let obj = obj.as_object().ok_or(JsInspectorError::ExpectedJsObject)?;
 
@@ -179,6 +182,7 @@ impl JsInspector {
 
         Ok(Self {
             ctx,
+            code,
             _js_config_value,
             config,
             obj,
@@ -193,6 +197,11 @@ impl JsInspector {
             last_start_step_pc: None,
             previous_gas_spent: 0,
         })
+    }
+
+    /// Returns the javascript code.
+    pub fn code(&self) -> &str {
+        &self.code
     }
 
     /// Returns the config object.
@@ -232,7 +241,7 @@ impl JsInspector {
     /// Note: This is supposed to be called after the inspection has finished.
     pub fn json_result<DB>(
         &mut self,
-        res: ResultAndState<impl HaltReasonTr>,
+        res: &ResultAndState<impl HaltReasonTr>,
         tx: &impl Transaction,
         block: &impl Block,
         db: &DB,
@@ -248,7 +257,7 @@ impl JsInspector {
     /// Calls the result function and returns the result.
     pub fn result<TX, DB>(
         &mut self,
-        res: ResultAndState<impl HaltReasonTr>,
+        res: &ResultAndState<impl HaltReasonTr>,
         tx: &TX,
         block: &impl Block,
         db: &DB,
@@ -259,7 +268,7 @@ impl JsInspector {
         <DB as DatabaseRef>::Error: core::fmt::Display,
     {
         let ResultAndState { result, state } = res;
-        let (db, _db_guard) = EvmDbRef::new(&state, db);
+        let (db, _db_guard) = EvmDbRef::new(state, db);
 
         let gas_used = result.gas_used();
         let mut to = None;
@@ -268,16 +277,16 @@ impl JsInspector {
         match result {
             ExecutionResult::Success { output, .. } => match output {
                 Output::Call(out) => {
-                    output_bytes = Some(out);
+                    output_bytes = Some(out.clone());
                 }
                 Output::Create(out, addr) => {
-                    to = addr;
-                    output_bytes = Some(out);
+                    to = *addr;
+                    output_bytes = Some(out.clone());
                 }
             },
             ExecutionResult::Revert { output, .. } => {
                 error = Some("execution reverted".to_string());
-                output_bytes = Some(output);
+                output_bytes = Some(output.clone());
             }
             ExecutionResult::Halt { reason, .. } => {
                 error = Some(format!("execution halted: {reason:?}"));
@@ -766,7 +775,7 @@ mod tests {
 
         assert_eq!(res.result.is_success(), success);
         let (ctx, inspector) = evm.ctx_inspector();
-        inspector.json_result(res, ctx.tx(), ctx.block(), ctx.db_ref()).unwrap()
+        inspector.json_result(&res, ctx.tx(), ctx.block(), ctx.db_ref()).unwrap()
     }
 
     #[test]
