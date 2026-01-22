@@ -51,6 +51,7 @@ boa_engine = { version = "0.21", optional = true }
 boa_gc = { version = "0.21", optional = true }
 
 [dev-dependencies]
+alloy-hardforks = "0.4"
 snapbox = { version = "0.6", features = ["term-svg"] }
 
 [features]
