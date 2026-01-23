@@ -315,14 +315,9 @@ fn test_receive_vs_fallback_empty_calldata() {
         .with_db(CacheDB::new(EmptyDB::default()))
         .build_mainnet_with_inspector(TracingInspector::new(TracingInspectorConfig::all()));
 
-    let address = inspect_deploy_contract(
-        &mut evm,
-        initcode,
-        Address::default(),
-        SpecId::CANCUN,
-    )
-    .created_address()
-    .unwrap();
+    let address = inspect_deploy_contract(&mut evm, initcode, Address::default(), SpecId::CANCUN)
+        .created_address()
+        .unwrap();
 
     // Call with empty calldata - should show receive() for successful empty-data calls
     evm.set_inspector(TracingInspector::new(TracingInspectorConfig::all()));
@@ -364,14 +359,9 @@ fn test_fallback_short_calldata() {
         .with_db(CacheDB::new(EmptyDB::default()))
         .build_mainnet_with_inspector(TracingInspector::new(TracingInspectorConfig::all()));
 
-    let address = inspect_deploy_contract(
-        &mut evm,
-        initcode,
-        Address::default(),
-        SpecId::CANCUN,
-    )
-    .created_address()
-    .unwrap();
+    let address = inspect_deploy_contract(&mut evm, initcode, Address::default(), SpecId::CANCUN)
+        .created_address()
+        .unwrap();
 
     // Call with short calldata (1-3 bytes) - should show fallback()
     evm.set_inspector(TracingInspector::new(TracingInspectorConfig::all()));
