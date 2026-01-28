@@ -193,12 +193,14 @@ impl DebugInspector {
         res: &ResultAndState<impl HaltReasonTr>,
         db: &mut DB,
     ) -> Result<GethTrace, DebugInspectorError<DB::Error>> {
+        #[allow(clippy::needless_update)]
         let tx_info = TransactionInfo {
             hash: tx_context.as_ref().and_then(|c| c.tx_hash),
             index: tx_context.as_ref().and_then(|c| c.tx_index.map(|i| i as u64)),
             block_hash: tx_context.as_ref().and_then(|c| c.block_hash),
             block_number: Some(block_env.number().saturating_to()),
             base_fee: Some(block_env.basefee()),
+            ..Default::default()
         };
 
         let res = match self {

@@ -5,12 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.34.1) - 2026-01-26
+
+### Bug Fixes
+
+- Use Default::default() for TransactionInfo for forward compatibility ([#401](https://github.com/paradigmxyz/revm-inspectors/issues/401))
+- Always include storage values for `SLOAD` and `SSTORE` in `GethTrace` ([#389](https://github.com/paradigmxyz/revm-inspectors/issues/389))
+
+### Other
+
+- Update to tempoxyz ([#395](https://github.com/paradigmxyz/revm-inspectors/issues/395))
+
+### Testing
+
+- Add prestate replay testing infrastructure ([#399](https://github.com/paradigmxyz/revm-inspectors/issues/399))
+
 ## [0.34.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.34.0) - 2026-01-16
 
 ### Features
 
 - Stage revm to 34.0.0 ([#385](https://github.com/paradigmxyz/revm-inspectors/issues/385))
 - Add support for erc7562 tracer ([#392](https://github.com/paradigmxyz/revm-inspectors/issues/392))
+
+### Miscellaneous Tasks
+
+- Release 0.34.0
 
 ## [0.33.2](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.33.2) - 2025-12-12
 
