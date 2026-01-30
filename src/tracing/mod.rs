@@ -384,6 +384,7 @@ impl TracingInspector {
         let trace = &mut self.traces.arena[trace_idx].trace;
 
         trace.gas_used = gas.spent();
+        trace.gas_refund_counter = gas.refunded().max(0) as u64;
 
         trace.status = Some(result);
         trace.success = trace.status.is_some_and(|status| status.is_ok());
