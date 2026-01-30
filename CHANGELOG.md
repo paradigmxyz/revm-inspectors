@@ -5,12 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.2](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.34.2) - 2026-01-30
+
+### Features
+
+- Expose refund_counter in `CallTrace` ([#402](https://github.com/paradigmxyz/revm-inspectors/issues/402))
+
 ## [0.34.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.34.1) - 2026-01-26
 
 ### Bug Fixes
 
 - Use Default::default() for TransactionInfo for forward compatibility ([#401](https://github.com/paradigmxyz/revm-inspectors/issues/401))
 - Always include storage values for `SLOAD` and `SSTORE` in `GethTrace` ([#389](https://github.com/paradigmxyz/revm-inspectors/issues/389))
+
+### Miscellaneous Tasks
+
+- Release 0.34.1
 
 ### Other
 
