@@ -65,7 +65,7 @@ fn test_geth_jstracer_revert() {
     assert!(res.result.is_success());
 
     let (context, insp) = evm.ctx_inspector();
-    let result = insp.json_result(res, context.tx(), context.block(), context.db_ref()).unwrap();
+    let result = insp.json_result(&res, context.tx(), context.block(), context.db_ref()).unwrap();
 
     // successful operation
     assert!(!result["error"].as_bool().unwrap());
@@ -86,7 +86,7 @@ fn test_geth_jstracer_revert() {
     assert!(!res.result.is_success());
 
     let (context, insp) = evm.ctx_inspector();
-    let result = insp.json_result(res, context.tx(), context.block(), context.db_ref()).unwrap();
+    let result = insp.json_result(&res, context.tx(), context.block(), context.db_ref()).unwrap();
 
     // reverted operation
     assert!(result["error"].as_bool().unwrap());
@@ -173,6 +173,6 @@ fn test_geth_jstracer_proxy_contract() {
     assert!(res.result.is_success());
 
     let (context, insp) = evm.ctx_inspector();
-    let result = insp.json_result(res, context.tx(), context.block(), context.db_ref()).unwrap();
+    let result = insp.json_result(&res, context.tx(), context.block(), context.db_ref()).unwrap();
     assert_eq!(result, json!([{"event": "Transfer", "token": proxy_addr, "caller": deployer}]));
 }
