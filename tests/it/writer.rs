@@ -88,6 +88,58 @@ fn test_trace_printing() {
 }
 
 #[test]
+fn test_truncate_array_inputs() {
+    sol! {
+        // solc v0.8.25: solc LargeArrayInput.sol --bin --optimize
+        #[sol(bytecode = "6080604052348015600e575f80fd5b5061019a8061001c5f395ff3fe608060405234801561000f575f80fd5b5060043610610029575f3560e01c806374ed394b1461002d575b5f80fd5b61003e61003b366004610068565b90565b60405161004b9190610121565b60405180910390f35b634e487b7160e01b5f52604160045260245ffd5b5f6020808385031215610079575f80fd5b823567ffffffffffffffff80821115610090575f80fd5b818501915085601f8301126100a3575f80fd5b8135818111156100b5576100b5610054565b8060051b604051601f19603f830116810181811085821117156100da576100da610054565b6040529182528482019250838101850191888311156100f7575f80fd5b938501935b82851015610115578435845293850193928501926100fc565b98975050505050505050565b602080825282518282018190525f9190848201906040850190845b818110156101585783518352928401929184019160010161013c565b5090969550505050505056fea264697066735822122041fc2bed07b692b7a6a32c0f02cb6576de634fdd8b2b940497e00783cc4c43b264736f6c63430008190033")]
+        contract LargeArrayInput {
+            function largeArrayInput(
+                bytes32[] memory input
+            ) public pure returns (bytes32[] memory) {
+                return input;
+            }
+        }
+    }
+
+    let base_path = &Path::new(OUT_DIR).join("test_trace_printing");
+
+    let mut evm = Context::mainnet()
+        .with_db(CacheDB::new(EmptyDB::default()))
+        .build_mainnet_with_inspector(TracingInspector::new(TracingInspectorConfig::all()));
+
+    //let address = evm.deploy(CREATION_CODE.parse().unwrap(), &mut tracer).unwrap();
+    let address = inspect_deploy_contract(
+        &mut evm,
+        LargeArrayInput::BYTECODE.clone(),
+        Address::default(),
+        SpecId::CANCUN,
+    )
+    .created_address()
+    .unwrap();
+
+    let calldata = LargeArrayInput::largeArrayInputCall {
+        input: vec![
+            b256!("0x1234567890123456789012345678901234567890123456789012345678901234");
+            100
+        ],
+    };
+
+    evm.ctx().modify_tx(|tx| {
+        tx.data = calldata.abi_encode().into();
+        tx.kind = TransactTo::Call(address);
+        tx.gas_priority_fee = None;
+        tx.nonce = 1;
+    });
+    evm.set_inspector(TracingInspector::new(TracingInspectorConfig::all()));
+    let r = evm.inspect_replay_commit().unwrap();
+    assert!(r.is_success(), "evm.call reverted: {r:#?}");
+
+    let s = write_traces_with(evm.inspector(), TraceWriterConfig::new());
+
+    print!("{}", s);
+}
+
+#[test]
 fn deploy_fail() {
     let base_path = &Path::new(OUT_DIR).join("deploy_fail");
 
@@ -129,6 +181,7 @@ const FUNCTION_SELECTORS: &[(&str, [u8; 4])] = &[
     ("nest3", hex!("9db265eb")),
     ("number", hex!("8381f58a")),
     ("setNumber", hex!("3fb5c1cb")),
+    ("largeArrayInput", hex!("74ed394b")),
 ];
 
 // solc testdata/Counter.sol --via-ir --optimize --hashes
