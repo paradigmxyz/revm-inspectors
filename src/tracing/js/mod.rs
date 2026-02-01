@@ -4,7 +4,8 @@ use crate::tracing::{
     config::TraceStyle,
     js::{
         bindings::{
-            CallFrame, Contract, EvmDbRef, FrameResult, JsEvmContext, MemoryRef, StackRef, StepLog,
+            CallFrame, Contract, EvmDbRef, FrameResult, JsEvmContext, MemoryRef, MemorySnapshot,
+            StackRef, StepLog,
         },
         builtins::{register_builtins, to_serde_value, PrecompileList},
     },
@@ -31,7 +32,7 @@ use revm::{
     interpreter::{
         interpreter_types::{Jumps, LoopControl},
         CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, Gas, InstructionResult,
-        Interpreter, InterpreterAction, InterpreterResult,
+        Interpreter, InterpreterAction, InterpreterResult, Stack,
     },
     DatabaseRef, Inspector,
 };
@@ -49,6 +50,32 @@ pub const LOOP_ITERATION_LIMIT: u64 = 200_000;
 ///
 /// Once exceeded, the function will throw an error.
 pub const RECURSION_LIMIT: usize = 10_000;
+
+/// Pre-execution state captured in `step()` to be used in `step_end()`.
+///
+/// This allows us to invoke the JS `step` callback with the correct gas cost (which is only
+/// known after the opcode executes) while still providing the pre-execution stack/memory state.
+#[derive(Debug)]
+struct PendingStep {
+    /// Cloned stack from before opcode execution
+    stack: Stack,
+    /// Snapshot of memory contents from before opcode execution
+    memory: MemorySnapshot,
+    /// Program counter
+    pc: u64,
+    /// Opcode being executed
+    op: u8,
+    /// Gas remaining before execution
+    gas_remaining: u64,
+    /// Call depth
+    depth: u64,
+    /// Gas refund counter
+    refund: u64,
+    /// Contract info
+    contract: Contract,
+    /// Gas spent before this opcode (to compute delta in step_end)
+    gas_spent_before: u64,
+}
 
 /// A javascript inspector that will delegate inspector functions to javascript functions
 ///
@@ -86,10 +113,8 @@ pub struct JsInspector {
     call_stack: Vec<CallStackItem>,
     /// Marker to track whether the precompiles have been registered.
     precompiles_registered: bool,
-    /// Tracker for PC recorded in start_step
-    last_start_step_pc: Option<usize>,
-    /// Tracks gas spent in the previous step to calculate individual opcode cost
-    previous_gas_spent: u64,
+    /// Pre-execution state captured in `step()` to be processed in `step_end()`.
+    pending_step: Option<PendingStep>,
 }
 
 impl JsInspector {
@@ -190,8 +215,7 @@ impl JsInspector {
             step_fn,
             call_stack: Default::default(),
             precompiles_registered: false,
-            last_start_step_pc: None,
-            previous_gas_spent: 0,
+            pending_step: None,
         })
     }
 
@@ -215,16 +239,6 @@ impl JsInspector {
     /// By default
     pub fn set_runtime_limits(&mut self, limits: RuntimeLimits) {
         self.ctx.set_runtime_limits(limits);
-    }
-
-    /// Calculate op cost based on previous gas spent and new spent value
-    fn get_op_cost(&self, spent: u64) -> u64 {
-        spent.saturating_sub(self.previous_gas_spent)
-    }
-
-    /// Set the new previous gas spent value
-    fn set_previous_gas_spent(&mut self, spent: u64) {
-        self.previous_gas_spent = spent;
     }
 
     /// Calls the result function and returns the result as [serde_json::Value].
@@ -421,47 +435,28 @@ where
     CTX: ContextTr<Journal: JournalExt, Db: DatabaseRef>,
 {
     fn step(&mut self, interp: &mut Interpreter, context: &mut CTX) {
-        // if this is a revert we need to manually record this so that we can use it in the
-        // step_end fn
-        self.last_start_step_pc = Some(interp.bytecode.pc());
-
         if self.step_fn.is_none() {
             return;
         }
 
-        let (db, _db_guard) = EvmDbRef::new(context.journal_ref().evm_state(), context.db_ref());
-
-        let (stack, _stack_guard) = StackRef::new(&interp.stack);
-        let evm_memory = interp.memory.borrow();
-        let (memory, _memory_guard) = MemoryRef::new(evm_memory);
+        // Capture pre-execution state to be used in step_end where we know the actual gas cost
         let active_call = self.active_call();
-
-        let gas_spent = interp.gas.spent();
-        let step = StepLog {
-            stack,
-            op: interp.bytecode.opcode().into(),
-            memory,
+        self.pending_step = Some(PendingStep {
+            stack: interp.stack.clone(),
+            memory: MemorySnapshot::from_shared_memory(interp.memory.borrow()),
             pc: interp.bytecode.pc() as u64,
+            op: interp.bytecode.opcode(),
             gas_remaining: interp.gas.remaining(),
-            cost: self.get_op_cost(gas_spent),
             depth: context.journal_ref().depth() as u64,
             refund: interp.gas.refunded() as u64,
-            error: None,
             contract: Contract {
                 caller: interp.input.caller_address,
                 contract: interp.input.target_address,
                 value: active_call.contract.value,
                 input: active_call.contract.input.clone(),
             },
-        };
-
-        self.set_previous_gas_spent(gas_spent);
-
-        if self.try_step(step, db).is_err() {
-            interp
-                .bytecode
-                .set_action(InterpreterAction::new_halt(InstructionResult::Revert, interp.gas));
-        }
+            gas_spent_before: interp.gas.spent(),
+        });
     }
 
     fn step_end(&mut self, interp: &mut Interpreter, context: &mut CTX) {
@@ -469,46 +464,68 @@ where
             return;
         }
 
-        if interp
+        // Take the pending step captured in step()
+        let Some(pending) = self.pending_step.take() else {
+            return;
+        };
+
+        // Check if this is a revert - if so, call fault instead of step
+        let is_revert = interp
             .bytecode
             .action()
             .as_ref()
-            .is_some_and(|a| a.instruction_result().map(|r| r.is_revert()).unwrap_or(false))
-        {
-            let (db, _db_guard) =
-                EvmDbRef::new(context.journal_ref().evm_state(), context.db_ref());
+            .is_some_and(|a| a.instruction_result().map(|r| r.is_revert()).unwrap_or(false));
 
-            let (stack, _stack_guard) = StackRef::new(&interp.stack);
-            let mem = interp.memory.borrow();
-            let (memory, _memory_guard) = MemoryRef::new(mem);
-            let active_call = self.active_call();
-            let gas_spent = interp.gas.spent();
+        // Compute the actual gas cost now that the opcode has executed
+        let gas_spent_after = interp.gas.spent();
+        let cost = gas_spent_after.saturating_sub(pending.gas_spent_before);
 
+        let (db, _db_guard) = EvmDbRef::new(context.journal_ref().evm_state(), context.db_ref());
+
+        // Use owned variants since we're using cloned data
+        let (stack, _stack_guard) = StackRef::new_owned(pending.stack);
+        let (memory, _memory_guard) = MemoryRef::new_owned(pending.memory);
+
+        if is_revert {
             let step = StepLog {
                 stack,
-                // we can use REVERT opcode here because we checked that this was a revert
                 op: OpCode::REVERT.get().into(),
-                // Use the recorded pc of the current step for the revert here
-                pc: self.last_start_step_pc.unwrap_or_default() as u64,
+                pc: pending.pc,
                 memory,
-                gas_remaining: interp.gas.remaining(),
-                cost: self.get_op_cost(gas_spent),
-                depth: context.journal_ref().depth() as u64,
-                refund: interp.gas.refunded() as u64,
+                gas_remaining: pending.gas_remaining,
+                cost,
+                depth: pending.depth,
+                refund: pending.refund,
                 error: interp
                     .bytecode
                     .action()
                     .as_ref()
                     .and_then(|i| i.instruction_result().map(|i| format!("{i:?}"))),
-                contract: Contract {
-                    caller: interp.input.caller_address,
-                    contract: interp.input.target_address,
-                    value: active_call.contract.value,
-                    input: active_call.contract.input.clone(),
-                },
+                contract: pending.contract,
             };
-
             let _ = self.try_fault(step, db);
+        } else {
+            let step = StepLog {
+                stack,
+                op: pending.op.into(),
+                memory,
+                pc: pending.pc,
+                gas_remaining: pending.gas_remaining,
+                cost,
+                depth: pending.depth,
+                refund: pending.refund,
+                error: None,
+                contract: pending.contract,
+            };
+            if self.try_step(step, db).is_err() {
+                // Only set revert action if no action is already set
+                if interp.bytecode.action().is_none() {
+                    interp.bytecode.set_action(InterpreterAction::new_halt(
+                        InstructionResult::Revert,
+                        interp.gas,
+                    ));
+                }
+            }
         }
     }
 
@@ -929,13 +946,18 @@ mod tests {
 
     #[test]
     fn test_memory_limit() {
+        // Test that accessing out-of-bounds memory in the tracer results in an empty array
+        // (the slice call fails and doesn't push anything).
+        // Note: Since we now call the JS step callback in step_end (after the opcode executes),
+        // a JS error on the final STOP opcode cannot revert the transaction - it has already
+        // completed. The transaction succeeds but the trace result is empty.
         let code = r#"{
             res: [],
             step: function(log) { if (log.op.toString() === 'STOP') { this.res.push(log.memory.slice(5, 1025 * 1024)) } },
             fault: function() {},
             result: function() { return this.res }
         }"#;
-        let res = run_trace(code, None, false);
+        let res = run_trace(code, None, true);
         assert_eq!(res, json!([]));
     }
 
@@ -953,6 +975,9 @@ mod tests {
 
     #[test]
     fn test_individual_opcode_costs() {
+        // Test that log.getCost() returns the actual gas cost of the current opcode.
+        // The test bytecode is: PUSH1 0x01, PUSH1 0x02, STOP
+        // Expected costs: PUSH1=3, PUSH1=3, STOP=0
         let code = r#"{
             res: [],
             step: function(log) {
@@ -965,7 +990,7 @@ mod tests {
 
         assert_eq!(
             res.as_array().unwrap().iter().map(|v| v.as_u64().unwrap_or(0)).collect::<Vec<u64>>(),
-            vec![0, 3, 3]
+            vec![3, 3, 0]
         );
     }
 
