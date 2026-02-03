@@ -96,6 +96,8 @@ pub struct CallTrace {
     pub gas_used: u64,
     /// The gas limit of the call.
     pub gas_limit: u64,
+    /// The cumulative refund counter for the entire transaction context at the end of this call.
+    pub gas_refund_counter: u64,
     /// The final status of the call.
     pub status: Option<InstructionResult>,
     /// Opcode-level execution steps.
