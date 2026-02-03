@@ -408,7 +408,8 @@ impl JsInspector {
         if self.precompiles_registered {
             return;
         }
-        let precompiles = PrecompileList(context.journal().precompile_addresses().clone());
+        let precompiles =
+            PrecompileList(context.journal().precompile_addresses().iter().copied().collect());
 
         let _ = precompiles.register_callable(&mut self.ctx);
 
