@@ -131,6 +131,7 @@ impl EdgeCovInspector {
         }
     }
 
+    #[cold]
     fn do_step(&mut self, interp: &mut Interpreter) {
         let address = interp.input.target_address();
         let current_pc = interp.bytecode.pc();
