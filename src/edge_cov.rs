@@ -51,7 +51,7 @@ impl fmt::Debug for EdgeCovInspector {
 }
 
 impl EdgeCovInspector {
-    /// Create a new `EdgeCovInspector` with [`DEFAULT_MAP_CAPACITY`].
+    /// Create a new `EdgeCovInspector` with the default capacity (65536).
     pub fn new() -> Self {
         Self::with_capacity(DEFAULT_MAP_CAPACITY)
     }
