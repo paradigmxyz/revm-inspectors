@@ -26,10 +26,10 @@ const DEFAULT_MAP_CAPACITY: usize = 65536;
 /// indexes into a pre-allocated hitcount buffer, so two distinct edges
 /// never share the same counter.
 ///
-/// The hitcount buffer is fixed at construction time; if more unique edges
-/// are discovered than the buffer can hold the extras are silently
-/// dropped. Use [`EdgeCovInspector::with_capacity`] to size the buffer
-/// for your workload.
+/// The hitcount buffer grows automatically if more unique edges are
+/// discovered than the initial capacity. Use
+/// [`EdgeCovInspector::with_capacity`] to pre-size the buffer and
+/// avoid re-allocations.
 // see https://github.com/AFLplusplus/AFLplusplus/blob/5777ceaf23f48ae4ceae60e4f3a79263802633c6/instrumentation/afl-llvm-pass.so.cc#L810-L829
 #[derive(Clone)]
 pub struct EdgeCovInspector {
@@ -118,17 +118,18 @@ impl EdgeCovInspector {
             Entry::Occupied(e) => *e.get(),
             Entry::Vacant(e) => {
                 let id = self.next_id;
-                if id >= self.hitcount.len() {
-                    return; // buffer exhausted
-                }
                 self.next_id += 1;
+                if id >= self.hitcount.len() {
+                    self.hitcount.resize(self.hitcount.len() * 2, 0);
+                }
                 e.insert(id);
                 id
             }
         };
-        if let Some(slot) = self.hitcount.get_mut(id) {
-            *slot = slot.saturating_add(1);
-        }
+        // NeverZero: if the counter wraps past 255 it jumps to 1 instead of 0,
+        // preserving the "edge was hit" signal for the fuzzer.
+        // See https://github.com/AFLplusplus/AFLplusplus/blob/stable/instrumentation/README.llvm.md#8-neverzero-counters
+        self.hitcount[id] = self.hitcount[id].wrapping_add(1).max(1);
     }
 
     #[cold]
@@ -215,31 +216,32 @@ mod tests {
     }
 
     #[test]
-    fn hitcount_saturates_at_255() {
+    fn hitcount_neverzero_on_wrap() {
         let mut inspector = EdgeCovInspector::new();
         let addr = Address::ZERO;
 
-        for _ in 0..300 {
+        // Hit 256 times: wraps past 255 → lands on 1, not 0 (NeverZero).
+        for _ in 0..256 {
             inspector.store_hit(addr, 0, U256::from(1));
         }
 
         assert_eq!(inspector.edge_count(), 1);
-        assert_eq!(inspector.get_hitcount(), &[255]);
+        assert_eq!(inspector.get_hitcount(), &[1]);
     }
 
     #[test]
-    fn capacity_exhaustion_drops_new_edges() {
+    fn map_grows_beyond_initial_capacity() {
         let mut inspector = EdgeCovInspector::with_capacity(2);
         let addr = Address::ZERO;
 
         inspector.store_hit(addr, 0, U256::from(1)); // id 0
         inspector.store_hit(addr, 0, U256::from(2)); // id 1
-        inspector.store_hit(addr, 0, U256::from(3)); // dropped
+        inspector.store_hit(addr, 0, U256::from(3)); // id 2 — triggers growth
 
-        assert_eq!(inspector.edge_count(), 2);
+        assert_eq!(inspector.edge_count(), 3);
         let hc = inspector.get_hitcount();
-        assert_eq!(hc.len(), 2);
-        assert_eq!(hc, &[1, 1]);
+        assert_eq!(hc.len(), 3);
+        assert_eq!(hc, &[1, 1, 1]);
     }
 
     #[test]
