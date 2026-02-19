@@ -141,6 +141,7 @@ pub(crate) fn maybe_revert_reason(output: &[u8]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
     use alloy_sol_types::{GenericContractError, SolInterface};
 
     #[test]
