@@ -52,6 +52,35 @@ pub enum DebugInspector {
     Js(Box<crate::tracing::js::JsInspector>, String, serde_json::Value),
 }
 
+impl Clone for DebugInspector {
+    fn clone(&self) -> Self {
+        match self {
+            Self::FourByte(inspector) => Self::FourByte(inspector.clone()),
+            Self::CallTracer(inspector, config) => Self::CallTracer(inspector.clone(), *config),
+            Self::PreStateTracer(inspector, config) => {
+                Self::PreStateTracer(inspector.clone(), *config)
+            }
+            Self::Noop(inspector) => Self::Noop(*inspector),
+            Self::Mux(inspector, config) => Self::Mux(inspector.clone(), config.clone()),
+            Self::FlatCallTracer(inspector) => Self::FlatCallTracer(inspector.clone()),
+            Self::Erc7562Tracer(inspector, config) => {
+                Self::Erc7562Tracer(inspector.clone(), config.clone())
+            }
+            Self::Default(inspector, config) => Self::Default(inspector.clone(), *config),
+            #[cfg(feature = "js-tracer")]
+            Self::Js(_, code, config) => Self::Js(
+                crate::tracing::js::JsInspector::new(code.clone(), config.clone())
+                    .expect(
+                        "JsInspector reconstruction failed with previously valid code and config",
+                    )
+                    .into(),
+                code.clone(),
+                config.clone(),
+            ),
+        }
+    }
+}
+
 impl DebugInspector {
     /// Create a new `DebugInspector` from the given tracing options.
     pub fn new(opts: GethDebugTracingOptions) -> Result<Self, DebugInspectorError> {
