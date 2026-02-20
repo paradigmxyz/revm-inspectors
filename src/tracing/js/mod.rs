@@ -56,6 +56,8 @@ pub const RECURSION_LIMIT: usize = 10_000;
 #[derive(Debug)]
 pub struct JsInspector {
     ctx: Context,
+    /// The original javascript code used to create this inspector.
+    code: String,
     /// The javascript config provided to the inspector.
     _js_config_value: JsValue,
     /// The input config object.
@@ -132,9 +134,9 @@ impl JsInspector {
         register_builtins(&mut ctx)?;
 
         // evaluate the code
-        let code = format!("({code})");
+        let wrapped = format!("({code})");
         let obj =
-            ctx.eval(Source::from_bytes(code.as_bytes())).map_err(JsInspectorError::EvalCode)?;
+            ctx.eval(Source::from_bytes(wrapped.as_bytes())).map_err(JsInspectorError::EvalCode)?;
 
         let obj = obj.as_object().ok_or(JsInspectorError::ExpectedJsObject)?;
 
@@ -179,6 +181,7 @@ impl JsInspector {
 
         Ok(Self {
             ctx,
+            code,
             _js_config_value,
             config,
             obj,
@@ -198,6 +201,11 @@ impl JsInspector {
     /// Returns the config object.
     pub const fn config(&self) -> &serde_json::Value {
         &self.config
+    }
+
+    /// Creates a fresh inspector from the same code and config, resetting all execution state.
+    pub fn try_clone(&self) -> Result<Self, JsInspectorError> {
+        Self::new(self.code.clone(), self.config.clone())
     }
 
     /// Returns the transaction context.

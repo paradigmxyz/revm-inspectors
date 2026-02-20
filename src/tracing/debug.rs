@@ -2,7 +2,7 @@ use crate::tracing::{
     FourByteInspector, MuxInspector, TracingInspector, TracingInspectorConfig, TransactionContext,
 };
 #[cfg(feature = "js-tracer")]
-use alloc::{boxed::Box, string::String};
+use alloc::boxed::Box;
 use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::geth::{
     erc7562::Erc7562Config, mux::MuxConfig, CallConfig, FourByteFrame, GethDebugBuiltInTracerType,
@@ -49,10 +49,30 @@ pub enum DebugInspector {
     Default(TracingInspector, GethDefaultTracingOptions),
     #[cfg(feature = "js-tracer")]
     /// JS tracer
-    Js(Box<crate::tracing::js::JsInspector>, String, serde_json::Value),
+    Js(Box<crate::tracing::js::JsInspector>),
 }
 
 impl DebugInspector {
+    /// Creates a fresh copy of this inspector, resetting all execution state.
+    pub fn try_clone(&self) -> Result<Self, DebugInspectorError> {
+        Ok(match self {
+            Self::FourByte(inspector) => Self::FourByte(inspector.clone()),
+            Self::CallTracer(inspector, config) => Self::CallTracer(inspector.clone(), *config),
+            Self::PreStateTracer(inspector, config) => {
+                Self::PreStateTracer(inspector.clone(), *config)
+            }
+            Self::Noop(inspector) => Self::Noop(*inspector),
+            Self::Mux(inspector, config) => Self::Mux(inspector.clone(), config.clone()),
+            Self::FlatCallTracer(inspector) => Self::FlatCallTracer(inspector.clone()),
+            Self::Erc7562Tracer(inspector, config) => {
+                Self::Erc7562Tracer(inspector.clone(), config.clone())
+            }
+            Self::Default(inspector, config) => Self::Default(inspector.clone(), *config),
+            #[cfg(feature = "js-tracer")]
+            Self::Js(inspector) => Self::Js(inspector.try_clone()?.into()),
+        })
+    }
+
     /// Create a new `DebugInspector` from the given tracing options.
     pub fn new(opts: GethDebugTracingOptions) -> Result<Self, DebugInspectorError> {
         let GethDebugTracingOptions { config, tracer, tracer_config, .. } = opts;
@@ -136,11 +156,7 @@ impl DebugInspector {
                 #[cfg(feature = "js-tracer")]
                 GethDebugTracerType::JsTracer(code) => {
                     let config = tracer_config.into_json();
-                    Self::Js(
-                        crate::tracing::js::JsInspector::new(code.clone(), config.clone())?.into(),
-                        code,
-                        config,
-                    )
+                    Self::Js(crate::tracing::js::JsInspector::new(code, config)?.into())
                 }
                 _ => {
                     // Note: this match is non-exhaustive in case we need to add support for
@@ -175,9 +191,8 @@ impl DebugInspector {
                 *inspector = MuxInspector::try_from_config(config.clone())?;
             }
             #[cfg(feature = "js-tracer")]
-            Self::Js(inspector, code, config) => {
-                *inspector =
-                    crate::tracing::js::JsInspector::new(code.clone(), config.clone())?.into();
+            Self::Js(inspector) => {
+                *inspector = inspector.try_clone()?.into();
             }
         }
 
@@ -249,7 +264,7 @@ impl DebugInspector {
                     .into()
             }
             #[cfg(feature = "js-tracer")]
-            Self::Js(inspector, _, _) => {
+            Self::Js(inspector) => {
                 inspector.set_transaction_context(tx_context.unwrap_or_default());
                 let res = inspector
                     .json_result(res.clone(), tx_env, block_env, db)
@@ -275,7 +290,7 @@ macro_rules! delegate {
             Self::Noop($insp) => Inspector::<CTX>::$method($insp, $($arg),*),
             Self::Mux($insp, _) => Inspector::<CTX>::$method($insp, $($arg),*),
             #[cfg(feature = "js-tracer")]
-            Self::Js($insp, _, _) => Inspector::<CTX>::$method($insp, $($arg),*),
+            Self::Js($insp) => Inspector::<CTX>::$method($insp, $($arg),*),
         }
     };
 }
