@@ -159,7 +159,7 @@ impl MuxInspector {
                 TraceConfig::Noop => NoopFrame::default().into(),
             };
 
-            frame.insert(*tracer_type, trace);
+            frame.insert(tracer_type.clone(), trace);
         }
 
         // Add four byte trace if inspector exists
