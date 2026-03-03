@@ -5,11 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.35.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.35.0) - 2026-03-03
+
+### Dependencies
+
+- Bump revm patch for release procedure ([#408](https://github.com/paradigmxyz/revm-inspectors/issues/408))
+- Bump MSRV to 1.91 ([#407](https://github.com/paradigmxyz/revm-inspectors/issues/407))
+
+### Features
+
+- Implement Clone for DebugInspector ([#406](https://github.com/paradigmxyz/revm-inspectors/issues/406))
+
 ## [0.34.2](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.34.2) - 2026-01-30
 
 ### Features
 
 - Expose refund_counter in `CallTrace` ([#402](https://github.com/paradigmxyz/revm-inspectors/issues/402))
+
+### Miscellaneous Tasks
+
+- Release 0.34.2
 
 ## [0.34.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.34.1) - 2026-01-26
 
