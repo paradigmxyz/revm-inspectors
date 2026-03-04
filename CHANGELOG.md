@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.36.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.36.0) - 2026-03-04
+
+### Dependencies
+
+- Bump revm to 36.0.0 ([#409](https://github.com/paradigmxyz/revm-inspectors/issues/409))
+
 ## [0.35.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.35.0) - 2026-03-03
 
 ### Dependencies
@@ -15,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Features
 
 - Implement Clone for DebugInspector ([#406](https://github.com/paradigmxyz/revm-inspectors/issues/406))
+
+### Miscellaneous Tasks
+
+- Release 0.35.0
 
 ## [0.34.2](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.34.2) - 2026-01-30
 
