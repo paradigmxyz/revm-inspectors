@@ -4,8 +4,8 @@ use alloy_primitives::{map::HashMap, Address, Log, U256};
 use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::geth::{
     mux::{MuxConfig, MuxFrame},
-    CallConfig, FlatCallConfig, FourByteFrame, GethDebugBuiltInTracerType, NoopFrame,
-    PreStateConfig,
+    CallConfig, FlatCallConfig, FourByteFrame, GethDebugBuiltInTracerType, GethDebugTracerType,
+    NoopFrame, PreStateConfig,
 };
 use revm::{
     context_interface::{
@@ -26,7 +26,7 @@ pub struct MuxInspector {
     /// An instance of TracingInspector that can be reused
     tracing: Option<TracingInspector>,
     /// Configurations for different Geth trace types
-    configs: Vec<(GethDebugBuiltInTracerType, TraceConfig)>,
+    configs: Vec<(GethDebugTracerType, TraceConfig)>,
 }
 
 /// Holds all Geth supported trace configurations
@@ -47,52 +47,61 @@ impl MuxInspector {
 
         // Process each tracer configuration
         for (tracer_type, tracer_config) in config.0 {
-            #[allow(unreachable_patterns)]
             match tracer_type {
-                GethDebugBuiltInTracerType::FourByteTracer => {
-                    if tracer_config.is_some() {
-                        return Err(Error::UnexpectedConfig(tracer_type));
+                GethDebugTracerType::BuiltInTracer(ref built_in) =>
+                {
+                    #[allow(unreachable_patterns)]
+                    match built_in {
+                        GethDebugBuiltInTracerType::FourByteTracer => {
+                            if tracer_config.is_some() {
+                                return Err(Error::UnexpectedConfig(tracer_type));
+                            }
+                            four_byte = Some(FourByteInspector::default());
+                        }
+                        GethDebugBuiltInTracerType::CallTracer => {
+                            let call_config = tracer_config
+                                .ok_or_else(|| Error::MissingConfig(tracer_type.clone()))?
+                                .into_call_config()?;
+
+                            inspector_config
+                                .merge(TracingInspectorConfig::from_geth_call_config(&call_config));
+                            configs.push((tracer_type, TraceConfig::Call(call_config)));
+                        }
+                        GethDebugBuiltInTracerType::PreStateTracer => {
+                            let prestate_config = tracer_config
+                                .ok_or_else(|| Error::MissingConfig(tracer_type.clone()))?
+                                .into_pre_state_config()?;
+
+                            inspector_config.merge(
+                                TracingInspectorConfig::from_geth_prestate_config(&prestate_config),
+                            );
+                            configs.push((tracer_type, TraceConfig::PreState(prestate_config)));
+                        }
+                        GethDebugBuiltInTracerType::NoopTracer => {
+                            if tracer_config.is_some() {
+                                return Err(Error::UnexpectedConfig(tracer_type));
+                            }
+                            configs.push((tracer_type, TraceConfig::Noop));
+                        }
+                        GethDebugBuiltInTracerType::FlatCallTracer => {
+                            let flatcall_config = tracer_config
+                                .ok_or_else(|| Error::MissingConfig(tracer_type.clone()))?
+                                .into_flat_call_config()?;
+
+                            inspector_config.merge(TracingInspectorConfig::from_flat_call_config(
+                                &flatcall_config,
+                            ));
+                            configs.push((tracer_type, TraceConfig::FlatCall(flatcall_config)));
+                        }
+                        GethDebugBuiltInTracerType::MuxTracer => {
+                            return Err(Error::UnexpectedConfig(tracer_type));
+                        }
+                        _ => {
+                            return Err(Error::UnexpectedConfig(tracer_type));
+                        }
                     }
-                    four_byte = Some(FourByteInspector::default());
-                }
-                GethDebugBuiltInTracerType::CallTracer => {
-                    let call_config = tracer_config
-                        .ok_or(Error::MissingConfig(tracer_type))?
-                        .into_call_config()?;
-
-                    inspector_config
-                        .merge(TracingInspectorConfig::from_geth_call_config(&call_config));
-                    configs.push((tracer_type, TraceConfig::Call(call_config)));
-                }
-                GethDebugBuiltInTracerType::PreStateTracer => {
-                    let prestate_config = tracer_config
-                        .ok_or(Error::MissingConfig(tracer_type))?
-                        .into_pre_state_config()?;
-
-                    inspector_config
-                        .merge(TracingInspectorConfig::from_geth_prestate_config(&prestate_config));
-                    configs.push((tracer_type, TraceConfig::PreState(prestate_config)));
-                }
-                GethDebugBuiltInTracerType::NoopTracer => {
-                    if tracer_config.is_some() {
-                        return Err(Error::UnexpectedConfig(tracer_type));
-                    }
-                    configs.push((tracer_type, TraceConfig::Noop));
-                }
-                GethDebugBuiltInTracerType::FlatCallTracer => {
-                    let flatcall_config = tracer_config
-                        .ok_or(Error::MissingConfig(tracer_type))?
-                        .into_flat_call_config()?;
-
-                    inspector_config
-                        .merge(TracingInspectorConfig::from_flat_call_config(&flatcall_config));
-                    configs.push((tracer_type, TraceConfig::FlatCall(flatcall_config)));
-                }
-                GethDebugBuiltInTracerType::MuxTracer => {
-                    return Err(Error::UnexpectedConfig(tracer_type));
                 }
                 _ => {
-                    // keep this so that new variants can be supported
                     return Err(Error::UnexpectedConfig(tracer_type));
                 }
             }
@@ -148,13 +157,13 @@ impl MuxInspector {
                 TraceConfig::Noop => NoopFrame::default().into(),
             };
 
-            frame.insert(*tracer_type, trace);
+            frame.insert(tracer_type.clone(), trace);
         }
 
         // Add four byte trace if inspector exists
         if let Some(inspector) = &self.four_byte {
             frame.insert(
-                GethDebugBuiltInTracerType::FourByteTracer,
+                GethDebugTracerType::BuiltInTracer(GethDebugBuiltInTracerType::FourByteTracer),
                 FourByteFrame::from(inspector).into(),
             );
         }
@@ -280,10 +289,10 @@ where
 pub enum Error {
     /// Config was provided for a tracer that does not expect it
     #[error("unexpected config for tracer '{0:?}'")]
-    UnexpectedConfig(GethDebugBuiltInTracerType),
+    UnexpectedConfig(GethDebugTracerType),
     /// Expected config is missing
     #[error("expected config is missing for tracer '{0:?}'")]
-    MissingConfig(GethDebugBuiltInTracerType),
+    MissingConfig(GethDebugTracerType),
     /// Error when deserializing the config
     #[error("error deserializing config: {0}")]
     InvalidConfig(#[from] serde_json::Error),
