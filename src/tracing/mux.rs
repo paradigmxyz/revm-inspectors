@@ -48,7 +48,8 @@ impl MuxInspector {
         // Process each tracer configuration
         for (tracer_type, tracer_config) in config.0 {
             match tracer_type {
-                GethDebugTracerType::BuiltInTracer(ref built_in) => {
+                GethDebugTracerType::BuiltInTracer(ref built_in) =>
+                {
                     #[allow(unreachable_patterns)]
                     match built_in {
                         GethDebugBuiltInTracerType::FourByteTracer => {
@@ -62,9 +63,8 @@ impl MuxInspector {
                                 .ok_or_else(|| Error::MissingConfig(tracer_type.clone()))?
                                 .into_call_config()?;
 
-                            inspector_config.merge(
-                                TracingInspectorConfig::from_geth_call_config(&call_config),
-                            );
+                            inspector_config
+                                .merge(TracingInspectorConfig::from_geth_call_config(&call_config));
                             configs.push((tracer_type, TraceConfig::Call(call_config)));
                         }
                         GethDebugBuiltInTracerType::PreStateTracer => {
@@ -73,9 +73,7 @@ impl MuxInspector {
                                 .into_pre_state_config()?;
 
                             inspector_config.merge(
-                                TracingInspectorConfig::from_geth_prestate_config(
-                                    &prestate_config,
-                                ),
+                                TracingInspectorConfig::from_geth_prestate_config(&prestate_config),
                             );
                             configs.push((tracer_type, TraceConfig::PreState(prestate_config)));
                         }
@@ -90,9 +88,9 @@ impl MuxInspector {
                                 .ok_or_else(|| Error::MissingConfig(tracer_type.clone()))?
                                 .into_flat_call_config()?;
 
-                            inspector_config.merge(
-                                TracingInspectorConfig::from_flat_call_config(&flatcall_config),
-                            );
+                            inspector_config.merge(TracingInspectorConfig::from_flat_call_config(
+                                &flatcall_config,
+                            ));
                             configs.push((tracer_type, TraceConfig::FlatCall(flatcall_config)));
                         }
                         GethDebugBuiltInTracerType::MuxTracer => {
