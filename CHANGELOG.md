@@ -5,11 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.36.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.36.1) - 2026-03-16
+
+### Bug Fixes
+
+- Omit empty returnData in geth struct log trace ([#411](https://github.com/paradigmxyz/revm-inspectors/issues/411))
+
+### Features
+
+- Add set_transaction_caller and set_transaction_target ([#412](https://github.com/paradigmxyz/revm-inspectors/issues/412))
+
 ## [0.36.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.36.0) - 2026-03-04
 
 ### Dependencies
 
 - Bump revm to 36.0.0 ([#409](https://github.com/paradigmxyz/revm-inspectors/issues/409))
+
+### Miscellaneous Tasks
+
+- Release 0.36.0
 
 ## [0.35.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.35.0) - 2026-03-03
 
