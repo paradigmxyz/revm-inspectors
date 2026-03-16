@@ -222,6 +222,7 @@ impl DebugInspector {
             Self::FourByte(inspector) => FourByteFrame::from(&*inspector).into(),
             Self::CallTracer(inspector, config) => {
                 inspector.set_transaction_gas_limit(tx_env.gas_limit());
+                inspector.set_transaction_caller(tx_env.caller());
                 inspector.geth_builder().geth_call_traces(*config, res.result.gas_used()).into()
             }
             Self::PreStateTracer(inspector, config) => {
@@ -239,6 +240,7 @@ impl DebugInspector {
                 .into(),
             Self::FlatCallTracer(inspector) => {
                 inspector.set_transaction_gas_limit(tx_env.gas_limit());
+                inspector.set_transaction_caller(tx_env.caller());
                 inspector
                     .clone()
                     .into_parity_builder()
@@ -247,6 +249,7 @@ impl DebugInspector {
             }
             Self::Erc7562Tracer(inspector, config) => {
                 inspector.set_transaction_gas_limit(tx_env.gas_limit());
+                inspector.set_transaction_caller(tx_env.caller());
                 inspector
                     .geth_builder()
                     .geth_erc7562_traces(config.clone(), res.result.gas_used(), db)
@@ -254,6 +257,7 @@ impl DebugInspector {
             }
             Self::Default(inspector, config) => {
                 inspector.set_transaction_gas_limit(tx_env.gas_limit());
+                inspector.set_transaction_caller(tx_env.caller());
                 inspector
                     .geth_builder()
                     .geth_traces(

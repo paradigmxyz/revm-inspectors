@@ -241,17 +241,6 @@ impl TracingInspector {
         }
     }
 
-    /// Manually set the target address of the root trace.
-    ///
-    /// This is useful for custom transaction types (e.g. account abstraction batches) where the
-    /// EVM's call entry point may not reflect the actual transaction target.
-    #[inline]
-    pub fn set_transaction_target(&mut self, target: Address) {
-        if let Some(node) = self.traces.arena.first_mut() {
-            node.trace.address = target;
-        }
-    }
-
     /// Consumes the Inspector and returns a [ParityTraceBuilder].
     #[inline]
     pub fn into_parity_builder(self) -> ParityTraceBuilder {
