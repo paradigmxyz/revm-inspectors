@@ -1,7 +1,7 @@
 # Configuration file for [`cargo-release`](https://github.com/crate-ci/cargo-release)
 # See: https://github.com/crate-ci/cargo-release/blob/master/docs/reference.md
 
-allow-branch = ["main"]
+allow-branch = ["main", "klkvr/backport-set-transaction-caller-0.34"]
 sign-commit = true
 sign-tag = true
 shared-version = true
