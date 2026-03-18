@@ -181,6 +181,8 @@ pub struct DecodedCallLog {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CallLog {
+    /// The address of the log emitter.
+    pub address: Address,
     /// The raw log data.
     pub raw_log: LogData,
     /// Optional complementary decoded log data.
@@ -194,7 +196,7 @@ pub struct CallLog {
 impl From<Log> for CallLog {
     /// Converts a [`Log`] into a [`CallLog`].
     fn from(log: Log) -> Self {
-        Self { position: Default::default(), raw_log: log.data, decoded: None, index: 0 }
+        Self { address: log.address, raw_log: log.data, decoded: None, position: 0, index: 0 }
     }
 }
 
@@ -470,7 +472,7 @@ impl CallTraceNode {
                 .logs
                 .iter()
                 .map(|log| CallLogFrame {
-                    address: Some(self.execution_address()),
+                    address: Some(log.address),
                     topics: Some(log.raw_log.topics().to_vec()),
                     data: Some(log.raw_log.data.clone()),
                     position: Some(log.position),
