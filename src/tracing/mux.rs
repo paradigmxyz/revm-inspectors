@@ -118,7 +118,7 @@ impl MuxInspector {
                     if let Some(inspector) = &self.tracing {
                         inspector
                             .geth_builder()
-                            .geth_call_traces(*call_config, result.result.gas_used())
+                            .geth_call_traces(*call_config, result.result.tx_gas_used())
                             .into()
                     } else {
                         continue;
