@@ -1,8 +1,6 @@
 use alloy_primitives::{map::HashMap, Address, B256};
 use revm::{
     bytecode::opcode,
-    context::ContextTr,
-    inspector::JournalExt,
     interpreter::{
         interpreter_types::{InputsTr, Jumps},
         Interpreter,
@@ -52,10 +50,7 @@ impl StorageInspector {
     }
 }
 
-impl<CTX> Inspector<CTX> for StorageInspector
-where
-    CTX: ContextTr<Journal: JournalExt>,
-{
+impl<CTX> Inspector<CTX> for StorageInspector {
     fn step(&mut self, interp: &mut Interpreter, _context: &mut CTX) {
         if interp.bytecode.opcode() == opcode::SLOAD {
             if let Ok(slot) = interp.stack.peek(0) {
