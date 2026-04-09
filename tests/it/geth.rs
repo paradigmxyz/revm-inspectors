@@ -14,7 +14,7 @@ use revm::{
     database_interface::EmptyDB,
     handler::EvmTr,
     inspector::InspectorEvmTr,
-    primitives::hardfork::SpecId,
+    primitives::{eip7708::ETH_TRANSFER_LOG_ADDRESS, hardfork::SpecId},
     state::AccountInfo,
     Context, InspectEvm, MainBuilder, MainContext,
 };
@@ -858,4 +858,250 @@ fn test_geth_prestate_diff_selfdestruct(spec_id: SpecId) {
         }
         _ => panic!("Expected Diff mode PreStateFrame"),
     }
+}
+
+/// EIP-7708: Verifies that when a value-transferring CALL to a precompile occurs under AMSTERDAM,
+/// the resulting EIP-7708 transfer log in the call tracer has `ETH_TRANSFER_LOG_ADDRESS` as its
+/// emitter address — not the execution address of the call frame.
+#[test]
+fn test_geth_calltracer_logs_eip7708() {
+    // Bytecode: CALL(0xFFFF gas, 0x01 ecrecover, 1 wei, 0, 0, 0, 0); STOP
+    // This calls the ecrecover precompile with 1 wei of value.
+    let code = hex!("60006000600060006001600161FFFFF100");
+    let contract = address!("0xc000000000000000000000000000000000000001");
+    let caller = address!("0xa000000000000000000000000000000000000001");
+
+    let context = Context::mainnet()
+        .with_db(CacheDB::<EmptyDB>::default())
+        .modify_cfg_chained(|cfg| cfg.spec = SpecId::AMSTERDAM)
+        .modify_db_chained(|db| {
+            // Fund the contract so it can send 1 wei
+            db.insert_account_info(
+                contract,
+                AccountInfo {
+                    balance: revm::primitives::U256::from(1_000_000),
+                    code: Some(Bytecode::new_raw(code.into())),
+                    ..Default::default()
+                },
+            );
+            // Fund the caller
+            db.insert_account_info(
+                caller,
+                AccountInfo {
+                    balance: revm::primitives::U256::from(1_000_000_000),
+                    ..Default::default()
+                },
+            );
+        });
+
+    let mut insp =
+        TracingInspector::new(TracingInspectorConfig::default_geth().set_record_logs(true));
+
+    let mut evm = context.build_mainnet().with_inspector(&mut insp);
+
+    let res = evm
+        .inspect_tx(TxEnv {
+            caller,
+            gas_limit: 1_000_000,
+            gas_price: 0,
+            kind: TransactTo::Call(contract),
+            data: Bytes::default(),
+            nonce: 0,
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(res.result.is_success(), "Transaction should succeed: {res:#?}");
+
+    let call_frame = insp
+        .with_transaction_gas_used(res.result.gas_used())
+        .geth_builder()
+        .geth_call_traces(CallConfig::default().with_log(), res.result.gas_used());
+
+    // The top-level call should have one subcall (the CALL to ecrecover precompile).
+    // Under AMSTERDAM with value transfer, the subcall to the precompile should have
+    // EIP-7708 transfer logs forwarded to the inspector.
+    //
+    // Find the EIP-7708 log and verify its address is ETH_TRANSFER_LOG_ADDRESS.
+    let mut found_eip7708_log = false;
+
+    // Check top-level logs
+    for log in &call_frame.logs {
+        if log.address == Some(ETH_TRANSFER_LOG_ADDRESS) {
+            found_eip7708_log = true;
+        }
+    }
+
+    // Check subcall logs (the precompile call frame)
+    for subcall in &call_frame.calls {
+        for log in &subcall.logs {
+            if log.address == Some(ETH_TRANSFER_LOG_ADDRESS) {
+                found_eip7708_log = true;
+            }
+            // The log address must NOT be the contract address or the precompile address;
+            // it must be the ETH_TRANSFER_LOG_ADDRESS for EIP-7708 logs.
+            assert_ne!(
+                log.address,
+                Some(contract),
+                "EIP-7708 log address should not be the contract address"
+            );
+        }
+    }
+
+    assert!(found_eip7708_log, "Expected at least one EIP-7708 transfer log");
+}
+
+/// Verifies that regular LOG opcode emissions still have the correct contract address
+/// as the log emitter in call tracer output.
+#[test]
+fn test_geth_calltracer_logs_address_regular() {
+    // Bytecode: LOG0 with 0 bytes of data, then STOP
+    // PUSH1 0x00  // size = 0
+    // PUSH1 0x00  // offset = 0
+    // LOG0
+    // STOP
+    let code = hex!("60006000A000");
+    let contract = address!("0xc000000000000000000000000000000000000002");
+    let caller = address!("0xa000000000000000000000000000000000000002");
+
+    let context = Context::mainnet()
+        .with_db(CacheDB::<EmptyDB>::default())
+        .modify_cfg_chained(|cfg| cfg.spec = SpecId::LONDON)
+        .modify_db_chained(|db| {
+            db.insert_account_info(
+                contract,
+                AccountInfo { code: Some(Bytecode::new_raw(code.into())), ..Default::default() },
+            );
+            db.insert_account_info(
+                caller,
+                AccountInfo {
+                    balance: revm::primitives::U256::from(1_000_000_000),
+                    ..Default::default()
+                },
+            );
+        });
+
+    let mut insp =
+        TracingInspector::new(TracingInspectorConfig::default_geth().set_record_logs(true));
+
+    let mut evm = context.build_mainnet().with_inspector(&mut insp);
+
+    let res = evm
+        .inspect_tx(TxEnv {
+            caller,
+            gas_limit: 1_000_000,
+            gas_price: 0,
+            kind: TransactTo::Call(contract),
+            data: Bytes::default(),
+            nonce: 0,
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(res.result.is_success(), "Transaction should succeed: {res:#?}");
+
+    let call_frame = insp
+        .with_transaction_gas_used(res.result.gas_used())
+        .geth_builder()
+        .geth_call_traces(CallConfig::default().with_log(), res.result.gas_used());
+
+    // The top-level call should have one log with the contract address as the emitter.
+    assert_eq!(call_frame.logs.len(), 1, "Expected exactly one log");
+    assert_eq!(
+        call_frame.logs[0].address,
+        Some(contract),
+        "Regular log should have the contract address as emitter"
+    );
+}
+
+/// Regression test: verifies that when proxy A performs a DELEGATECALL into implementation B,
+/// and B's code emits a log, the log emitter in the call tracer output is A (the execution
+/// context / proxy), not B (the bytecode / implementation address).
+///
+/// This guards the `CallLog.address` model change: we now preserve `Log.address` from the EVM
+/// rather than reconstructing it from `execution_address()`.
+#[test]
+fn test_geth_calltracer_logs_delegatecall() {
+    let proxy = address!("0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+    let implementation = address!("0xBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB");
+    let caller = address!("0xa000000000000000000000000000000000000099");
+
+    // Implementation bytecode: LOG0(offset=0, size=0); STOP
+    let impl_code = hex!("60006000A000");
+
+    // Proxy bytecode: DELEGATECALL(gas=0xFFFF, addr=implementation, 0, 0, 0, 0); STOP
+    let proxy_code = {
+        let mut code = Vec::new();
+        code.extend_from_slice(&hex!("6000600060006000")); // retSize, retOffset, argsSize, argsOffset
+        code.push(0x73); // PUSH20
+        code.extend_from_slice(implementation.as_slice()); // implementation address
+        code.extend_from_slice(&hex!("61FFFF")); // PUSH2 gas
+        code.push(0xF4); // DELEGATECALL
+        code.push(0x00); // STOP
+        Bytes::from(code)
+    };
+
+    let context = Context::mainnet()
+        .with_db(CacheDB::<EmptyDB>::default())
+        .modify_cfg_chained(|cfg| cfg.spec = SpecId::LONDON)
+        .modify_db_chained(|db| {
+            db.insert_account_info(
+                proxy,
+                AccountInfo { code: Some(Bytecode::new_raw(proxy_code)), ..Default::default() },
+            );
+            db.insert_account_info(
+                implementation,
+                AccountInfo {
+                    code: Some(Bytecode::new_raw(impl_code.into())),
+                    ..Default::default()
+                },
+            );
+            db.insert_account_info(
+                caller,
+                AccountInfo {
+                    balance: revm::primitives::U256::from(1_000_000_000),
+                    ..Default::default()
+                },
+            );
+        });
+
+    let mut insp =
+        TracingInspector::new(TracingInspectorConfig::default_geth().set_record_logs(true));
+
+    let mut evm = context.build_mainnet().with_inspector(&mut insp);
+
+    let res = evm
+        .inspect_tx(TxEnv {
+            caller,
+            gas_limit: 1_000_000,
+            gas_price: 0,
+            kind: TransactTo::Call(proxy),
+            data: Bytes::default(),
+            nonce: 0,
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(res.result.is_success(), "Transaction should succeed: {res:#?}");
+
+    let call_frame = insp
+        .with_transaction_gas_used(res.result.gas_used())
+        .geth_builder()
+        .geth_call_traces(CallConfig::default().with_log(), res.result.gas_used());
+
+    // The top-level call is to the proxy. It should have one subcall (the DELEGATECALL).
+    assert_eq!(call_frame.calls.len(), 1, "Expected one subcall (DELEGATECALL)");
+
+    let delegate_frame = &call_frame.calls[0];
+    assert_eq!(delegate_frame.typ, "DELEGATECALL");
+    assert_eq!(delegate_frame.logs.len(), 1, "DELEGATECALL frame should contain the emitted log");
+
+    // The log emitter must be the proxy (execution context), not the implementation.
+    assert_eq!(
+        delegate_frame.logs[0].address,
+        Some(proxy),
+        "Log emitter in DELEGATECALL frame must be the proxy (execution context)"
+    );
+    assert_ne!(
+        delegate_frame.logs[0].address,
+        Some(implementation),
+        "Log emitter must NOT be the implementation (bytecode) address"
+    );
 }
