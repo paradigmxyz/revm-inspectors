@@ -4,7 +4,8 @@ use alloy_primitives::{address, hex, map::HashMap, Address, Bytes, TxKind, B256}
 use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::geth::{
     erc7562::Erc7562Config, mux::MuxConfig, CallConfig, FlatCallConfig, GethDebugBuiltInTracerType,
-    GethDebugTracerConfig, GethDebugTracingOptions, GethTrace, PreStateConfig, PreStateFrame,
+    GethDebugTracerConfig, GethDebugTracerType, GethDebugTracingOptions, GethTrace, PreStateConfig,
+    PreStateFrame,
 };
 use revm::{
     bytecode::{opcode, Bytecode},
@@ -206,17 +207,17 @@ fn test_geth_mux_tracer() {
     let prestate_config = PreStateConfig { diff_mode: Some(false), ..Default::default() };
 
     let config = MuxConfig(HashMap::from_iter([
-        (GethDebugBuiltInTracerType::FourByteTracer, None),
+        (GethDebugTracerType::BuiltInTracer(GethDebugBuiltInTracerType::FourByteTracer), None),
         (
-            GethDebugBuiltInTracerType::CallTracer,
+            GethDebugTracerType::BuiltInTracer(GethDebugBuiltInTracerType::CallTracer),
             Some(GethDebugTracerConfig(serde_json::to_value(call_config).unwrap())),
         ),
         (
-            GethDebugBuiltInTracerType::PreStateTracer,
+            GethDebugTracerType::BuiltInTracer(GethDebugBuiltInTracerType::PreStateTracer),
             Some(GethDebugTracerConfig(serde_json::to_value(prestate_config).unwrap())),
         ),
         (
-            GethDebugBuiltInTracerType::FlatCallTracer,
+            GethDebugTracerType::BuiltInTracer(GethDebugBuiltInTracerType::FlatCallTracer),
             Some(GethDebugTracerConfig(serde_json::to_value(flatcall_config).unwrap())),
         ),
     ]));
@@ -242,12 +243,22 @@ fn test_geth_mux_tracer() {
         inspector.try_into_mux_frame(&res, ctx.db_ref(), TransactionInfo::default()).unwrap();
 
     assert_eq!(frame.0.len(), 4);
-    assert!(frame.0.contains_key(&GethDebugBuiltInTracerType::FourByteTracer));
-    assert!(frame.0.contains_key(&GethDebugBuiltInTracerType::CallTracer));
-    assert!(frame.0.contains_key(&GethDebugBuiltInTracerType::PreStateTracer));
-    assert!(frame.0.contains_key(&GethDebugBuiltInTracerType::FlatCallTracer));
+    assert!(frame.0.contains_key(&GethDebugTracerType::BuiltInTracer(
+        GethDebugBuiltInTracerType::FourByteTracer
+    )));
+    assert!(frame
+        .0
+        .contains_key(&GethDebugTracerType::BuiltInTracer(GethDebugBuiltInTracerType::CallTracer)));
+    assert!(frame.0.contains_key(&GethDebugTracerType::BuiltInTracer(
+        GethDebugBuiltInTracerType::PreStateTracer
+    )));
+    assert!(frame.0.contains_key(&GethDebugTracerType::BuiltInTracer(
+        GethDebugBuiltInTracerType::FlatCallTracer
+    )));
 
-    let four_byte_frame = frame.0[&GethDebugBuiltInTracerType::FourByteTracer].clone();
+    let four_byte_frame = frame.0
+        [&GethDebugTracerType::BuiltInTracer(GethDebugBuiltInTracerType::FourByteTracer)]
+        .clone();
     match four_byte_frame {
         GethTrace::FourByteTracer(four_byte_frame) => {
             assert_eq!(four_byte_frame.0.len(), 4);
@@ -259,7 +270,9 @@ fn test_geth_mux_tracer() {
         _ => panic!("Expected FourByteTracer"),
     }
 
-    let call_frame = frame.0[&GethDebugBuiltInTracerType::CallTracer].clone();
+    let call_frame = frame.0
+        [&GethDebugTracerType::BuiltInTracer(GethDebugBuiltInTracerType::CallTracer)]
+        .clone();
     match call_frame {
         GethTrace::CallTracer(call_frame) => {
             assert_eq!(call_frame.calls.len(), 3);
@@ -268,7 +281,9 @@ fn test_geth_mux_tracer() {
         _ => panic!("Expected CallTracer"),
     }
 
-    let prestate_frame = frame.0[&GethDebugBuiltInTracerType::PreStateTracer].clone();
+    let prestate_frame = frame.0
+        [&GethDebugTracerType::BuiltInTracer(GethDebugBuiltInTracerType::PreStateTracer)]
+        .clone();
     match prestate_frame {
         GethTrace::PreStateTracer(prestate_frame) => {
             if let PreStateFrame::Default(prestate_mode) = prestate_frame {
@@ -280,7 +295,9 @@ fn test_geth_mux_tracer() {
         _ => panic!("Expected PreStateTracer"),
     }
 
-    let flatcall_frame = frame.0[&GethDebugBuiltInTracerType::FlatCallTracer].clone();
+    let flatcall_frame = frame.0
+        [&GethDebugTracerType::BuiltInTracer(GethDebugBuiltInTracerType::FlatCallTracer)]
+        .clone();
     match flatcall_frame {
         GethTrace::FlatCallTracer(traces) => {
             assert_eq!(traces.len(), 6);
