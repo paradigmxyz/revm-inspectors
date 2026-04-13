@@ -913,9 +913,9 @@ fn test_geth_calltracer_logs_eip7708() {
     assert!(res.result.is_success(), "Transaction should succeed: {res:#?}");
 
     let call_frame = insp
-        .with_transaction_gas_used(res.result.gas_used())
+        .with_transaction_gas_used(res.result.tx_gas_used())
         .geth_builder()
-        .geth_call_traces(CallConfig::default().with_log(), res.result.gas_used());
+        .geth_call_traces(CallConfig::default().with_log(), res.result.tx_gas_used());
 
     // The top-level call should have one subcall (the CALL to ecrecover precompile).
     // Under AMSTERDAM with value transfer, the subcall to the precompile should have
@@ -999,9 +999,9 @@ fn test_geth_calltracer_logs_address_regular() {
     assert!(res.result.is_success(), "Transaction should succeed: {res:#?}");
 
     let call_frame = insp
-        .with_transaction_gas_used(res.result.gas_used())
+        .with_transaction_gas_used(res.result.tx_gas_used())
         .geth_builder()
-        .geth_call_traces(CallConfig::default().with_log(), res.result.gas_used());
+        .geth_call_traces(CallConfig::default().with_log(), res.result.tx_gas_used());
 
     // The top-level call should have one log with the contract address as the emitter.
     assert_eq!(call_frame.logs.len(), 1, "Expected exactly one log");
@@ -1082,9 +1082,9 @@ fn test_geth_calltracer_logs_delegatecall() {
     assert!(res.result.is_success(), "Transaction should succeed: {res:#?}");
 
     let call_frame = insp
-        .with_transaction_gas_used(res.result.gas_used())
+        .with_transaction_gas_used(res.result.tx_gas_used())
         .geth_builder()
-        .geth_call_traces(CallConfig::default().with_log(), res.result.gas_used());
+        .geth_call_traces(CallConfig::default().with_log(), res.result.tx_gas_used());
 
     // The top-level call is to the proxy. It should have one subcall (the DELEGATECALL).
     assert_eq!(call_frame.calls.len(), 1, "Expected one subcall (DELEGATECALL)");
