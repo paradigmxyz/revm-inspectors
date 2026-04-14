@@ -57,7 +57,7 @@ fn test_prestate_tracer_selfdestruct() {
 
     // Get the prestate trace
     let frame = inspector
-        .with_transaction_gas_used(res.result.gas_used())
+        .with_transaction_gas_used(res.result.tx_gas_used())
         .geth_builder()
         .geth_prestate_traces(&res, &prestate_config, db)
         .unwrap();
@@ -96,7 +96,7 @@ fn test_prestate_tracer_selfdestruct_diff_mode() {
     assert!(res.result.is_success(), "tx failed: {:?}", res.result);
 
     let frame = inspector
-        .with_transaction_gas_used(res.result.gas_used())
+        .with_transaction_gas_used(res.result.tx_gas_used())
         .geth_builder()
         .geth_prestate_traces(&res, &prestate_config, db)
         .unwrap();

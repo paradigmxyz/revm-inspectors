@@ -394,7 +394,7 @@ impl TracingInspector {
         let trace_idx = self.pop_trace_idx();
         let trace = &mut self.traces.arena[trace_idx].trace;
 
-        trace.gas_used = gas.spent();
+        trace.gas_used = gas.total_gas_spent();
         trace.gas_refund_counter = gas.refunded().max(0) as u64;
 
         trace.status = Some(result);
@@ -467,7 +467,7 @@ impl TracingInspector {
 
         let gas_used = gas_used(
             interp.runtime_flag.spec_id(),
-            interp.gas.spent(),
+            interp.gas.total_gas_spent(),
             interp.gas.refunded() as u64,
         );
 

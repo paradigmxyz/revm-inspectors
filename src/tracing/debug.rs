@@ -223,7 +223,7 @@ impl DebugInspector {
             Self::CallTracer(inspector, config) => {
                 inspector.set_transaction_gas_limit(tx_env.gas_limit());
                 inspector.set_transaction_caller(tx_env.caller());
-                inspector.geth_builder().geth_call_traces(*config, res.result.gas_used()).into()
+                inspector.geth_builder().geth_call_traces(*config, res.result.tx_gas_used()).into()
             }
             Self::PreStateTracer(inspector, config) => {
                 inspector.set_transaction_gas_limit(tx_env.gas_limit());
@@ -252,7 +252,7 @@ impl DebugInspector {
                 inspector.set_transaction_caller(tx_env.caller());
                 inspector
                     .geth_builder()
-                    .geth_erc7562_traces(config.clone(), res.result.gas_used(), db)
+                    .geth_erc7562_traces(config.clone(), res.result.tx_gas_used(), db)
                     .into()
             }
             Self::Default(inspector, config) => {
@@ -261,7 +261,7 @@ impl DebugInspector {
                 inspector
                     .geth_builder()
                     .geth_traces(
-                        res.result.gas_used(),
+                        res.result.tx_gas_used(),
                         res.result.output().unwrap_or_default().clone(),
                         *config,
                     )
