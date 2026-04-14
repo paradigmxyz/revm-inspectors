@@ -540,9 +540,7 @@ impl TracingInspector {
         if self.config.record_stack_snapshots.is_all()
             || self.config.record_stack_snapshots.is_pushes()
         {
-            // this can potentially underflow if the stack is malformed.
-            // outputs() calls info() which panics on unknown opcodes created via
-            // new_unchecked, so guard with is_valid().
+            // Check if op is valid and return zero
             let outputs = if step.op.is_valid() { step.op.outputs() as usize } else { 0 };
             let start = interp.stack.len().saturating_sub(outputs);
             step.push_stack = Some(interp.stack.data()[start..].into());
