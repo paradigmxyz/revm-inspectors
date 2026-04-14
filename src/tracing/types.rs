@@ -712,7 +712,7 @@ impl CallTraceStep {
             gas_cost: self.gas_cost,
             op: self.op.as_str().into(),
             pc: self.pc as u64,
-            refund_counter: (self.gas_refund_counter > 0).then_some(self.gas_refund_counter),
+            refund_counter: Some(self.gas_refund_counter),
             stack: if opts.is_stack_enabled() {
                 self.stack.as_ref().map(|stack| stack.to_vec())
             } else {
