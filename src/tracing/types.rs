@@ -710,7 +710,7 @@ impl CallTraceStep {
             error: self.as_error(),
             gas: self.gas_remaining,
             gas_cost: self.gas_cost,
-            op: self.op.as_str().into(),
+            op: self.op.to_string().into(),
             pc: self.pc as u64,
             refund_counter: (self.gas_refund_counter > 0).then_some(self.gas_refund_counter),
             stack: if opts.is_stack_enabled() {
