@@ -540,10 +540,10 @@ impl TracingInspector {
         if self.config.record_stack_snapshots.is_all()
             || self.config.record_stack_snapshots.is_pushes()
         {
-            // Check if op is valid and return zero
             let outputs = if step.op.is_valid() { step.op.outputs() as usize } else { 0 };
             let start = interp.stack.len().saturating_sub(outputs);
-            step.push_stack = Some(interp.stack.data()[start..].into());
+            step.push_stack =
+                Some(interp.stack.data().get(start..).unwrap_or_default().into());
         }
 
         let journal = context.journal_ref().journal();
