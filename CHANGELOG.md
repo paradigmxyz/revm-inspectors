@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.38.0) - 2026-04-14
+
+### Other
+
+- Revm state-gas integration ([#405](https://github.com/paradigmxyz/revm-inspectors/issues/405))
+
 ## [0.37.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.37.0) - 2026-04-13
 
 ### Bug Fixes
@@ -17,6 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Miscellaneous Tasks
 
+- Release 0.37.0
 - Relax `CTX` bounds on `StorageInspector` `Inspector` impl ([#416](https://github.com/paradigmxyz/revm-inspectors/issues/416))
 
 ## [0.36.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.36.1) - 2026-03-16
