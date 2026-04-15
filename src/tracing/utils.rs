@@ -79,12 +79,12 @@ pub(crate) fn convert_memory(data: &[u8]) -> Vec<String> {
     let chunks = data.chunks_exact(32);
     let remainder = chunks.remainder();
     for chunk in chunks {
-        memory.push(hex::encode(chunk));
+        memory.push(format!("0x{}", hex::encode(chunk)));
     }
     if !remainder.is_empty() {
         let mut last_chunk = [0u8; 32];
         last_chunk[..remainder.len()].copy_from_slice(remainder);
-        memory.push(hex::encode(last_chunk));
+        memory.push(format!("0x{}", hex::encode(last_chunk)));
     }
     memory
 }

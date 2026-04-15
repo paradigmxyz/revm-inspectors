@@ -96,7 +96,7 @@ impl<'a> GethTraceBuilder<'a> {
                 }
             }
 
-            if opts.is_return_data_enabled() && !step.returndata.is_empty() {
+            if opts.is_return_data_enabled() {
                 log.return_data = Some(step.returndata.clone());
             }
 
