@@ -5,7 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.38.1) - 2026-04-15
+
+### Bug Fixes
+
+- Check if opcode is valid ([#422](https://github.com/paradigmxyz/revm-inspectors/issues/422))
+
 ## [0.38.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.38.0) - 2026-04-14
+
+### Miscellaneous Tasks
+
+- Release 0.38.0
 
 ### Other
 
