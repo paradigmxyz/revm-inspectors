@@ -67,3 +67,6 @@ std = [
 serde = ["dep:serde", "revm/serde"]
 js-tracer = ["dep:boa_engine", "dep:boa_gc"]
 
+[patch.crates-io]
+revm = { git = "https://github.com/bluealloy/revm", rev = "89ecb25dbe49e1c3a10d99529e42f027d0bd2386" }
+
