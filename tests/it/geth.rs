@@ -4,8 +4,8 @@ use alloy_primitives::{address, hex, map::HashMap, Address, Bytes, TxKind, B256}
 use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::geth::{
     erc7562::Erc7562Config, mux::MuxConfig, CallConfig, FlatCallConfig, GethDebugBuiltInTracerType,
-    GethDebugTracerConfig, GethDebugTracerType, GethDebugTracingOptions, GethTrace, PreStateConfig,
-    PreStateFrame,
+    GethDebugTracerConfig, GethDebugTracerType, GethDebugTracingOptions, GethDefaultTracingOptions,
+    GethTrace, PreStateConfig, PreStateFrame,
 };
 use revm::{
     bytecode::{opcode, Bytecode},
@@ -777,6 +777,67 @@ fn test_geth_prestate_diff_selfdestruct_london() {
 #[test]
 fn test_geth_prestate_diff_selfdestruct_cancun() {
     test_geth_prestate_diff_selfdestruct(SpecId::CANCUN);
+}
+
+#[test]
+fn test_geth_default_tracer_empty_return_data_is_serialized_when_enabled() {
+    let contract = address!("0xc000000000000000000000000000000000000003");
+    let caller = address!("0xa000000000000000000000000000000000000003");
+    let code = hex!("00");
+
+    let context = Context::mainnet()
+        .with_db(CacheDB::<EmptyDB>::default())
+        .modify_cfg_chained(|cfg| cfg.spec = SpecId::LONDON)
+        .modify_db_chained(|db| {
+            db.insert_account_info(
+                contract,
+                AccountInfo { code: Some(Bytecode::new_raw(code.into())), ..Default::default() },
+            );
+            db.insert_account_info(
+                caller,
+                AccountInfo {
+                    balance: revm::primitives::U256::from(1_000_000_000),
+                    ..Default::default()
+                },
+            );
+        });
+
+    let mut insp = TracingInspector::new(TracingInspectorConfig::default_geth());
+    let mut evm = context.build_mainnet().with_inspector(&mut insp);
+
+    let res = evm
+        .inspect_tx(TxEnv {
+            caller,
+            gas_limit: 1_000_000,
+            gas_price: 0,
+            kind: TransactTo::Call(contract),
+            data: Bytes::default(),
+            nonce: 0,
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(res.result.is_success(), "Transaction should succeed: {res:#?}");
+
+    let frame =
+        insp.with_transaction_gas_used(res.result.tx_gas_used()).geth_builder().geth_traces(
+            res.result.tx_gas_used(),
+            res.result.output().unwrap_or_default().clone(),
+            GethDefaultTracingOptions::default().enable_return_data(),
+        );
+
+    assert!(!frame.struct_logs.is_empty(), "Expected struct logs for STOP execution");
+    assert!(frame.struct_logs.iter().all(|log| log.return_data == Some(Bytes::default())));
+
+    let struct_logs = serde_json::to_value(&frame)
+        .unwrap()
+        .get("structLogs")
+        .and_then(|value| value.as_array())
+        .cloned()
+        .unwrap();
+
+    assert!(struct_logs.iter().all(|log| {
+        log.get("returnData") == Some(&serde_json::Value::String("0x".to_string()))
+    }));
 }
 
 fn test_geth_prestate_diff_selfdestruct(spec_id: SpecId) {
