@@ -5,11 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.39.0) - 2026-04-17
+
+### Bug Fixes
+
+- [tracing] Align memory encoding and returnData gating ([#425](https://github.com/paradigmxyz/revm-inspectors/issues/425))
+- [tracing] Always include refund counter, wire enableReturnData config ([#424](https://github.com/paradigmxyz/revm-inspectors/issues/424))
+
+### Dependencies
+
+- Bump revm to 38.0.0 ([#427](https://github.com/paradigmxyz/revm-inspectors/issues/427))
+
 ## [0.38.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.38.1) - 2026-04-15
 
 ### Bug Fixes
 
 - Check if opcode is valid ([#422](https://github.com/paradigmxyz/revm-inspectors/issues/422))
+
+### Miscellaneous Tasks
+
+- Release 0.38.1
 
 ## [0.38.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.38.0) - 2026-04-14
 
