@@ -79,12 +79,12 @@ pub(crate) fn convert_memory(data: &[u8]) -> Vec<String> {
     let chunks = data.chunks_exact(32);
     let remainder = chunks.remainder();
     for chunk in chunks {
-        memory.push(hex::encode(chunk));
+        memory.push(hex::encode_prefixed(chunk));
     }
     if !remainder.is_empty() {
         let mut last_chunk = [0u8; 32];
         last_chunk[..remainder.len()].copy_from_slice(remainder);
-        memory.push(hex::encode(last_chunk));
+        memory.push(hex::encode_prefixed(last_chunk));
     }
     memory
 }
@@ -214,5 +214,18 @@ mod tests {
         let err = hex!("0x08c379a0000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000000214661696c656420746f2076657269667920424950333232207369676e617475726500000000000000000000000000000000000000000000000000000000000000");
         let reason = maybe_revert_reason(&err[..]).unwrap();
         assert_eq!(reason, "Failed to verify BIP322 signature".to_string());
+    }
+
+    #[test]
+    fn convert_memory_prefixes_and_zero_pads_chunks() {
+        let data = (0u8..33).collect::<Vec<_>>();
+
+        assert_eq!(
+            convert_memory(&data),
+            vec![
+                "0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f".to_string(),
+                "0x2000000000000000000000000000000000000000000000000000000000000000".to_string(),
+            ]
+        );
     }
 }

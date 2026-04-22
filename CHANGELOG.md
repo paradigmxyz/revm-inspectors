@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.39.0) - 2026-04-17
+
+### Bug Fixes
+
+- [tracing] Align memory encoding and returnData gating ([#425](https://github.com/paradigmxyz/revm-inspectors/issues/425))
+- [tracing] Always include refund counter, wire enableReturnData config ([#424](https://github.com/paradigmxyz/revm-inspectors/issues/424))
+
+### Dependencies
+
+- Bump revm to 38.0.0 ([#427](https://github.com/paradigmxyz/revm-inspectors/issues/427))
+
+## [0.38.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.38.1) - 2026-04-15
+
+### Bug Fixes
+
+- Check if opcode is valid ([#422](https://github.com/paradigmxyz/revm-inspectors/issues/422))
+
+### Miscellaneous Tasks
+
+- Release 0.38.1
+
+## [0.38.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.38.0) - 2026-04-14
+
+### Miscellaneous Tasks
+
+- Release 0.38.0
+
+### Other
+
+- Revm state-gas integration ([#405](https://github.com/paradigmxyz/revm-inspectors/issues/405))
+
+## [0.37.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.37.0) - 2026-04-13
+
+### Bug Fixes
+
+- Eip-7708 logs ([#413](https://github.com/paradigmxyz/revm-inspectors/issues/413))
+
+### Dependencies
+
+- Bump alloy to 2.0 ([#421](https://github.com/paradigmxyz/revm-inspectors/issues/421))
+
+### Miscellaneous Tasks
+
+- Release 0.37.0
+- Relax `CTX` bounds on `StorageInspector` `Inspector` impl ([#416](https://github.com/paradigmxyz/revm-inspectors/issues/416))
+
 ## [0.36.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.36.1) - 2026-03-16
 
 ### Bug Fixes
@@ -14,6 +60,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Features
 
 - Add set_transaction_caller and set_transaction_target ([#412](https://github.com/paradigmxyz/revm-inspectors/issues/412))
+
+### Miscellaneous Tasks
+
+- Release 0.36.1
 
 ## [0.36.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.36.0) - 2026-03-04
 

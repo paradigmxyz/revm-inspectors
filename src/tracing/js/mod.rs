@@ -269,7 +269,7 @@ impl JsInspector {
         let ResultAndState { result, state } = res;
         let (db, _db_guard) = EvmDbRef::new(&state, db);
 
-        let gas_used = result.gas_used();
+        let gas_used = result.tx_gas_used();
         let mut to = None;
         let mut output_bytes = None;
         let mut error = None;
@@ -445,7 +445,7 @@ where
         let (memory, _memory_guard) = MemoryRef::new(evm_memory);
         let active_call = self.active_call();
 
-        let gas_spent = interp.gas.spent();
+        let gas_spent = interp.gas.total_gas_spent();
         let step = StepLog {
             stack,
             op: interp.bytecode.opcode().into(),
@@ -491,7 +491,7 @@ where
             let mem = interp.memory.borrow();
             let (memory, _memory_guard) = MemoryRef::new(mem);
             let active_call = self.active_call();
-            let gas_spent = interp.gas.spent();
+            let gas_spent = interp.gas.total_gas_spent();
 
             let step = StepLog {
                 stack,
@@ -563,7 +563,7 @@ where
     fn call_end(&mut self, _context: &mut CTX, _inputs: &CallInputs, outcome: &mut CallOutcome) {
         if self.can_call_exit() {
             let frame_result = FrameResult {
-                gas_used: outcome.result.gas.spent(),
+                gas_used: outcome.result.gas.total_gas_spent(),
                 output: outcome.result.output.clone(),
                 error: utils::fmt_error_msg(outcome.result.result, TraceStyle::Geth),
             };
@@ -609,7 +609,7 @@ where
     ) {
         if self.can_call_exit() {
             let frame_result = FrameResult {
-                gas_used: outcome.result.gas.spent(),
+                gas_used: outcome.result.gas.total_gas_spent(),
                 output: outcome.result.output.clone(),
                 error: None,
             };
