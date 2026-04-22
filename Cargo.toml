@@ -52,7 +52,7 @@ boa_gc = { version = "0.21", optional = true }
 
 [dev-dependencies]
 alloy-hardforks = "0.4"
-snapbox = { version = "0.6", features = ["term-svg"] }
+snapbox = { version = "1.2", features = ["term-svg"] }
 
 [features]
 default = ["std"]
