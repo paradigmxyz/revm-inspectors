@@ -13,6 +13,7 @@ use alloc::{
     format,
     rc::Rc,
     string::{String, ToString},
+    vec::Vec,
 };
 use alloy_primitives::{Address, Bytes, B256, U256};
 use boa_engine::{
@@ -236,14 +237,36 @@ impl StepLog {
     }
 }
 
+/// An owned snapshot of memory contents.
+///
+/// Uses `Rc` internally so cloning is cheap (reference count bump) rather than
+/// copying the entire memory buffer on every step.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct MemorySnapshot(Rc<Vec<u8>>);
+
+impl MemorySnapshot {
+    /// Creates a snapshot by copying the context memory from `SharedMemory`.
+    pub(crate) fn from_shared_memory(mem: &SharedMemory) -> Self {
+        Self(Rc::new(mem.context_memory().to_vec()))
+    }
+
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    fn slice_len(&self, offset: usize, size: usize) -> &[u8] {
+        &self.0[offset..offset + size]
+    }
+}
+
 /// Represents the memory object
 #[derive(Clone, Debug)]
-pub(crate) struct MemoryRef(GuardedNullableGc<SharedMemory>);
+pub(crate) struct MemoryRef(GuardedNullableGc<MemorySnapshot>);
 
 impl MemoryRef {
-    /// Creates a new stack reference
-    pub(crate) fn new(mem: &SharedMemory) -> (Self, GcGuard<'_, SharedMemory>) {
-        let (inner, guard) = GuardedNullableGc::new_ref(mem);
+    /// Creates a new memory reference from an owned snapshot.
+    pub(crate) fn new_owned(mem: MemorySnapshot) -> (Self, GcGuard<'static, MemorySnapshot>) {
+        let (inner, guard) = GuardedNullableGc::new_owned(mem);
         (Self(inner), guard)
     }
 
@@ -430,9 +453,9 @@ impl From<u8> for OpObj {
 pub(crate) struct StackRef(GuardedNullableGc<Stack>);
 
 impl StackRef {
-    /// Creates a new stack reference
-    pub(crate) fn new(stack: &Stack) -> (Self, GcGuard<'_, Stack>) {
-        let (inner, guard) = GuardedNullableGc::new_ref(stack);
+    /// Creates a new stack reference from an owned stack.
+    pub(crate) fn new_owned(stack: Stack) -> (Self, GcGuard<'static, Stack>) {
+        let (inner, guard) = GuardedNullableGc::new_owned(stack);
         (Self(inner), guard)
     }
 
@@ -1189,9 +1212,9 @@ mod tests {
         let _ = stack.push(U256::from(35000));
         let _ = stack.push(U256::from(35000));
         let _ = stack.push(U256::from(35000));
-        let (stack_ref, _stack_guard) = StackRef::new(&stack);
-        let mem = SharedMemory::new();
-        let (mem_ref, _mem_guard) = MemoryRef::new(&mem);
+        let (stack_ref, _stack_guard) = StackRef::new_owned(stack);
+        let mem = MemorySnapshot::default();
+        let (mem_ref, _mem_guard) = MemoryRef::new_owned(mem);
 
         let step = StepLog {
             stack: stack_ref,
@@ -1279,9 +1302,9 @@ mod tests {
         let _ = stack.push(U256::from(35000));
         let _ = stack.push(U256::from(35000));
         let _ = stack.push(U256::from(35000));
-        let (stack_ref, _stack_guard) = StackRef::new(&stack);
-        let mem = SharedMemory::new();
-        let (mem_ref, _mem_guard) = MemoryRef::new(&mem);
+        let (stack_ref, _stack_guard) = StackRef::new_owned(stack);
+        let mem = MemorySnapshot::default();
+        let (mem_ref, _mem_guard) = MemoryRef::new_owned(mem);
 
         let step = StepLog {
             stack: stack_ref,
