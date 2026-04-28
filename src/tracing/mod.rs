@@ -425,7 +425,7 @@ impl TracingInspector {
     ) {
         // We always want an OpCode, even it is unknown because it could be an additional opcode
         // that not a known constant.
-        let op = unsafe { OpCode::new_unchecked(interp.bytecode.opcode()) };
+        let op = OpCode::new_or_unknown(interp.bytecode.opcode());
 
         let record = self.config.should_record_opcode(op);
         self.record_step_end = record;
