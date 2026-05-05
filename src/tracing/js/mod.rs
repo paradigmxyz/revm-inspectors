@@ -28,6 +28,7 @@ use revm::{
         result::{ExecutionResult, HaltReasonTr, Output, ResultAndState},
         Block, ContextTr, TransactTo, Transaction,
     },
+    database::WrapDatabaseRef,
     inspector::JournalExt,
     interpreter::{
         interpreter_types::{Jumps, LoopControl},
@@ -286,7 +287,8 @@ impl JsInspector {
         <DB as DatabaseRef>::Error: core::fmt::Display,
     {
         let ResultAndState { result, state } = res;
-        let (db, _db_guard) = EvmDbRef::new(&state, db);
+        let mut db = WrapDatabaseRef(db);
+        let (db, _db_guard) = EvmDbRef::new(&state, &mut db);
 
         let gas_used = result.tx_gas_used();
         let mut to = None;
@@ -446,7 +448,7 @@ impl JsInspector {
 
 impl<CTX> Inspector<CTX> for JsInspector
 where
-    CTX: ContextTr<Journal: JournalExt, Db: DatabaseRef>,
+    CTX: ContextTr<Journal: JournalExt>,
 {
     fn step(&mut self, interp: &mut Interpreter, context: &mut CTX) {
         if self.step_fn.is_none() {
@@ -499,7 +501,8 @@ where
         // Compute the actual gas cost now that the opcode has executed
         let cost = interp.gas.total_gas_spent().saturating_sub(pending.gas_spent_before);
 
-        let (db, _db_guard) = EvmDbRef::new(context.journal_ref().evm_state(), context.db_ref());
+        let (db_mut, state) = context.journal_mut().db_and_state_mut();
+        let (db, _db_guard) = EvmDbRef::new(state, db_mut);
 
         let (stack, _stack_guard) = StackRef::new_owned(pending.stack);
         let (memory, _memory_guard) = MemoryRef::new_owned(self.cached_memory.clone());
@@ -802,7 +805,9 @@ mod tests {
 
         assert_eq!(res.result.is_success(), success);
         let (ctx, inspector) = evm.ctx_inspector();
-        inspector.json_result(res, ctx.tx(), ctx.block(), ctx.db_ref()).unwrap()
+        let tx = ctx.tx().clone();
+        let block = ctx.block().clone();
+        inspector.json_result(res, &tx, &block, ctx.db_mut()).unwrap()
     }
 
     #[test]

@@ -302,7 +302,7 @@ macro_rules! delegate {
 
 impl<CTX> Inspector<CTX> for DebugInspector
 where
-    CTX: ContextTr<Journal: JournalExt, Db: DatabaseRef>,
+    CTX: ContextTr<Journal: JournalExt>,
 {
     fn initialize_interp(&mut self, interp: &mut Interpreter, context: &mut CTX) {
         delegate!(self => inspector.initialize_interp(interp, context))

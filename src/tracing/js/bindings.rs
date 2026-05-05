@@ -30,7 +30,7 @@ use revm::{
     interpreter::{SharedMemory, Stack},
     primitives::KECCAK_EMPTY,
     state::{AccountInfo, Bytecode, EvmState},
-    DatabaseRef,
+    Database, DatabaseRef,
 };
 
 /// A macro that creates a native function that returns via [JsValue::from]
@@ -830,9 +830,9 @@ pub(crate) struct EvmDbRef {
 
 impl EvmDbRef {
     /// Creates a new evm and db JS object.
-    pub(crate) fn new<'a, 'b, DB>(state: &'a EvmState, db: &'b DB) -> (Self, EvmDbGuard<'a, 'b>)
+    pub(crate) fn new<'a, 'b, DB>(state: &'a EvmState, db: &'b mut DB) -> (Self, EvmDbGuard<'a, 'b>)
     where
-        DB: DatabaseRef,
+        DB: Database,
         DB::Error: core::fmt::Display,
     {
         let (state, state_guard) = StateRef::new(state);
@@ -843,7 +843,7 @@ impl EvmDbRef {
         // As mentioned in the `Safety` section of [GuardedNullableGc] the caller of this function
         // needs to guarantee that the passed-in lifetime is sufficiently long for the lifetime of
         // the guard.
-        let db = JsDb(db);
+        let db = JsDb(RefCell::new(db));
         let js_db = unsafe {
             core::mem::transmute::<
                 Box<dyn DatabaseRef<Error = StringError> + '_>,
@@ -1028,7 +1028,10 @@ pub(crate) struct EvmDbGuard<'a, 'b> {
 }
 
 /// A wrapper Database for the JS context.
-pub(crate) struct JsDb<DB: DatabaseRef>(DB);
+///
+/// Wraps a `&mut DB: Database` in a `RefCell` so that the `&self` methods of
+/// [`DatabaseRef`] can drive the underlying `Database` (which requires `&mut self`).
+pub(crate) struct JsDb<'a, DB>(RefCell<&'a mut DB>);
 
 #[derive(Clone, Debug)]
 pub(crate) struct StringError(pub String);
@@ -1048,27 +1051,27 @@ impl From<String> for StringError {
     }
 }
 
-impl<DB> DatabaseRef for JsDb<DB>
+impl<DB> DatabaseRef for JsDb<'_, DB>
 where
-    DB: DatabaseRef,
+    DB: Database,
     DB::Error: core::fmt::Display,
 {
     type Error = StringError;
 
-    fn basic_ref(&self, _address: Address) -> Result<Option<AccountInfo>, Self::Error> {
-        self.0.basic_ref(_address).map_err(|e| e.to_string().into())
+    fn basic_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
+        self.0.borrow_mut().basic(address).map_err(|e| e.to_string().into())
     }
 
-    fn code_by_hash_ref(&self, _code_hash: B256) -> Result<Bytecode, Self::Error> {
-        self.0.code_by_hash_ref(_code_hash).map_err(|e| e.to_string().into())
+    fn code_by_hash_ref(&self, code_hash: B256) -> Result<Bytecode, Self::Error> {
+        self.0.borrow_mut().code_by_hash(code_hash).map_err(|e| e.to_string().into())
     }
 
-    fn storage_ref(&self, _address: Address, _index: U256) -> Result<U256, Self::Error> {
-        self.0.storage_ref(_address, _index).map_err(|e| e.to_string().into())
+    fn storage_ref(&self, address: Address, index: U256) -> Result<U256, Self::Error> {
+        self.0.borrow_mut().storage(address, index).map_err(|e| e.to_string().into())
     }
 
-    fn block_hash_ref(&self, _number: u64) -> Result<B256, Self::Error> {
-        self.0.block_hash_ref(_number).map_err(|e| e.to_string().into())
+    fn block_hash_ref(&self, number: u64) -> Result<B256, Self::Error> {
+        self.0.borrow_mut().block_hash(number).map_err(|e| e.to_string().into())
     }
 }
 
@@ -1166,7 +1169,7 @@ mod tests {
         let mut db = CacheDB::new(EmptyDB::new());
         let state = EvmState::default();
         {
-            let (db, guard) = EvmDbRef::new(&state, &db);
+            let (db, guard) = EvmDbRef::new(&state, &mut db);
             let addr = Address::default();
             let addr = JsValue::from(js_string!(addr.to_string()));
             let db = db.into_js_object(&mut context).unwrap();
@@ -1182,7 +1185,7 @@ mod tests {
         db.insert_account_info(addr, Default::default());
 
         {
-            let (db, guard) = EvmDbRef::new(&state, &db);
+            let (db, guard) = EvmDbRef::new(&state, &mut db);
             let addr = JsValue::from(js_string!(addr.to_string()));
             let db = db.into_js_object(&mut context).unwrap();
             let res = f.call(&result, &[db.clone().into(), addr.clone()], &mut context).unwrap();
@@ -1218,10 +1221,10 @@ mod tests {
         let result_fn = obj.get(js_string!("result"), &mut context).unwrap().as_object().unwrap();
         let setup_fn = obj.get(js_string!("setup"), &mut context).unwrap().as_object().unwrap();
 
-        let db = CacheDB::new(EmptyDB::new());
+        let mut db = CacheDB::new(EmptyDB::new());
         let state = EvmState::default();
         {
-            let (db_ref, guard) = EvmDbRef::new(&state, &db);
+            let (db_ref, guard) = EvmDbRef::new(&state, &mut db);
             let js_db = db_ref.into_js_object(&mut context).unwrap();
             let _res = setup_fn.call(&(obj.clone().into()), &[js_db.into()], &mut context).unwrap();
             assert!(obj.get(js_string!("db"), &mut context).unwrap().is_object());
