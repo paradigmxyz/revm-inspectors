@@ -27,6 +27,7 @@ use revm::{
         result::{ExecutionResult, HaltReasonTr, Output, ResultAndState},
         Block, ContextTr, TransactTo, Transaction,
     },
+    database::WrapDatabaseRef,
     inspector::JournalExt,
     interpreter::{
         interpreter_types::{Jumps, LoopControl},
@@ -267,7 +268,8 @@ impl JsInspector {
         <DB as DatabaseRef>::Error: core::fmt::Display,
     {
         let ResultAndState { result, state } = res;
-        let (db, _db_guard) = EvmDbRef::new(&state, db);
+        let mut db = WrapDatabaseRef(db);
+        let (db, _db_guard) = EvmDbRef::new(&state, &mut db);
 
         let gas_used = result.tx_gas_used();
         let mut to = None;
@@ -427,7 +429,7 @@ impl JsInspector {
 
 impl<CTX> Inspector<CTX> for JsInspector
 where
-    CTX: ContextTr<Journal: JournalExt, Db: DatabaseRef>,
+    CTX: ContextTr<Journal: JournalExt>,
 {
     fn step(&mut self, interp: &mut Interpreter, context: &mut CTX) {
         // if this is a revert we need to manually record this so that we can use it in the
@@ -438,7 +440,9 @@ where
             return;
         }
 
-        let (db, _db_guard) = EvmDbRef::new(context.journal_ref().evm_state(), context.db_ref());
+        let depth = context.journal_ref().depth() as u64;
+        let (db_mut, state) = context.journal_mut().db_and_state_mut();
+        let (db, _db_guard) = EvmDbRef::new(state, db_mut);
 
         let (stack, _stack_guard) = StackRef::new(&interp.stack);
         let evm_memory = interp.memory.borrow();
@@ -453,7 +457,7 @@ where
             pc: interp.bytecode.pc() as u64,
             gas_remaining: interp.gas.remaining(),
             cost: self.get_op_cost(gas_spent),
-            depth: context.journal_ref().depth() as u64,
+            depth,
             refund: interp.gas.refunded() as u64,
             error: None,
             contract: Contract {
@@ -484,8 +488,9 @@ where
             .as_ref()
             .is_some_and(|a| a.instruction_result().map(|r| r.is_revert()).unwrap_or(false))
         {
-            let (db, _db_guard) =
-                EvmDbRef::new(context.journal_ref().evm_state(), context.db_ref());
+            let depth = context.journal_ref().depth() as u64;
+            let (db_mut, state) = context.journal_mut().db_and_state_mut();
+            let (db, _db_guard) = EvmDbRef::new(state, db_mut);
 
             let (stack, _stack_guard) = StackRef::new(&interp.stack);
             let mem = interp.memory.borrow();
@@ -502,7 +507,7 @@ where
                 memory,
                 gas_remaining: interp.gas.remaining(),
                 cost: self.get_op_cost(gas_spent),
-                depth: context.journal_ref().depth() as u64,
+                depth,
                 refund: interp.gas.refunded() as u64,
                 error: interp
                     .bytecode
@@ -775,7 +780,9 @@ mod tests {
 
         assert_eq!(res.result.is_success(), success);
         let (ctx, inspector) = evm.ctx_inspector();
-        inspector.json_result(res, ctx.tx(), ctx.block(), ctx.db_ref()).unwrap()
+        let tx = ctx.tx().clone();
+        let block = ctx.block().clone();
+        inspector.json_result(res, &tx, &block, ctx.db_mut()).unwrap()
     }
 
     #[test]
