@@ -5,57 +5,166 @@ use alloy_primitives::{hex, map::HashSet, Address, FixedBytes, B256, U256};
 use boa_engine::{
     builtins::{array_buffer::ArrayBuffer, typed_array::TypedArray},
     js_string,
-    object::builtins::{JsArray, JsArrayBuffer, JsTypedArray, JsUint8Array},
-    property::Attribute,
+    object::{
+        builtins::{JsArray, JsArrayBuffer, JsTypedArray, JsUint8Array},
+        FunctionObjectBuilder,
+    },
+    property::{Attribute, PropertyKey},
     Context, JsArgs, JsError, JsNativeError, JsResult, JsString, JsValue, NativeFunction, Source,
 };
 use boa_gc::{empty_trace, Finalize, Trace};
 use core::borrow::Borrow;
+use serde_json::{Map, Number, Value};
+
+/// Maximum depth accepted when converting tracer output to JSON.
+///
+/// Boa's native `JSON.stringify` can recurse in Rust frames deeply enough to overflow the host
+/// stack. Keep this well below that range and fail the trace instead.
+const JSON_DEPTH_LIMIT: usize = 512;
 
 /// Converts the given `JsValue` to a `serde_json::Value`.
-///
-/// This first attempts to use the built-in `JSON.stringify` function to convert the value to a JSON
-///
-/// If that fails it uses boa's to_json function to convert the value to a JSON object
-///
-/// We use `JSON.stringify` so that `toJSON` properties are used when converting the value to JSON,
-/// this ensures the `bigint` is serialized properly.
 pub(crate) fn to_serde_value(val: JsValue, ctx: &mut Context) -> JsResult<serde_json::Value> {
-    if let Ok(json) = json_stringify(val.clone(), ctx) {
-        let json = json.to_std_string().map_err(|err| {
-            JsError::from_native(
-                JsNativeError::error()
-                    .with_message(format!("failed to convert JSON to string: {err}")),
-            )
-        })?;
-        serde_json::from_str(&json).map_err(|err| {
-            JsError::from_native(
-                JsNativeError::error().with_message(format!("failed to parse JSON: {err}")),
-            )
-        })
-    } else {
-        val.to_json(ctx)?.ok_or_else(|| {
-            JsError::from_native(
-                JsNativeError::error().with_message("failed to convert JsValue to JSON"),
-            )
-        })
-    }
+    stringify_json_value(val, ctx)?.ok_or_else(|| {
+        JsError::from_native(
+            JsNativeError::error().with_message("failed to convert JsValue to JSON"),
+        )
+    })
 }
 
-/// Attempts to use the global `JSON` object to stringify the given value.
+/// Converts the given value to a JSON string.
+#[cfg(test)]
 pub(crate) fn json_stringify(val: JsValue, ctx: &mut Context) -> JsResult<JsString> {
-    let json = ctx.global_object().get(js_string!("JSON"), ctx)?;
-    let json_obj = json.as_object().ok_or_else(|| {
-        JsError::from_native(JsNativeError::typ().with_message("JSON is not an object"))
-    })?;
+    stringify_json(val, ctx).map(|json| json.unwrap_or_else(|| js_string!("undefined")))
+}
 
-    let stringify = json_obj.get(js_string!("stringify"), ctx)?;
+fn json_stringify_builtin(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
+    let val = args.get_or_undefined(0).clone();
+    Ok(stringify_json(val, ctx)?.map_or_else(JsValue::undefined, JsValue::from))
+}
 
-    let stringify = stringify.as_callable().ok_or_else(|| {
-        JsError::from_native(JsNativeError::typ().with_message("JSON.stringify is not callable"))
+fn stringify_json(val: JsValue, ctx: &mut Context) -> JsResult<Option<JsString>> {
+    let Some(json) = stringify_json_value(val, ctx)? else { return Ok(None) };
+    let json = serde_json::to_string(&json).map_err(|err| {
+        JsError::from_native(
+            JsNativeError::error().with_message(format!("failed to serialize JSON: {err}")),
+        )
     })?;
-    let res = stringify.call(&json, &[val], ctx)?;
-    res.to_string(ctx)
+    Ok(Some(js_string!(json)))
+}
+
+fn stringify_json_value(val: JsValue, ctx: &mut Context) -> JsResult<Option<Value>> {
+    let mut seen_objects = HashSet::default();
+    js_value_to_json(val, ctx, &mut seen_objects, 0, true, JsValue::from(js_string!("")))
+}
+
+fn js_value_to_json(
+    val: JsValue,
+    ctx: &mut Context,
+    seen_objects: &mut HashSet<boa_engine::JsObject>,
+    depth: usize,
+    apply_to_json: bool,
+    key: JsValue,
+) -> JsResult<Option<Value>> {
+    if depth > JSON_DEPTH_LIMIT {
+        return Err(json_type_error("tracer result exceeds maximum JSON depth"));
+    }
+
+    let val = if apply_to_json { apply_json_method(val, key, ctx)? } else { val };
+
+    if val.is_null() {
+        return Ok(Some(Value::Null));
+    }
+    if val.is_undefined() {
+        return Ok(None);
+    }
+    if let Some(boolean) = val.as_boolean() {
+        return Ok(Some(Value::Bool(boolean)));
+    }
+    if let Some(string) = val.as_string() {
+        return Ok(Some(Value::String(string.to_std_string_escaped())));
+    }
+    if let Some(number) = val.as_number() {
+        return Ok(Some(number_to_json(number)));
+    }
+    if let Some(bigint) = val.as_bigint() {
+        return Ok(Some(Value::String(bigint.to_string())));
+    }
+
+    let Some(obj) = val.as_object() else {
+        return Ok(None);
+    };
+
+    if obj.is_callable() {
+        return Ok(None);
+    }
+    if !seen_objects.insert(obj.clone()) {
+        return Err(json_type_error("cyclic object value"));
+    }
+
+    let result = if obj.is_array() {
+        let array = JsArray::from_object(obj.clone())?;
+        let len = array.length(ctx)?;
+        let len = usize::try_from(len)
+            .map_err(|_| json_type_error("array length exceeds addressable memory"))?;
+        let mut values = Vec::with_capacity(len);
+
+        for index in 0..len {
+            let value = array.get(index, ctx)?;
+            let key = JsValue::from(js_string!(index.to_string()));
+            values.push(
+                js_value_to_json(value, ctx, seen_objects, depth + 1, true, key)?
+                    .unwrap_or(Value::Null),
+            );
+        }
+
+        Ok(Some(Value::Array(values)))
+    } else {
+        let mut map = Map::new();
+
+        for property_key in obj.own_property_keys(ctx)? {
+            let key = match &property_key {
+                PropertyKey::String(string) => string.to_std_string_escaped(),
+                PropertyKey::Index(index) => index.get().to_string(),
+                PropertyKey::Symbol(_) => continue,
+            };
+            let value = obj.get(property_key, ctx)?;
+            let key_value = JsValue::from(js_string!(key.clone()));
+            if let Some(value) =
+                js_value_to_json(value, ctx, seen_objects, depth + 1, true, key_value)?
+            {
+                map.insert(key, value);
+            }
+        }
+
+        Ok(Some(Value::Object(map)))
+    };
+
+    seen_objects.remove(&obj);
+    result
+}
+
+fn apply_json_method(val: JsValue, key: JsValue, ctx: &mut Context) -> JsResult<JsValue> {
+    let Some(obj) = val.as_object() else { return Ok(val) };
+    let to_json = obj.get(js_string!("toJSON"), ctx)?;
+    let Some(to_json) = to_json.as_callable() else { return Ok(val) };
+    to_json.call(&val, &[key], ctx)
+}
+
+fn number_to_json(number: f64) -> Value {
+    const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.;
+
+    if number.fract() == 0. && number.abs() <= MAX_SAFE_INTEGER {
+        if number >= 0. {
+            return Value::Number(Number::from(number as u64));
+        }
+        return Value::Number(Number::from(number as i64));
+    }
+
+    Number::from_f64(number).map_or(Value::Null, Value::Number)
+}
+
+fn json_type_error(message: &'static str) -> JsError {
+    JsError::from_native(JsNativeError::typ().with_message(message))
 }
 
 /// Registers all the builtin functions.
@@ -68,6 +177,19 @@ pub(crate) fn register_builtins(ctx: &mut Context) -> JsResult<()> {
     ctx.eval(Source::from_bytes(
         b"BigInt.prototype.toJSON = function() { return this.toString(); }",
     ))?;
+    let json = ctx.global_object().get(js_string!("JSON"), ctx)?;
+    let json = json.as_object().ok_or_else(|| {
+        JsError::from_native(JsNativeError::typ().with_message("JSON is not an object"))
+    })?;
+    let stringify = FunctionObjectBuilder::new(
+        ctx.realm(),
+        NativeFunction::from_fn_ptr(json_stringify_builtin),
+    )
+    .name(js_string!("stringify"))
+    .length(3)
+    .build();
+    json.set(js_string!("stringify"), stringify, false, ctx)?;
+
     // Create global 'bigint' alias for native BigInt constructor (lowercase for compatibility)
     ctx.register_global_property(js_string!("bigint"), big_int, Attribute::all())?;
     ctx.register_global_builtin_callable(
@@ -379,6 +501,75 @@ mod tests {
             bigint.as_callable().unwrap().call(&JsValue::undefined(), &[value], &mut ctx).unwrap();
         assert!(result.is_bigint());
         assert_eq!(result.to_string(&mut ctx).unwrap().to_std_string().unwrap(), "100");
+    }
+
+    #[test]
+    fn test_json_stringify_depth_limit() {
+        let mut ctx = Context::default();
+        register_builtins(&mut ctx).unwrap();
+
+        let code = format!(
+            "JSON.stringify(Array({}).fill(0).reduce(function(a) {{ return [a]; }}, 0))",
+            JSON_DEPTH_LIMIT + 1
+        );
+        let result = ctx.eval(Source::from_bytes(code.as_bytes()));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_to_serde_value_depth_limit() {
+        let mut ctx = Context::default();
+        register_builtins(&mut ctx).unwrap();
+
+        let code = format!(
+            "Array({}).fill(0).reduce(function(a) {{ return [a]; }}, 0)",
+            JSON_DEPTH_LIMIT + 1
+        );
+        let value = ctx.eval(Source::from_bytes(code.as_bytes())).unwrap();
+        let result = to_serde_value(value, &mut ctx);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_json_stringify_rejects_cycles() {
+        let mut ctx = Context::default();
+        register_builtins(&mut ctx).unwrap();
+
+        let result = ctx.eval(Source::from_bytes(
+            b"let value = {}; value.self = value; JSON.stringify(value);",
+        ));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_json_stringify_preserves_to_json() {
+        let mut ctx = Context::default();
+        register_builtins(&mut ctx).unwrap();
+
+        let result = ctx
+            .eval(Source::from_bytes(
+                b"JSON.stringify({ nested: { toJSON: function() { return 42n; } } })",
+            ))
+            .unwrap();
+
+        assert_eq!(
+            result.to_string(&mut ctx).unwrap().to_std_string().unwrap(),
+            r#"{"nested":"42"}"#
+        );
+    }
+
+    #[test]
+    fn test_json_stringify_non_finite_numbers_are_null() {
+        let mut ctx = Context::default();
+        register_builtins(&mut ctx).unwrap();
+
+        let result =
+            ctx.eval(Source::from_bytes(b"JSON.stringify([Infinity, -Infinity, NaN])")).unwrap();
+
+        assert_eq!(
+            result.to_string(&mut ctx).unwrap().to_std_string().unwrap(),
+            "[null,null,null]"
+        );
     }
 
     #[test]
