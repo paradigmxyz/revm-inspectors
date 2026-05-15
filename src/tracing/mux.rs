@@ -12,8 +12,9 @@ use revm::{
         result::{HaltReasonTr, ResultAndState},
         ContextTr,
     },
+    handler::FrameResult,
     inspector::JournalExt,
-    interpreter::{CallInputs, CallOutcome, CreateInputs, CreateOutcome, Interpreter},
+    interpreter::{CallInputs, CallOutcome, CreateInputs, CreateOutcome, FrameInput, Interpreter},
     DatabaseRef, Inspector,
 };
 use thiserror::Error;
@@ -274,6 +275,36 @@ where
         }
         if let Some(ref mut inspector) = self.tracing {
             <TracingInspector as Inspector<CTX>>::selfdestruct(inspector, contract, target, value);
+        }
+    }
+
+    #[inline]
+    fn frame_start(
+        &mut self,
+        context: &mut CTX,
+        frame_input: &mut FrameInput,
+    ) -> Option<FrameResult> {
+        if let Some(ref mut inspector) = self.four_byte {
+            let _ = inspector.frame_start(context, frame_input);
+        }
+        if let Some(ref mut inspector) = self.tracing {
+            return inspector.frame_start(context, frame_input);
+        }
+        None
+    }
+
+    #[inline]
+    fn frame_end(
+        &mut self,
+        context: &mut CTX,
+        frame_input: &FrameInput,
+        frame_result: &mut FrameResult,
+    ) {
+        if let Some(ref mut inspector) = self.four_byte {
+            inspector.frame_end(context, frame_input, frame_result);
+        }
+        if let Some(ref mut inspector) = self.tracing {
+            inspector.frame_end(context, frame_input, frame_result);
         }
     }
 }

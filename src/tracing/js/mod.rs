@@ -842,6 +842,30 @@ mod tests {
     }
 
     #[test]
+    fn test_stack_peek_nan() {
+        let code = r#"{
+            depths: [],
+            step: function(log) { this.depths.push(log.stack.peek(NaN)); },
+            fault: function() {},
+            result: function() { return this.depths; }
+        }"#;
+        let res = run_trace(code, None, false);
+        assert_eq!(res.as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_stack_peek_infinity() {
+        let code = r#"{
+            depths: [],
+            step: function(log) { this.depths.push(log.stack.peek(Infinity)); },
+            fault: function() {},
+            result: function() { return this.depths; }
+        }"#;
+        let res = run_trace(code, None, false);
+        assert_eq!(res.as_array().unwrap().len(), 0);
+    }
+
+    #[test]
     fn test_memory_get_uint() {
         let code = r#"{
             depths: [],

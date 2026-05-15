@@ -459,6 +459,16 @@ impl StackRef {
         (Self(inner), guard)
     }
 
+    fn parse_index(value: &JsValue, len: usize, ctx: &mut Context) -> JsResult<usize> {
+        let index = value.to_numeric_number(ctx)?;
+        if !index.is_finite() || index < 0. || index > usize::MAX as f64 {
+            return Err(JsError::from_native(JsNativeError::typ().with_message(format!(
+                "tracer accessed out of bound stack: size {len}, index {index}"
+            ))));
+        }
+        Ok(index as usize)
+    }
+
     fn peek(&self, idx: usize, ctx: &mut Context) -> JsResult<JsValue> {
         self.0
             .with_inner(|stack| {
@@ -496,9 +506,8 @@ impl StackRef {
             context.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, args, stack, ctx| {
-                    let idx_f64 = args.get_or_undefined(0).to_numeric_number(ctx)?;
-                    let idx = idx_f64 as usize;
-                    if len <= idx || idx_f64 < 0. {
+                    let idx = Self::parse_index(args.get_or_undefined(0), len, ctx)?;
+                    if len <= idx {
                         return Err(JsError::from_native(JsNativeError::typ().with_message(
                             format!("tracer accessed out of bound stack: size {len}, index {idx}"),
                         )));

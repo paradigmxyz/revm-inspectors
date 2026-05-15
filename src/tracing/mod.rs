@@ -540,9 +540,15 @@ impl TracingInspector {
         if self.config.record_stack_snapshots.is_all()
             || self.config.record_stack_snapshots.is_pushes()
         {
-            // this can potentially underflow if the stack is malformed
-            let start = interp.stack.len().saturating_sub(step.op.outputs() as usize);
-            step.push_stack = Some(interp.stack.data()[start..].into());
+            let outputs = if step.op.is_valid() { step.op.outputs() as usize } else { 0 };
+            step.push_stack = Some(
+                interp
+                    .stack
+                    .data()
+                    .get(interp.stack.len().saturating_sub(outputs)..)
+                    .unwrap_or_default()
+                    .into(),
+            );
         }
 
         let journal = context.journal_ref().journal();
