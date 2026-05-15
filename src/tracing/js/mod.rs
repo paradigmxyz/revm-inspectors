@@ -803,6 +803,30 @@ mod tests {
     }
 
     #[test]
+    fn test_memory_slice_rejects_non_finite_indexes() {
+        let code = r#"{
+            depths: [],
+            step: function(log) { this.depths.push(log.memory.slice(Infinity, NaN)); },
+            fault: function() {},
+            result: function() { return this.depths; }
+        }"#;
+        let res = run_trace(code, None, false);
+        assert_eq!(res.as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_memory_slice_rejects_non_finite_end() {
+        let code = r#"{
+            depths: [],
+            step: function(log) { this.depths.push(log.memory.slice(0, Infinity)); },
+            fault: function() {},
+            result: function() { return this.depths; }
+        }"#;
+        let res = run_trace(code, None, false);
+        assert_eq!(res.as_array().unwrap().len(), 0);
+    }
+
+    #[test]
     fn test_stack_peek() {
         let code = r#"{
             depths: [],
@@ -819,6 +843,30 @@ mod tests {
         let code = r#"{
             depths: [],
             step: function(log, db) { this.depths.push(log.memory.getUint(-64)); },
+            fault: function() {},
+            result: function() { return this.depths; }
+        }"#;
+        let res = run_trace(code, None, false);
+        assert_eq!(res.as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_memory_get_uint_rejects_non_finite_offset() {
+        let code = r#"{
+            depths: [],
+            step: function(log, db) { this.depths.push(log.memory.getUint(Infinity)); },
+            fault: function() {},
+            result: function() { return this.depths; }
+        }"#;
+        let res = run_trace(code, None, false);
+        assert_eq!(res.as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_memory_get_uint_rejects_nan_offset() {
+        let code = r#"{
+            depths: [],
+            step: function(log, db) { this.depths.push(log.memory.getUint(NaN)); },
             fault: function() {},
             result: function() { return this.depths; }
         }"#;

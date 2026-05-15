@@ -251,6 +251,22 @@ impl MemoryRef {
         self.0.with_inner(|mem| mem.len()).unwrap_or_default()
     }
 
+    fn parse_index(value: &JsValue, name: &str, ctx: &mut Context) -> JsResult<usize> {
+        let index = value.to_numeric_number(ctx)?;
+        if !index.is_finite() || index < 0. || index > usize::MAX as f64 {
+            return Err(JsError::from_native(
+                JsNativeError::typ().with_message(format!("invalid memory {name}: {index}")),
+            ));
+        }
+        Ok(index as usize)
+    }
+
+    fn out_of_bounds_error(len: usize, offset: usize, size: usize) -> JsError {
+        JsError::from_native(JsNativeError::typ().with_message(format!(
+            "tracer accessed out of bound memory: available {len}, offset {offset}, size {size}"
+        )))
+    }
+
     pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
         let obj = JsObject::with_object_proto(ctx.intrinsics());
         let len = self.len();
@@ -269,17 +285,16 @@ impl MemoryRef {
             ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, args, memory, ctx| {
-                    let start = args.get_or_undefined(0).to_numeric_number(ctx)?;
-                    let end = args.get_or_undefined(1).to_numeric_number(ctx)?;
-                    if end < start || start < 0. || (end as usize) > memory.len() {
-                        return Err(JsError::from_native(JsNativeError::typ().with_message(
-                            format!(
-                                "tracer accessed out of bound memory: offset {start}, end {end}"
-                            ),
-                        )));
+                    let start = Self::parse_index(args.get_or_undefined(0), "start", ctx)?;
+                    let end = Self::parse_index(args.get_or_undefined(1), "end", ctx)?;
+                    let len = memory.len();
+                    if end < start || end > len {
+                        return Err(Self::out_of_bounds_error(
+                            len,
+                            start,
+                            end.saturating_sub(start),
+                        ));
                     }
-                    let start = start as usize;
-                    let end = end as usize;
                     let size = end - start;
                     let slice = memory
                         .0
@@ -298,12 +313,13 @@ impl MemoryRef {
             ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, args, memory, ctx| {
-                    let offset_f64 = args.get_or_undefined(0).to_numeric_number(ctx)?;
+                    let offset = Self::parse_index(args.get_or_undefined(0), "offset", ctx)?;
                     let len = memory.len();
-                    let offset = offset_f64 as usize;
-                    if len < offset + 32 || offset_f64 < 0. {
-                        let msg = format!("tracer accessed out of bound memory: available {len}, offset {offset}, size 32");
-                        return Err(JsError::from_native(JsNativeError::typ().with_message(msg)));
+                    let Some(end) = offset.checked_add(32) else {
+                        return Err(Self::out_of_bounds_error(len, offset, 32));
+                    };
+                    if end > len {
+                        return Err(Self::out_of_bounds_error(len, offset, 32));
                     }
                     let slice = memory
                         .0
