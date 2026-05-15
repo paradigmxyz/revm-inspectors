@@ -7,7 +7,8 @@ use boa_engine::{
     js_string,
     object::builtins::{JsArray, JsArrayBuffer, JsTypedArray, JsUint8Array},
     property::Attribute,
-    Context, JsArgs, JsError, JsNativeError, JsResult, JsString, JsValue, NativeFunction, Source,
+    Context, JsArgs, JsBigInt, JsError, JsNativeError, JsResult, JsString, JsValue, NativeFunction,
+    Source,
 };
 use boa_gc::{empty_trace, Finalize, Trace};
 use core::borrow::Borrow;
@@ -194,11 +195,13 @@ pub(crate) fn bytes_to_fb<const N: usize>(mut bytes: &[u8]) -> FixedBytes<N> {
     FixedBytes::left_padding_from(bytes)
 }
 
-/// Converts a U256 to a bigint using the global bigint alias.
-pub(crate) fn to_bigint(value: U256, ctx: &mut Context) -> JsResult<JsValue> {
-    let bigint = ctx.global_object().get(js_string!("bigint"), ctx)?;
-    let Some(bigint) = bigint.as_callable() else { return Ok(JsValue::undefined()) };
-    bigint.call(&JsValue::undefined(), &[JsValue::from(js_string!(value.to_string()))], ctx)
+/// Converts a U256 to a Boa bigint value.
+pub(crate) fn to_bigint(value: U256, _ctx: &mut Context) -> JsResult<JsValue> {
+    JsBigInt::from_string(&value.to_string()).map(Into::into).ok_or_else(|| {
+        JsError::from_native(
+            JsNativeError::error().with_message("failed to convert U256 to BigInt"),
+        )
+    })
 }
 
 /// Compute the address of a contract created using CREATE2.
@@ -420,6 +423,36 @@ mod tests {
         // Test comparison
         let comparison_test = ctx.eval(Source::from_bytes(b"testBigInt > BigInt(500)")).unwrap();
         assert!(comparison_test.as_boolean().unwrap());
+    }
+
+    #[test]
+    fn test_to_bigint_function_ignores_overwritten_global_bigint() {
+        let mut ctx = Context::default();
+        register_builtins(&mut ctx).unwrap();
+
+        ctx.eval(Source::from_bytes(b"globalThis.bigint = 1")).unwrap();
+
+        let result = to_bigint(U256::from(123u64), &mut ctx).unwrap();
+        assert!(result.is_bigint());
+        assert_eq!(result.to_string(&mut ctx).unwrap().to_std_string().unwrap(), "123");
+    }
+
+    #[test]
+    fn test_to_bigint_function_ignores_poisoned_global_bigint() {
+        let mut ctx = Context::default();
+        register_builtins(&mut ctx).unwrap();
+
+        ctx.eval(Source::from_bytes(
+            b"Object.defineProperty(globalThis, 'bigint', {
+                get() { throw new Error('poisoned bigint'); },
+                configurable: true
+            })",
+        ))
+        .unwrap();
+
+        let result = to_bigint(U256::from(456u64), &mut ctx).unwrap();
+        assert!(result.is_bigint());
+        assert_eq!(result.to_string(&mut ctx).unwrap().to_std_string().unwrap(), "456");
     }
 
     fn as_length<T>(array: T) -> usize
