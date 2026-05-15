@@ -230,6 +230,17 @@ impl TracingInspector {
         self
     }
 
+    /// Manually set the caller address of the root trace.
+    ///
+    /// This is useful for custom transaction types (e.g. account abstraction batches) where the
+    /// EVM's call entry point may not reflect the actual transaction sender.
+    #[inline]
+    pub fn set_transaction_caller(&mut self, caller: Address) {
+        if let Some(node) = self.traces.arena.first_mut() {
+            node.trace.caller = caller;
+        }
+    }
+
     /// Consumes the Inspector and returns a [ParityTraceBuilder].
     #[inline]
     pub fn into_parity_builder(self) -> ParityTraceBuilder {
@@ -383,7 +394,8 @@ impl TracingInspector {
         let trace_idx = self.pop_trace_idx();
         let trace = &mut self.traces.arena[trace_idx].trace;
 
-        trace.gas_used = gas.spent();
+        trace.gas_used = gas.total_gas_spent();
+        trace.gas_refund_counter = gas.refunded().max(0) as u64;
 
         trace.status = Some(result);
         trace.success = trace.status.is_some_and(|status| status.is_ok());
@@ -455,7 +467,7 @@ impl TracingInspector {
 
         let gas_used = gas_used(
             interp.runtime_flag.spec_id(),
-            interp.gas.spent(),
+            interp.gas.total_gas_spent(),
             interp.gas.refunded() as u64,
         );
 
@@ -528,9 +540,15 @@ impl TracingInspector {
         if self.config.record_stack_snapshots.is_all()
             || self.config.record_stack_snapshots.is_pushes()
         {
-            // this can potentially underflow if the stack is malformed
-            let start = interp.stack.len().saturating_sub(step.op.outputs() as usize);
-            step.push_stack = Some(interp.stack.data()[start..].into());
+            let outputs = if step.op.is_valid() { step.op.outputs() as usize } else { 0 };
+            step.push_stack = Some(
+                interp
+                    .stack
+                    .data()
+                    .get(interp.stack.len().saturating_sub(outputs)..)
+                    .unwrap_or_default()
+                    .into(),
+            );
         }
 
         let journal = context.journal_ref().journal();
@@ -539,26 +557,33 @@ impl TracingInspector {
         if self.config.record_state_diff && journal.len() != self.last_journal_len {
             let op = step.op.get();
 
-            let journal_entry = journal.last();
+            step.storage_change = if matches!(op, opcode::SLOAD | opcode::SSTORE) {
+                let reason = match op {
+                    opcode::SLOAD => StorageChangeReason::SLOAD,
+                    opcode::SSTORE => StorageChangeReason::SSTORE,
+                    _ => unreachable!(),
+                };
 
-            step.storage_change = match (op, journal_entry) {
-                (
-                    opcode::SLOAD | opcode::SSTORE,
-                    Some(JournalEntry::StorageChanged { address, key, had_value }),
-                ) => {
-                    // SAFETY: (Address,key) exists if part if StorageChange
-                    let value =
-                        context.journal_ref().evm_state()[address].storage[key].present_value();
-                    let reason = match op {
-                        opcode::SLOAD => StorageChangeReason::SLOAD,
-                        opcode::SSTORE => StorageChangeReason::SSTORE,
-                        _ => unreachable!(),
-                    };
-                    let change =
-                        StorageChange { key: *key, value, had_value: Some(*had_value), reason };
-                    Some(Box::new(change))
+                match journal.last() {
+                    Some(JournalEntry::StorageChanged { address, key, had_value }) => {
+                        // SAFETY: (Address,key) exists if part if StorageChange
+                        let value =
+                            context.journal_ref().evm_state()[address].storage[key].present_value();
+                        let change =
+                            StorageChange { key: *key, value, had_value: Some(*had_value), reason };
+                        Some(Box::new(change))
+                    }
+                    Some(JournalEntry::StorageWarmed { key, address }) => {
+                        // SAFETY: (Address,key) exists if part if StorageChange
+                        let value =
+                            context.journal_ref().evm_state()[address].storage[key].present_value();
+                        let change = StorageChange { key: *key, value, had_value: None, reason };
+                        Some(Box::new(change))
+                    }
+                    _ => None,
                 }
-                _ => None,
+            } else {
+                None
             };
         }
 
@@ -650,15 +675,15 @@ where
     }
 
     fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
-        let nonce = context.journal_mut().load_account(inputs.caller).ok()?.info.nonce;
+        let nonce = context.journal_mut().load_account(inputs.caller()).ok()?.info.nonce;
         self.start_trace_on_call(
             context,
             inputs.created_address(nonce),
-            inputs.init_code.clone(),
-            inputs.value,
-            inputs.scheme.into(),
-            inputs.caller,
-            inputs.gas_limit,
+            inputs.init_code().clone(),
+            inputs.value(),
+            inputs.scheme().into(),
+            inputs.caller(),
+            inputs.gas_limit(),
             Some(false),
         );
         None

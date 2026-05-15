@@ -195,6 +195,7 @@ impl TracingInspectorConfig {
                 StackSnapshotType::Full
             },
             record_state_diff: !config.disable_storage.unwrap_or_default(),
+            record_returndata_snapshots: config.is_return_data_enabled(),
             ..Self::default_geth()
         }
     }

@@ -2,7 +2,7 @@ use crate::tracing::{
     FourByteInspector, MuxInspector, TracingInspector, TracingInspectorConfig, TransactionContext,
 };
 #[cfg(feature = "js-tracer")]
-use alloc::{boxed::Box, string::String};
+use alloc::boxed::Box;
 use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::geth::{
     erc7562::Erc7562Config, mux::MuxConfig, CallConfig, FourByteFrame, GethDebugBuiltInTracerType,
@@ -14,8 +14,9 @@ use revm::{
         result::{HaltReasonTr, ResultAndState},
         Block, ContextTr, Transaction,
     },
+    handler::FrameResult,
     inspector::JournalExt,
-    interpreter::{CallInputs, CallOutcome, CreateInputs, CreateOutcome, Interpreter},
+    interpreter::{CallInputs, CallOutcome, CreateInputs, CreateOutcome, FrameInput, Interpreter},
     primitives::{Address, Log, U256},
     DatabaseRef, Inspector,
 };
@@ -49,10 +50,30 @@ pub enum DebugInspector {
     Default(TracingInspector, GethDefaultTracingOptions),
     #[cfg(feature = "js-tracer")]
     /// JS tracer
-    Js(Box<crate::tracing::js::JsInspector>, String, serde_json::Value),
+    Js(Box<crate::tracing::js::JsInspector>),
 }
 
 impl DebugInspector {
+    /// Creates a fresh copy of this inspector, resetting all execution state.
+    pub fn try_clone(&self) -> Result<Self, DebugInspectorError> {
+        Ok(match self {
+            Self::FourByte(inspector) => Self::FourByte(inspector.clone()),
+            Self::CallTracer(inspector, config) => Self::CallTracer(inspector.clone(), *config),
+            Self::PreStateTracer(inspector, config) => {
+                Self::PreStateTracer(inspector.clone(), *config)
+            }
+            Self::Noop(inspector) => Self::Noop(*inspector),
+            Self::Mux(inspector, config) => Self::Mux(inspector.clone(), config.clone()),
+            Self::FlatCallTracer(inspector) => Self::FlatCallTracer(inspector.clone()),
+            Self::Erc7562Tracer(inspector, config) => {
+                Self::Erc7562Tracer(inspector.clone(), config.clone())
+            }
+            Self::Default(inspector, config) => Self::Default(inspector.clone(), *config),
+            #[cfg(feature = "js-tracer")]
+            Self::Js(inspector) => Self::Js(inspector.try_clone()?.into()),
+        })
+    }
+
     /// Create a new `DebugInspector` from the given tracing options.
     pub fn new(opts: GethDebugTracingOptions) -> Result<Self, DebugInspectorError> {
         let GethDebugTracingOptions { config, tracer, tracer_config, .. } = opts;
@@ -136,11 +157,7 @@ impl DebugInspector {
                 #[cfg(feature = "js-tracer")]
                 GethDebugTracerType::JsTracer(code) => {
                     let config = tracer_config.into_json();
-                    Self::Js(
-                        crate::tracing::js::JsInspector::new(code.clone(), config.clone())?.into(),
-                        code,
-                        config,
-                    )
+                    Self::Js(crate::tracing::js::JsInspector::new(code, config)?.into())
                 }
                 _ => {
                     // Note: this match is non-exhaustive in case we need to add support for
@@ -175,9 +192,8 @@ impl DebugInspector {
                 *inspector = MuxInspector::try_from_config(config.clone())?;
             }
             #[cfg(feature = "js-tracer")]
-            Self::Js(inspector, code, config) => {
-                *inspector =
-                    crate::tracing::js::JsInspector::new(code.clone(), config.clone())?.into();
+            Self::Js(inspector) => {
+                *inspector = inspector.try_clone()?.into();
             }
         }
 
@@ -193,19 +209,22 @@ impl DebugInspector {
         res: &ResultAndState<impl HaltReasonTr>,
         db: &mut DB,
     ) -> Result<GethTrace, DebugInspectorError<DB::Error>> {
+        #[allow(clippy::needless_update)]
         let tx_info = TransactionInfo {
             hash: tx_context.as_ref().and_then(|c| c.tx_hash),
             index: tx_context.as_ref().and_then(|c| c.tx_index.map(|i| i as u64)),
             block_hash: tx_context.as_ref().and_then(|c| c.block_hash),
             block_number: Some(block_env.number().saturating_to()),
             base_fee: Some(block_env.basefee()),
+            ..Default::default()
         };
 
         let res = match self {
             Self::FourByte(inspector) => FourByteFrame::from(&*inspector).into(),
             Self::CallTracer(inspector, config) => {
                 inspector.set_transaction_gas_limit(tx_env.gas_limit());
-                inspector.geth_builder().geth_call_traces(*config, res.result.gas_used()).into()
+                inspector.set_transaction_caller(tx_env.caller());
+                inspector.geth_builder().geth_call_traces(*config, res.result.tx_gas_used()).into()
             }
             Self::PreStateTracer(inspector, config) => {
                 inspector.set_transaction_gas_limit(tx_env.gas_limit());
@@ -222,6 +241,7 @@ impl DebugInspector {
                 .into(),
             Self::FlatCallTracer(inspector) => {
                 inspector.set_transaction_gas_limit(tx_env.gas_limit());
+                inspector.set_transaction_caller(tx_env.caller());
                 inspector
                     .clone()
                     .into_parity_builder()
@@ -230,24 +250,26 @@ impl DebugInspector {
             }
             Self::Erc7562Tracer(inspector, config) => {
                 inspector.set_transaction_gas_limit(tx_env.gas_limit());
+                inspector.set_transaction_caller(tx_env.caller());
                 inspector
                     .geth_builder()
-                    .geth_erc7562_traces(config.clone(), res.result.gas_used(), db)
+                    .geth_erc7562_traces(config.clone(), res.result.tx_gas_used(), db)
                     .into()
             }
             Self::Default(inspector, config) => {
                 inspector.set_transaction_gas_limit(tx_env.gas_limit());
+                inspector.set_transaction_caller(tx_env.caller());
                 inspector
                     .geth_builder()
                     .geth_traces(
-                        res.result.gas_used(),
+                        res.result.tx_gas_used(),
                         res.result.output().unwrap_or_default().clone(),
                         *config,
                     )
                     .into()
             }
             #[cfg(feature = "js-tracer")]
-            Self::Js(inspector, _, _) => {
+            Self::Js(inspector) => {
                 inspector.set_transaction_context(tx_context.unwrap_or_default());
                 let res = inspector
                     .json_result(res.clone(), tx_env, block_env, db)
@@ -273,7 +295,7 @@ macro_rules! delegate {
             Self::Noop($insp) => Inspector::<CTX>::$method($insp, $($arg),*),
             Self::Mux($insp, _) => Inspector::<CTX>::$method($insp, $($arg),*),
             #[cfg(feature = "js-tracer")]
-            Self::Js($insp, _, _) => Inspector::<CTX>::$method($insp, $($arg),*),
+            Self::Js($insp) => Inspector::<CTX>::$method($insp, $($arg),*),
         }
     };
 }
@@ -325,6 +347,23 @@ where
 
     fn selfdestruct(&mut self, contract: Address, target: Address, value: U256) {
         delegate!(self => inspector.selfdestruct(contract, target, value))
+    }
+
+    fn frame_start(
+        &mut self,
+        context: &mut CTX,
+        frame_input: &mut FrameInput,
+    ) -> Option<FrameResult> {
+        delegate!(self => inspector.frame_start(context, frame_input))
+    }
+
+    fn frame_end(
+        &mut self,
+        context: &mut CTX,
+        frame_input: &FrameInput,
+        frame_result: &mut FrameResult,
+    ) {
+        delegate!(self => inspector.frame_end(context, frame_input, frame_result))
     }
 }
 

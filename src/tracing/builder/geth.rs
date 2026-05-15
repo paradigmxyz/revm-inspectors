@@ -89,6 +89,9 @@ impl<'a> GethTraceBuilder<'a> {
                 let contract_storage = storage.entry(trace_node.execution_address()).or_default();
                 if let Some(change) = &step.storage_change {
                     contract_storage.insert(change.key.into(), change.value.into());
+                }
+
+                if matches!(step.op.get(), opcode::SLOAD | opcode::SSTORE) {
                     log.storage = Some(contract_storage.clone());
                 }
             }
