@@ -89,6 +89,9 @@ impl<'a> GethTraceBuilder<'a> {
                 let contract_storage = storage.entry(trace_node.execution_address()).or_default();
                 if let Some(change) = &step.storage_change {
                     contract_storage.insert(change.key.into(), change.value.into());
+                }
+
+                if matches!(step.op.get(), opcode::SLOAD | opcode::SSTORE) {
                     log.storage = Some(contract_storage.clone());
                 }
             }
@@ -472,7 +475,7 @@ impl<'a> GethTraceBuilder<'a> {
                 if matches!(op, opcode::EXTCODESIZE | opcode::EXTCODECOPY | opcode::EXTCODEHASH) {
                     if let Some(stack) = &step.stack {
                         if let Some(item) = stack.get(stack.len().saturating_sub(1)) {
-                            let address = Address::from(item.to_be_bytes());
+                            let address = Address::from_word((*item).into());
                             ext_code_access_info.push(format!("{address:?}"));
                             if let Entry::Vacant(e) = contract_size.entry(address) {
                                 if let Ok(Some(account)) = db.basic_ref(address) {

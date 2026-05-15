@@ -202,7 +202,7 @@ fn test_parity_call_selfdestruct() {
     let res = evm
         .inspect_tx(TxEnv {
             caller,
-            gas_limit: 100000000,
+            gas_limit: 10000000,
             kind: TransactTo::Call(to),
             data: input.to_vec().into(),
             nonce: 0,
@@ -271,7 +271,7 @@ fn test_parity_call_selfdestruct_create() {
     let res = evm
         .inspect_tx(TxEnv {
             caller,
-            gas_limit: 100000000,
+            gas_limit: 10000000,
             kind: TransactTo::Create,
             data: code.to_vec().into(),
             nonce: 24,

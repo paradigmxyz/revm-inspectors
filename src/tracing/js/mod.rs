@@ -56,6 +56,8 @@ pub const RECURSION_LIMIT: usize = 10_000;
 #[derive(Debug)]
 pub struct JsInspector {
     ctx: Context,
+    /// The original javascript code used to create this inspector.
+    code: String,
     /// The javascript config provided to the inspector.
     _js_config_value: JsValue,
     /// The input config object.
@@ -132,9 +134,9 @@ impl JsInspector {
         register_builtins(&mut ctx)?;
 
         // evaluate the code
-        let code = format!("({code})");
+        let wrapped = format!("({code})");
         let obj =
-            ctx.eval(Source::from_bytes(code.as_bytes())).map_err(JsInspectorError::EvalCode)?;
+            ctx.eval(Source::from_bytes(wrapped.as_bytes())).map_err(JsInspectorError::EvalCode)?;
 
         let obj = obj.as_object().ok_or(JsInspectorError::ExpectedJsObject)?;
 
@@ -179,6 +181,7 @@ impl JsInspector {
 
         Ok(Self {
             ctx,
+            code,
             _js_config_value,
             config,
             obj,
@@ -198,6 +201,11 @@ impl JsInspector {
     /// Returns the config object.
     pub const fn config(&self) -> &serde_json::Value {
         &self.config
+    }
+
+    /// Creates a fresh inspector from the same code and config, resetting all execution state.
+    pub fn try_clone(&self) -> Result<Self, JsInspectorError> {
+        Self::new(self.code.clone(), self.config.clone())
     }
 
     /// Returns the transaction context.
@@ -261,7 +269,7 @@ impl JsInspector {
         let ResultAndState { result, state } = res;
         let (db, _db_guard) = EvmDbRef::new(&state, db);
 
-        let gas_used = result.gas_used();
+        let gas_used = result.tx_gas_used();
         let mut to = None;
         let mut output_bytes = None;
         let mut error = None;
@@ -408,7 +416,8 @@ impl JsInspector {
         if self.precompiles_registered {
             return;
         }
-        let precompiles = PrecompileList(context.journal().precompile_addresses().clone());
+        let precompiles =
+            PrecompileList(context.journal().precompile_addresses().iter().copied().collect());
 
         let _ = precompiles.register_callable(&mut self.ctx);
 
@@ -436,7 +445,7 @@ where
         let (memory, _memory_guard) = MemoryRef::new(evm_memory);
         let active_call = self.active_call();
 
-        let gas_spent = interp.gas.spent();
+        let gas_spent = interp.gas.total_gas_spent();
         let step = StepLog {
             stack,
             op: interp.bytecode.opcode().into(),
@@ -482,7 +491,7 @@ where
             let mem = interp.memory.borrow();
             let (memory, _memory_guard) = MemoryRef::new(mem);
             let active_call = self.active_call();
-            let gas_spent = interp.gas.spent();
+            let gas_spent = interp.gas.total_gas_spent();
 
             let step = StepLog {
                 stack,
@@ -554,7 +563,7 @@ where
     fn call_end(&mut self, _context: &mut CTX, _inputs: &CallInputs, outcome: &mut CallOutcome) {
         if self.can_call_exit() {
             let frame_result = FrameResult {
-                gas_used: outcome.result.gas.spent(),
+                gas_used: outcome.result.gas.total_gas_spent(),
                 output: outcome.result.output.clone(),
                 error: utils::fmt_error_msg(outcome.result.result, TraceStyle::Geth),
             };
@@ -569,15 +578,15 @@ where
     fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
         self.register_precompiles(context);
 
-        let nonce = context.journal_mut().load_account(inputs.caller).unwrap().info.nonce;
+        let nonce = context.journal_mut().load_account(inputs.caller()).unwrap().info.nonce;
         let contract = inputs.created_address(nonce);
         self.push_call(
             contract,
-            inputs.init_code.clone(),
-            inputs.value,
-            inputs.scheme.into(),
-            inputs.caller,
-            inputs.gas_limit,
+            inputs.init_code().clone(),
+            inputs.value(),
+            inputs.scheme().into(),
+            inputs.caller(),
+            inputs.gas_limit(),
         );
 
         if self.can_call_enter() {
@@ -600,7 +609,7 @@ where
     ) {
         if self.can_call_exit() {
             let frame_result = FrameResult {
-                gas_used: outcome.result.gas.spent(),
+                gas_used: outcome.result.gas.total_gas_spent(),
                 output: outcome.result.output.clone(),
                 error: None,
             };
@@ -798,6 +807,30 @@ mod tests {
         let code = r#"{
             depths: [],
             step: function(log) { this.depths.push(log.stack.peek(-1)); },
+            fault: function() {},
+            result: function() { return this.depths; }
+        }"#;
+        let res = run_trace(code, None, false);
+        assert_eq!(res.as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_stack_peek_nan() {
+        let code = r#"{
+            depths: [],
+            step: function(log) { this.depths.push(log.stack.peek(NaN)); },
+            fault: function() {},
+            result: function() { return this.depths; }
+        }"#;
+        let res = run_trace(code, None, false);
+        assert_eq!(res.as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_stack_peek_infinity() {
+        let code = r#"{
+            depths: [],
+            step: function(log) { this.depths.push(log.stack.peek(Infinity)); },
             fault: function() {},
             result: function() { return this.depths; }
         }"#;

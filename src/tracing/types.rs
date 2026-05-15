@@ -96,6 +96,8 @@ pub struct CallTrace {
     pub gas_used: u64,
     /// The gas limit of the call.
     pub gas_limit: u64,
+    /// The cumulative refund counter for the entire transaction context at the end of this call.
+    pub gas_refund_counter: u64,
     /// The final status of the call.
     pub status: Option<InstructionResult>,
     /// Opcode-level execution steps.
@@ -179,6 +181,8 @@ pub struct DecodedCallLog {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CallLog {
+    /// The address of the log emitter.
+    pub address: Address,
     /// The raw log data.
     pub raw_log: LogData,
     /// Optional complementary decoded log data.
@@ -192,7 +196,7 @@ pub struct CallLog {
 impl From<Log> for CallLog {
     /// Converts a [`Log`] into a [`CallLog`].
     fn from(log: Log) -> Self {
-        Self { position: Default::default(), raw_log: log.data, decoded: None, index: 0 }
+        Self { address: log.address, raw_log: log.data, decoded: None, position: 0, index: 0 }
     }
 }
 
@@ -468,7 +472,7 @@ impl CallTraceNode {
                 .logs
                 .iter()
                 .map(|log| CallLogFrame {
-                    address: Some(self.execution_address()),
+                    address: Some(log.address),
                     topics: Some(log.raw_log.topics().to_vec()),
                     data: Some(log.raw_log.data.clone()),
                     position: Some(log.position),
@@ -706,9 +710,9 @@ impl CallTraceStep {
             error: self.as_error(),
             gas: self.gas_remaining,
             gas_cost: self.gas_cost,
-            op: self.op.as_str().into(),
+            op: if self.op.is_valid() { self.op.as_str().into() } else { "Unknown".into() },
             pc: self.pc as u64,
-            refund_counter: (self.gas_refund_counter > 0).then_some(self.gas_refund_counter),
+            refund_counter: Some(self.gas_refund_counter),
             stack: if opts.is_stack_enabled() {
                 self.stack.as_ref().map(|stack| stack.to_vec())
             } else {
