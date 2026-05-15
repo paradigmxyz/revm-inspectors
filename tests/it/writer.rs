@@ -287,12 +287,12 @@ fn assert_traces(
     }
 }
 
-/// Test that empty calldata with successful call shows "receive" instead of "fallback".
+/// Test that short calldata (< 4 bytes) with nonzero value shows "receive" instead of "fallback".
 ///
 /// Regression test for https://github.com/foundry-rs/foundry/issues/12962
 ///
-/// When a contract is called with empty calldata and the call succeeds, the trace should
-/// show `receive()` (since that's what Solidity invokes for empty calldata calls), not
+/// When a contract is called with short calldata and nonzero value, the trace should
+/// show `receive()` (since that's what Solidity invokes for value transfers), not
 /// `fallback()`.
 #[test]
 fn test_receive_vs_fallback_empty_calldata() {
@@ -311,20 +311,29 @@ fn test_receive_vs_fallback_empty_calldata() {
         "00"   // Runtime code: STOP
     );
 
+    let caller = address!("0x0000000000000000000000000000000000000001");
+    let mut db = CacheDB::new(EmptyDB::default());
+    db.insert_account_info(
+        caller,
+        revm::state::AccountInfo { balance: U256::from(1_000_000), ..Default::default() },
+    );
+
     let mut evm = Context::mainnet()
-        .with_db(CacheDB::new(EmptyDB::default()))
+        .with_db(db)
         .build_mainnet_with_inspector(TracingInspector::new(TracingInspectorConfig::all()));
 
-    let address = inspect_deploy_contract(&mut evm, initcode, Address::default(), SpecId::CANCUN)
+    let address = inspect_deploy_contract(&mut evm, initcode, caller, SpecId::CANCUN)
         .created_address()
         .unwrap();
 
-    // Call with empty calldata - should show receive() for successful empty-data calls
+    // Call with empty calldata and nonzero value - should show receive()
     evm.set_inspector(TracingInspector::new(TracingInspectorConfig::all()));
     let result = evm
         .inspect_tx_commit(
             TxEnv::builder()
+                .caller(caller)
                 .data(bytes!()) // Empty calldata
+                .value(U256::from(1)) // Nonzero value
                 .kind(TransactTo::Call(address))
                 .gas_priority_fee(None)
                 .nonce(1)
@@ -332,18 +341,18 @@ fn test_receive_vs_fallback_empty_calldata() {
         )
         .unwrap();
 
-    assert!(result.is_success(), "Call with empty calldata should succeed");
+    assert!(result.is_success(), "Call with empty calldata and value should succeed");
 
     let trace_output = write_traces(evm.inspector());
 
-    // The trace should show "receive" not "fallback" for empty calldata + success
+    // The trace should show "receive" not "fallback" for short calldata + nonzero value
     assert!(
         trace_output.contains("::receive"),
-        "Empty calldata call should show 'receive' in trace, got:\n{trace_output}"
+        "Empty calldata with value call should show 'receive' in trace, got:\n{trace_output}"
     );
     assert!(
         !trace_output.contains("::fallback"),
-        "Empty calldata call should NOT show 'fallback' in trace, got:\n{trace_output}"
+        "Empty calldata with value call should NOT show 'fallback' in trace, got:\n{trace_output}"
     );
 }
 
