@@ -7,8 +7,6 @@ pub mod repro;
 pub mod utils;
 
 #[cfg(feature = "std")]
-mod edge_cov;
-#[cfg(feature = "std")]
 mod geth;
 #[cfg(feature = "js-tracer")]
 mod geth_js;

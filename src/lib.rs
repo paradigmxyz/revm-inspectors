@@ -30,9 +30,6 @@ pub mod tracing;
 /// An inspector for recording internal transfers.
 pub mod transfer;
 
-/// An inspector for tracking edge coverage.
-pub mod edge_cov;
-
 /// An inspector for tracking storage access.
 pub mod storage;
 
