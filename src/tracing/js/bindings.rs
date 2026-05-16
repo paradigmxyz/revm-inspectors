@@ -436,7 +436,7 @@ impl StackRef {
         (Self(inner), guard)
     }
 
-    fn peek(&self, idx: usize, ctx: &mut Context) -> JsResult<JsValue> {
+    fn peek(&self, idx: usize) -> JsResult<JsValue> {
         self.0
             .with_inner(|stack| {
                 stack
@@ -480,7 +480,7 @@ impl StackRef {
                             format!("tracer accessed out of bound stack: size {len}, index {idx}"),
                         )));
                     }
-                    stack.peek(idx, ctx)
+                    stack.peek(idx)
                 },
                 self,
             ),
