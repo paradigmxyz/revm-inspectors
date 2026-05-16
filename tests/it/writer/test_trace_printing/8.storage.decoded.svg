@@ -18,9 +18,9 @@
   <rect width="100%" height="100%" y="0" rx="4.5" class="bg" />
 
   <text xml:space="preserve" class="container fg">
-    <tspan x="10px" y="28px"><tspan>  [10575] </tspan><tspan class="fg-green">Counter</tspan><tspan>::</tspan><tspan class="fg-green">nest2</tspan><tspan>()</tspan>
+    <tspan x="10px" y="28px"><tspan>  [10729] </tspan><tspan class="fg-green">Counter</tspan><tspan>::</tspan><tspan class="fg-green">nest2</tspan><tspan>()</tspan>
 </tspan>
-    <tspan x="10px" y="46px"><tspan>    ├─ [2337] </tspan><tspan class="fg-green">Counter</tspan><tspan>::</tspan><tspan class="fg-green">nest3</tspan><tspan>()</tspan>
+    <tspan x="10px" y="46px"><tspan>    ├─ [2403] </tspan><tspan class="fg-green">Counter</tspan><tspan>::</tspan><tspan class="fg-green">nest3</tspan><tspan>()</tspan>
 </tspan>
     <tspan x="10px" y="64px"><tspan>    │   ├─ emit Log1(</tspan><tspan class="fg-cyan">foo: 0x0000000000000000000000000000000000000000000000000000000000000048</tspan><tspan>)</tspan>
 </tspan>

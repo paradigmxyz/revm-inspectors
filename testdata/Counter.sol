@@ -7,10 +7,21 @@ contract Counter {
     event Log2(uint256 indexed foo, uint256 indexed bar, bytes dump);
 
     uint256 public number;
+    uint256 public slot1;
+    uint256 public slot2;
+    uint256 public slot3;
 
     function setNumber(uint256 newNumber) public returns (bool) {
         number = newNumber;
         return true;
+    }
+
+    function writeMultipleSlots() public {
+        slot1 = 111;
+        slot2 = 222;
+        number = 333;
+        slot3 = 444;
+        slot1 = 555;
     }
 
     function increment() public {
