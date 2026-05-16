@@ -274,36 +274,38 @@ impl MemoryRef {
         self.0.with_inner(|mem| mem.len()).unwrap_or_default()
     }
 
+    fn invalid_index_error(name: &str, index: impl core::fmt::Display) -> JsError {
+        JsError::from_native(
+            JsNativeError::typ().with_message(format!("invalid memory {name}: {index}")),
+        )
+    }
+
+    fn check_index_bounds(index: usize, name: &str, len: usize) -> JsResult<usize> {
+        if index > len {
+            return Err(Self::invalid_index_error(name, index));
+        }
+        Ok(index)
+    }
+
     fn parse_index(value: &JsValue, name: &str, len: usize, ctx: &mut Context) -> JsResult<usize> {
-        if let Some(index) = value.as_bigint() {
-            let index = index.to_string().parse::<usize>().map_err(|_| {
-                JsError::from_native(
-                    JsNativeError::typ().with_message(format!("invalid memory {name}: {index}")),
-                )
-            })?;
-            if index > len {
-                return Err(JsError::from_native(
-                    JsNativeError::typ().with_message(format!("invalid memory {name}: {index}")),
-                ));
+        if value.is_undefined() {
+            return Err(Self::invalid_index_error(name, "undefined"));
+        }
+        if let Some(index) = value.as_number() {
+            if !index.is_finite() || index < 0. {
+                return Err(Self::invalid_index_error(name, index));
             }
-            return Ok(index);
+        }
+        if let Some(index) = value.as_bigint() {
+            let index = index.to_string();
+            let index =
+                index.parse::<usize>().map_err(|_| Self::invalid_index_error(name, &index))?;
+            return Self::check_index_bounds(index, name, len);
         }
 
-        let index = value.to_numeric_number(ctx)?;
-        if !index.is_finite() || index < 0. {
-            return Err(JsError::from_native(
-                JsNativeError::typ().with_message(format!("invalid memory {name}: {index}")),
-            ));
-        }
-        let index = index.trunc();
-        const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.;
-        let max_index = (len as f64).min(MAX_SAFE_INTEGER);
-        if index > max_index {
-            return Err(JsError::from_native(
-                JsNativeError::typ().with_message(format!("invalid memory {name}: {index}")),
-            ));
-        }
-        Ok(index as usize)
+        let index = value.to_index(ctx)?;
+        let index = usize::try_from(index).map_err(|_| Self::invalid_index_error(name, index))?;
+        Self::check_index_bounds(index, name, len)
     }
 
     fn out_of_bounds_error(len: usize, offset: usize, size: usize) -> JsError {
