@@ -623,7 +623,7 @@ fn test_geth_prestate_disable_code_in_diff_mode() {
     match frame {
         PreStateFrame::Diff(diff_mode) => {
             // Check that no account in pre state has code
-            for (_, account_state) in diff_mode.pre.iter() {
+            for account_state in diff_mode.pre.values() {
                 assert!(
                     account_state.code.is_none(),
                     "Code should be None in pre state when disable_code=true"
@@ -631,7 +631,7 @@ fn test_geth_prestate_disable_code_in_diff_mode() {
             }
 
             // Check that no account in post state has code
-            for (_, account_state) in diff_mode.post.iter() {
+            for account_state in diff_mode.post.values() {
                 assert!(
                     account_state.code.is_none(),
                     "Code should be None in post state when disable_code=true"
