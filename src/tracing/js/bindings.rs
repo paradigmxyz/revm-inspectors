@@ -274,6 +274,47 @@ impl MemoryRef {
         self.0.with_inner(|mem| mem.len()).unwrap_or_default()
     }
 
+    fn invalid_index_error(name: &str, index: impl core::fmt::Display) -> JsError {
+        JsError::from_native(
+            JsNativeError::typ().with_message(format!("invalid memory {name}: {index}")),
+        )
+    }
+
+    fn check_index_bounds(index: usize, name: &str, len: usize) -> JsResult<usize> {
+        if index > len {
+            return Err(Self::invalid_index_error(name, index));
+        }
+        Ok(index)
+    }
+
+    fn parse_index(value: &JsValue, name: &str, len: usize, ctx: &mut Context) -> JsResult<usize> {
+        if value.is_undefined() {
+            return Err(Self::invalid_index_error(name, "undefined"));
+        }
+        if let Some(index) = value.as_number() {
+            if !index.is_finite() || index < 0. {
+                return Err(Self::invalid_index_error(name, index));
+            }
+        }
+        // Boa's `ToIndex` rejects BigInt, but stack-derived tracer values are BigInt.
+        if let Some(index) = value.as_bigint() {
+            let index = index.to_string();
+            let index =
+                index.parse::<usize>().map_err(|_| Self::invalid_index_error(name, &index))?;
+            return Self::check_index_bounds(index, name, len);
+        }
+
+        let index = value.to_index(ctx)?;
+        let index = usize::try_from(index).map_err(|_| Self::invalid_index_error(name, index))?;
+        Self::check_index_bounds(index, name, len)
+    }
+
+    fn out_of_bounds_error(len: usize, offset: usize, size: usize) -> JsError {
+        JsError::from_native(JsNativeError::typ().with_message(format!(
+            "tracer accessed out of bound memory: available {len}, offset {offset}, size {size}"
+        )))
+    }
+
     pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
         let obj = JsObject::with_object_proto(ctx.intrinsics());
         let len = self.len();
@@ -292,17 +333,16 @@ impl MemoryRef {
             ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, args, memory, ctx| {
-                    let start = args.get_or_undefined(0).to_numeric_number(ctx)?;
-                    let end = args.get_or_undefined(1).to_numeric_number(ctx)?;
-                    if end < start || start < 0. || (end as usize) > memory.len() {
-                        return Err(JsError::from_native(JsNativeError::typ().with_message(
-                            format!(
-                                "tracer accessed out of bound memory: offset {start}, end {end}"
-                            ),
-                        )));
+                    let len = memory.len();
+                    let start = Self::parse_index(args.get_or_undefined(0), "start", len, ctx)?;
+                    let end = Self::parse_index(args.get_or_undefined(1), "end", len, ctx)?;
+                    if end < start || end > len {
+                        return Err(Self::out_of_bounds_error(
+                            len,
+                            start,
+                            end.saturating_sub(start),
+                        ));
                     }
-                    let start = start as usize;
-                    let end = end as usize;
                     let size = end - start;
                     let slice = memory
                         .0
@@ -321,12 +361,13 @@ impl MemoryRef {
             ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, args, memory, ctx| {
-                    let offset_f64 = args.get_or_undefined(0).to_numeric_number(ctx)?;
                     let len = memory.len();
-                    let offset = offset_f64 as usize;
-                    if len < offset + 32 || offset_f64 < 0. {
-                        let msg = format!("tracer accessed out of bound memory: available {len}, offset {offset}, size 32");
-                        return Err(JsError::from_native(JsNativeError::typ().with_message(msg)));
+                    let offset = Self::parse_index(args.get_or_undefined(0), "offset", len, ctx)?;
+                    let Some(end) = offset.checked_add(32) else {
+                        return Err(Self::out_of_bounds_error(len, offset, 32));
+                    };
+                    if end > len {
+                        return Err(Self::out_of_bounds_error(len, offset, 32));
                     }
                     let slice = memory
                         .0
