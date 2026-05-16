@@ -296,6 +296,7 @@ impl MemoryRef {
                 return Err(Self::invalid_index_error(name, index));
             }
         }
+        // Boa's `ToIndex` rejects BigInt, but stack-derived tracer values are BigInt.
         if let Some(index) = value.as_bigint() {
             let index = index.to_string();
             let index =
