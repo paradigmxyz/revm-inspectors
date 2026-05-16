@@ -10,7 +10,8 @@ use boa_engine::{
         FunctionObjectBuilder,
     },
     property::{Attribute, PropertyKey},
-    Context, JsArgs, JsError, JsNativeError, JsResult, JsString, JsValue, NativeFunction, Source,
+    Context, JsArgs, JsBigInt, JsError, JsNativeError, JsResult, JsString, JsValue, NativeFunction,
+    Source,
 };
 use boa_gc::{empty_trace, Finalize, Trace};
 use core::borrow::Borrow;
@@ -316,11 +317,13 @@ pub(crate) fn bytes_to_fb<const N: usize>(mut bytes: &[u8]) -> FixedBytes<N> {
     FixedBytes::left_padding_from(bytes)
 }
 
-/// Converts a U256 to a bigint using the global bigint alias.
-pub(crate) fn to_bigint(value: U256, ctx: &mut Context) -> JsResult<JsValue> {
-    let bigint = ctx.global_object().get(js_string!("bigint"), ctx)?;
-    let Some(bigint) = bigint.as_callable() else { return Ok(JsValue::undefined()) };
-    bigint.call(&JsValue::undefined(), &[JsValue::from(js_string!(value.to_string()))], ctx)
+/// Converts a U256 to a Boa bigint value.
+pub(crate) fn to_bigint(value: U256) -> JsResult<JsValue> {
+    JsBigInt::from_string(&value.to_string()).map(Into::into).ok_or_else(|| {
+        JsError::from_native(
+            JsNativeError::error().with_message("failed to convert U256 to BigInt"),
+        )
+    })
 }
 
 /// Compute the address of a contract created using CREATE2.
@@ -590,7 +593,7 @@ mod tests {
         ];
 
         for (value, expected) in test_cases {
-            let result = to_bigint(value, &mut ctx).unwrap();
+            let result = to_bigint(value).unwrap();
             assert!(result.is_bigint(), "Result should be a bigint for value {value}");
             let result_str = result.to_string(&mut ctx).unwrap().to_std_string().unwrap();
             assert_eq!(result_str, expected, "BigInt conversion failed for {value}");
@@ -598,7 +601,7 @@ mod tests {
 
         // Test that the result can be used in JavaScript operations
         let big_value = U256::from(999u64);
-        let bigint_result = to_bigint(big_value, &mut ctx).unwrap();
+        let bigint_result = to_bigint(big_value).unwrap();
 
         // Set it as a global variable
         ctx.global_object().set(js_string!("testBigInt"), bigint_result, false, &mut ctx).unwrap();

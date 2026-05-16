@@ -13,6 +13,7 @@ use alloc::{
     format,
     rc::Rc,
     string::{String, ToString},
+    vec::Vec,
 };
 use alloy_primitives::{Address, Bytes, B256, U256};
 use boa_engine::{
@@ -236,14 +237,36 @@ impl StepLog {
     }
 }
 
+/// An owned snapshot of memory contents.
+///
+/// Uses `Rc` internally so cloning is cheap (reference count bump) rather than
+/// copying the entire memory buffer on every step.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct MemorySnapshot(Rc<Vec<u8>>);
+
+impl MemorySnapshot {
+    /// Creates a snapshot by copying the context memory from `SharedMemory`.
+    pub(crate) fn from_shared_memory(mem: &SharedMemory) -> Self {
+        Self(Rc::new(mem.context_memory().to_vec()))
+    }
+
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    fn slice_len(&self, offset: usize, size: usize) -> &[u8] {
+        &self.0[offset..offset + size]
+    }
+}
+
 /// Represents the memory object
 #[derive(Clone, Debug)]
-pub(crate) struct MemoryRef(GuardedNullableGc<SharedMemory>);
+pub(crate) struct MemoryRef(GuardedNullableGc<MemorySnapshot>);
 
 impl MemoryRef {
-    /// Creates a new stack reference
-    pub(crate) fn new(mem: &SharedMemory) -> (Self, GcGuard<'_, SharedMemory>) {
-        let (inner, guard) = GuardedNullableGc::new_ref(mem);
+    /// Creates a new memory reference from an owned snapshot.
+    pub(crate) fn new_owned(mem: MemorySnapshot) -> (Self, GcGuard<'static, MemorySnapshot>) {
+        let (inner, guard) = GuardedNullableGc::new_owned(mem);
         (Self(inner), guard)
     }
 
@@ -430,13 +453,23 @@ impl From<u8> for OpObj {
 pub(crate) struct StackRef(GuardedNullableGc<Stack>);
 
 impl StackRef {
-    /// Creates a new stack reference
-    pub(crate) fn new(stack: &Stack) -> (Self, GcGuard<'_, Stack>) {
-        let (inner, guard) = GuardedNullableGc::new_ref(stack);
+    /// Creates a new stack reference from an owned stack.
+    pub(crate) fn new_owned(stack: Stack) -> (Self, GcGuard<'static, Stack>) {
+        let (inner, guard) = GuardedNullableGc::new_owned(stack);
         (Self(inner), guard)
     }
 
-    fn peek(&self, idx: usize, ctx: &mut Context) -> JsResult<JsValue> {
+    fn parse_index(value: &JsValue, len: usize, ctx: &mut Context) -> JsResult<usize> {
+        let index = value.to_numeric_number(ctx)?;
+        if !index.is_finite() || index < 0. || index > usize::MAX as f64 {
+            return Err(JsError::from_native(JsNativeError::typ().with_message(format!(
+                "tracer accessed out of bound stack: size {len}, index {index}"
+            ))));
+        }
+        Ok(index as usize)
+    }
+
+    fn peek(&self, idx: usize) -> JsResult<JsValue> {
         self.0
             .with_inner(|stack| {
                 stack
@@ -448,7 +481,7 @@ impl StackRef {
                             idx
                         )))
                     })
-                    .and_then(|value| to_bigint(value, ctx))
+                    .and_then(to_bigint)
             })
             .ok_or_else(|| {
                 JsError::from_native(
@@ -473,14 +506,13 @@ impl StackRef {
             context.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, args, stack, ctx| {
-                    let idx_f64 = args.get_or_undefined(0).to_numeric_number(ctx)?;
-                    let idx = idx_f64 as usize;
-                    if len <= idx || idx_f64 < 0. {
+                    let idx = Self::parse_index(args.get_or_undefined(0), len, ctx)?;
+                    if len <= idx {
                         return Err(JsError::from_native(JsNativeError::typ().with_message(
                             format!("tracer accessed out of bound stack: size {len}, index {idx}"),
                         )));
                     }
-                    stack.peek(idx, ctx)
+                    stack.peek(idx)
                 },
                 self,
             ),
@@ -537,7 +569,7 @@ impl Contract {
 
         let get_value = FunctionObjectBuilder::new(
             ctx.realm(),
-            NativeFunction::from_copy_closure(move |_this, _args, ctx| to_bigint(value, ctx)),
+            NativeFunction::from_copy_closure(move |_this, _args, _ctx| to_bigint(value)),
         )
         .length(0)
         .build();
@@ -629,7 +661,7 @@ impl CallFrame {
 
         let get_value = FunctionObjectBuilder::new(
             ctx.realm(),
-            NativeFunction::from_copy_closure(move |_this, _args, ctx| to_bigint(value, ctx)),
+            NativeFunction::from_copy_closure(move |_this, _args, _ctx| to_bigint(value)),
         )
         .length(0)
         .build();
@@ -727,7 +759,7 @@ impl JsEvmContext {
         obj.set(js_string!("gasUsed"), gas_used, false, ctx)?;
         obj.set(js_string!("gasPrice"), gas_price, false, ctx)?;
         obj.set(js_string!("intrinsicGas"), intrinsic_gas, false, ctx)?;
-        obj.set(js_string!("value"), to_bigint(value, ctx)?, false, ctx)?;
+        obj.set(js_string!("value"), to_bigint(value)?, false, ctx)?;
         obj.set(js_string!("block"), block, false, ctx)?;
         obj.set(js_string!("coinbase"), address_to_uint8_array(coinbase, ctx)?, false, ctx)?;
         obj.set(js_string!("output"), to_uint8_array(output, ctx)?, false, ctx)?;
@@ -874,7 +906,7 @@ impl EvmDbRef {
                     let val = args.get_or_undefined(0).clone();
                     let acc = db.read_basic(val, ctx)?;
                     let balance = acc.map(|acc| acc.balance).unwrap_or_default();
-                    to_bigint(balance, ctx)
+                    to_bigint(balance)
                 },
                 self.clone(),
             ),
@@ -1189,9 +1221,9 @@ mod tests {
         let _ = stack.push(U256::from(35000));
         let _ = stack.push(U256::from(35000));
         let _ = stack.push(U256::from(35000));
-        let (stack_ref, _stack_guard) = StackRef::new(&stack);
-        let mem = SharedMemory::new();
-        let (mem_ref, _mem_guard) = MemoryRef::new(&mem);
+        let (stack_ref, _stack_guard) = StackRef::new_owned(stack);
+        let mem = MemorySnapshot::default();
+        let (mem_ref, _mem_guard) = MemoryRef::new_owned(mem);
 
         let step = StepLog {
             stack: stack_ref,
@@ -1279,9 +1311,9 @@ mod tests {
         let _ = stack.push(U256::from(35000));
         let _ = stack.push(U256::from(35000));
         let _ = stack.push(U256::from(35000));
-        let (stack_ref, _stack_guard) = StackRef::new(&stack);
-        let mem = SharedMemory::new();
-        let (mem_ref, _mem_guard) = MemoryRef::new(&mem);
+        let (stack_ref, _stack_guard) = StackRef::new_owned(stack);
+        let mem = MemorySnapshot::default();
+        let (mem_ref, _mem_guard) = MemoryRef::new_owned(mem);
 
         let step = StepLog {
             stack: stack_ref,
