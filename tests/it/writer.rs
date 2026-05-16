@@ -1,4 +1,4 @@
-use crate::utils::{inspect_deploy_contract, write_traces_with};
+use crate::utils::{inspect_deploy_contract, write_traces, write_traces_with};
 use alloy_primitives::{address, b256, bytes, hex, Address, B256, U256};
 use alloy_sol_types::{sol, SolCall};
 use colorchoice::ColorChoice;
@@ -18,9 +18,9 @@ const OUT_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/it/writer/");
 
 #[test]
 fn test_trace_printing() {
-    // solc +0.8.26 testdata/Counter.sol --via-ir --optimize --bin
+    // solc +0.8.28 testdata/Counter.sol --via-ir --optimize --bin
     sol!("testdata/Counter.sol");
-    static CREATION_CODE: &str = "60808060405234601557610415908161001a8239f35b5f80fdfe6080806040526004361015610012575f80fd5b5f905f3560e01c9081630aa7318514610347575080633fb5c1cb14610326578063526f6fc5146102cb57806377fa5d9e1461026e5780638381f58a14610252578063943ee48c146101a85780639db265eb1461014e578063d09de08a146101325763f267ce9e14610081575f80fd5b346101245780600319360112610124576100996103ba565b303b1561012457604051639db265eb60e01b81528190818160048183305af180156101275761010f575b50607b90547f5ae719eb0250b8686767e291df04bec55e7f45a5997e120be020424da1896d766060604051602081526009602082015268343490333937b6901960b91b6040820152a380f35b8161011991610384565b61012457805f6100c3565b80fd5b6040513d84823e3d90fd5b503461012457806003193601126101245761014b6103ba565b80f35b503461012457806003193601126101245780547f9d39c21a43a4dfcd7857f27f3399f31a24694b6cb361496355ab537d16f745ca606060405160208152600960208201526868692066726f6d203360b81b6040820152a280f35b503461024e575f36600319011261024e575f547f9d39c21a43a4dfcd7857f27f3399f31a24694b6cb361496355ab537d16f745ca606060405160208152600960208201526868692066726f6d203160b81b6040820152a2303b1561024e57604051637933e74f60e11b81525f8160048183305af1801561024357610230575b5061014b6103ba565b61023c91505f90610384565b5f80610227565b6040513d5f823e3d90fd5b5f80fd5b3461024e575f36600319011261024e5760205f54604051908152f35b3461024e575f36600319011261024e57607b5f547f5ae719eb0250b8686767e291df04bec55e7f45a5997e120be020424da1896d76606060405160208152600c60208201526b343490333937b6903637b39960a11b6040820152a3005b3461024e575f36600319011261024e575f547f9d39c21a43a4dfcd7857f27f3399f31a24694b6cb361496355ab537d16f745ca606060405160208152600c60208201526b68692066726f6d206c6f673160a01b6040820152a2005b3461024e57602036600319011261024e576004355f55602060405160018152f35b3461024e575f36600319011261024e576080905f54815260406020820152600c60408201526b068692066726f6d206c6f67360a41b6060820152a0005b90601f8019910116810190811067ffffffffffffffff8211176103a657604052565b634e487b7160e01b5f52604160045260245ffd5b5f545f1981146103cb576001015f55565b634e487b7160e01b5f52601160045260245ffdfea2646970667358221220d26cb46e1b195f4ef2e419f8dc457a622eb5066ea0a97b4ab2619d684fe597f764736f6c634300081a0033";
+    static CREATION_CODE: &str = "608080604052346015576104c1908161001a8239f35b5f80fdfe6080806040526004361015610012575f80fd5b5f905f3560e01c9081630aa73185146103f3575080631f457cb5146103d65780633fb5c1cb146103b5578063526f6fc51461035a57806377fa5d9e146102fd5780638381f58a146102e15780638834d6ff146102b9578063924fe3151461029c578063943ee48c146101f25780639db265eb14610198578063d09de08a1461017c578063d987e6b51461015e5763f267ce9e146100ad575f80fd5b346101505780600319360112610150576100c5610466565b303b1561015057604051639db265eb60e01b81528190818160048183305af180156101535761013b575b50607b90547f5ae719eb0250b8686767e291df04bec55e7f45a5997e120be020424da1896d766060604051602081526009602082015268343490333937b6901960b91b6040820152a380f35b8161014591610430565b61015057805f6100ef565b80fd5b6040513d84823e3d90fd5b50346101505780600319360112610150576020600254604051908152f35b5034610150578060031936011261015057610195610466565b80f35b503461015057806003193601126101505780547f9d39c21a43a4dfcd7857f27f3399f31a24694b6cb361496355ab537d16f745ca606060405160208152600960208201526868692066726f6d203360b81b6040820152a280f35b5034610298575f366003190112610298575f547f9d39c21a43a4dfcd7857f27f3399f31a24694b6cb361496355ab537d16f745ca606060405160208152600960208201526868692066726f6d203160b81b6040820152a2303b1561029857604051637933e74f60e11b81525f8160048183305af1801561028d5761027a575b50610195610466565b61028691505f90610430565b5f5f610271565b6040513d5f823e3d90fd5b5f80fd5b34610298575f366003190112610298576020600354604051908152f35b34610298575f3660031901126102985760de60025561014d5f556101bc60035561022b600155005b34610298575f3660031901126102985760205f54604051908152f35b34610298575f36600319011261029857607b5f547f5ae719eb0250b8686767e291df04bec55e7f45a5997e120be020424da1896d76606060405160208152600c60208201526b343490333937b6903637b39960a11b6040820152a3005b34610298575f366003190112610298575f547f9d39c21a43a4dfcd7857f27f3399f31a24694b6cb361496355ab537d16f745ca606060405160208152600c60408201526b68692066726f6d206c6f673160a01b6060820152a2005b34610298576020366003190112610298576004355f55602060405160018152f35b34610298575f366003190112610298576020600154604051908152f35b34610298575f366003190112610298576080905f54815260406020820152600c60408201526b068692066726f6d206c6f67360a41b6060820152a0005b90601f8019910116810190811067ffffffffffffffff82111761045257604052565b634e487b7160e01b5f52604160045260245ffd5b5f545f198114610477576001015f55565b634e487b7160e01b5f52601160045260245ffdfea2646970667358221220867a16c5783a6d7d094609856f70848579a6a3618ebc4ac22716d774b5f7381f64736f6c634300081c0033";
 
     let base_path = &Path::new(OUT_DIR).join("test_trace_printing");
 
@@ -85,6 +85,8 @@ fn test_trace_printing() {
     call(Counter::log1Call {}.abi_encode());
 
     call(Counter::log2Call {}.abi_encode());
+
+    call(Counter::writeMultipleSlotsCall {}.abi_encode());
 }
 
 #[test]
@@ -129,6 +131,7 @@ const FUNCTION_SELECTORS: &[(&str, [u8; 4])] = &[
     ("nest3", hex!("9db265eb")),
     ("number", hex!("8381f58a")),
     ("setNumber", hex!("3fb5c1cb")),
+    ("writeMultipleSlots", hex!("8834d6ff")),
 ];
 
 // solc testdata/Counter.sol --via-ir --optimize --hashes
@@ -285,4 +288,117 @@ fn assert_traces(
             do_assert(config.clone(), ".decoded", tracer);
         }
     }
+}
+
+/// Test that short calldata (< 4 bytes) with nonzero value shows "receive" instead of "fallback".
+///
+/// Regression test for https://github.com/foundry-rs/foundry/issues/12962
+///
+/// When a contract is called with short calldata and nonzero value, the trace should
+/// show `receive()` (since that's what Solidity invokes for value transfers), not
+/// `fallback()`.
+#[test]
+fn test_receive_vs_fallback_empty_calldata() {
+    // Deploy a minimal contract that just STOPs immediately (runtime = 0x00).
+    // Deploy the contract using a minimal constructor that just returns the runtime code.
+    // Constructor: PUSH1 0x01, PUSH1 0x0c, PUSH1 0x00, CODECOPY, PUSH1 0x01, PUSH1 0x00, RETURN
+    // Then the runtime code (0x00 = STOP)
+    let initcode = bytes!(
+        "6001" // PUSH1 0x01 (size of runtime code)
+        "600c" // PUSH1 0x0c (offset where runtime code starts in initcode)
+        "6000" // PUSH1 0x00 (memory destination)
+        "39"   // CODECOPY
+        "6001" // PUSH1 0x01 (size to return)
+        "6000" // PUSH1 0x00 (memory offset)
+        "f3"   // RETURN
+        "00"   // Runtime code: STOP
+    );
+
+    let caller = address!("0x0000000000000000000000000000000000000001");
+    let mut db = CacheDB::new(EmptyDB::default());
+    db.insert_account_info(
+        caller,
+        revm::state::AccountInfo { balance: U256::from(1_000_000), ..Default::default() },
+    );
+
+    let mut evm = Context::mainnet()
+        .with_db(db)
+        .build_mainnet_with_inspector(TracingInspector::new(TracingInspectorConfig::all()));
+
+    let address = inspect_deploy_contract(&mut evm, initcode, caller, SpecId::CANCUN)
+        .created_address()
+        .unwrap();
+
+    // Call with empty calldata and nonzero value - should show receive()
+    evm.set_inspector(TracingInspector::new(TracingInspectorConfig::all()));
+    let result = evm
+        .inspect_tx_commit(
+            TxEnv::builder()
+                .caller(caller)
+                .data(bytes!()) // Empty calldata
+                .value(U256::from(1)) // Nonzero value
+                .kind(TransactTo::Call(address))
+                .gas_priority_fee(None)
+                .nonce(1)
+                .build_fill(),
+        )
+        .unwrap();
+
+    assert!(result.is_success(), "Call with empty calldata and value should succeed");
+
+    let trace_output = write_traces(evm.inspector());
+
+    // The trace should show "receive" not "fallback" for short calldata + nonzero value
+    assert!(
+        trace_output.contains("::receive"),
+        "Empty calldata with value call should show 'receive' in trace, got:\n{trace_output}"
+    );
+    assert!(
+        !trace_output.contains("::fallback"),
+        "Empty calldata with value call should NOT show 'fallback' in trace, got:\n{trace_output}"
+    );
+}
+
+/// Test that non-empty calldata (< 4 bytes) with successful call shows "fallback".
+#[test]
+fn test_fallback_short_calldata() {
+    // Simple contract that STOPs on any call
+    let initcode = bytes!(
+        "6001600c60003960016000f300" // Deploy STOP
+    );
+
+    let mut evm = Context::mainnet()
+        .with_db(CacheDB::new(EmptyDB::default()))
+        .build_mainnet_with_inspector(TracingInspector::new(TracingInspectorConfig::all()));
+
+    let address = inspect_deploy_contract(&mut evm, initcode, Address::default(), SpecId::CANCUN)
+        .created_address()
+        .unwrap();
+
+    // Call with short calldata (1-3 bytes) - should show fallback()
+    evm.set_inspector(TracingInspector::new(TracingInspectorConfig::all()));
+    let result = evm
+        .inspect_tx_commit(
+            TxEnv::builder()
+                .data(bytes!("ab")) // Short calldata (1 byte)
+                .kind(TransactTo::Call(address))
+                .gas_priority_fee(None)
+                .nonce(1)
+                .build_fill(),
+        )
+        .unwrap();
+
+    assert!(result.is_success(), "Call with short calldata should succeed");
+
+    let trace_output = write_traces(evm.inspector());
+
+    // Short non-empty calldata should show "fallback"
+    assert!(
+        trace_output.contains("::fallback("),
+        "Short calldata call should show 'fallback' in trace, got:\n{trace_output}"
+    );
+    assert!(
+        !trace_output.contains("::receive("),
+        "Short calldata call should NOT show 'receive' in trace, got:\n{trace_output}"
+    );
 }

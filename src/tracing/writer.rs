@@ -277,7 +277,10 @@ impl<W: Write> TraceWriter<W> {
                     (name.to_string(), args.join(", "))
                 }
                 None => {
-                    if trace.data.len() < 4 {
+                    if trace.data.len() < 4 && !trace.value.is_zero() {
+                        // Short calldata + nonzero value = receive() was invoked
+                        ("receive".to_string(), String::new())
+                    } else if trace.data.len() < 4 {
                         ("fallback".to_string(), hex::encode(&trace.data))
                     } else {
                         let (selector, data) = trace.data.split_at(4);
@@ -498,20 +501,27 @@ impl<W: Write> TraceWriter<W> {
         let mut changes_map = HashMap::new();
 
         // For each call trace, compact the results so we do not write the intermediate storage
-        // writes
+        // writes. Store the change id so we can write the storage changes in chronological order
+        // of their last write.
+        let mut change_id = 0;
         for step in &node.trace.steps {
             if let Some(change) = &step.storage_change {
                 // Only handle storage changes, signalled by `had_value` being `Some`.
                 if change.had_value.is_some() {
-                    let (_first, last) = changes_map.entry(&change.key).or_insert((change, change));
+                    let (_first, last, last_change_id) =
+                        changes_map.entry(&change.key).or_insert((change, change, change_id));
                     *last = change;
+                    *last_change_id = change_id;
+                    change_id += 1;
                 }
             }
         }
 
-        let changes = changes_map
+        let mut changes = changes_map.into_iter().collect::<Vec<_>>();
+        changes.sort_by_key(|(_, a)| a.2);
+        let changes = changes
             .iter()
-            .filter_map(|(&&key, &(first, last))| {
+            .filter_map(|(&key, (first, last, _))| {
                 let value_before = first.had_value.unwrap_or_default();
                 let value_after = last.value;
                 if value_before == value_after {
