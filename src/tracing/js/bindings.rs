@@ -446,7 +446,7 @@ impl StackRef {
         Ok(index as usize)
     }
 
-    fn peek(&self, idx: usize, ctx: &mut Context) -> JsResult<JsValue> {
+    fn peek(&self, idx: usize) -> JsResult<JsValue> {
         self.0
             .with_inner(|stack| {
                 stack
@@ -458,7 +458,7 @@ impl StackRef {
                             idx
                         )))
                     })
-                    .and_then(|value| to_bigint(value, ctx))
+                    .and_then(to_bigint)
             })
             .ok_or_else(|| {
                 JsError::from_native(
@@ -489,7 +489,7 @@ impl StackRef {
                             format!("tracer accessed out of bound stack: size {len}, index {idx}"),
                         )));
                     }
-                    stack.peek(idx, ctx)
+                    stack.peek(idx)
                 },
                 self,
             ),
@@ -546,7 +546,7 @@ impl Contract {
 
         let get_value = FunctionObjectBuilder::new(
             ctx.realm(),
-            NativeFunction::from_copy_closure(move |_this, _args, ctx| to_bigint(value, ctx)),
+            NativeFunction::from_copy_closure(move |_this, _args, _ctx| to_bigint(value)),
         )
         .length(0)
         .build();
@@ -638,7 +638,7 @@ impl CallFrame {
 
         let get_value = FunctionObjectBuilder::new(
             ctx.realm(),
-            NativeFunction::from_copy_closure(move |_this, _args, ctx| to_bigint(value, ctx)),
+            NativeFunction::from_copy_closure(move |_this, _args, _ctx| to_bigint(value)),
         )
         .length(0)
         .build();
@@ -736,7 +736,7 @@ impl JsEvmContext {
         obj.set(js_string!("gasUsed"), gas_used, false, ctx)?;
         obj.set(js_string!("gasPrice"), gas_price, false, ctx)?;
         obj.set(js_string!("intrinsicGas"), intrinsic_gas, false, ctx)?;
-        obj.set(js_string!("value"), to_bigint(value, ctx)?, false, ctx)?;
+        obj.set(js_string!("value"), to_bigint(value)?, false, ctx)?;
         obj.set(js_string!("block"), block, false, ctx)?;
         obj.set(js_string!("coinbase"), address_to_uint8_array(coinbase, ctx)?, false, ctx)?;
         obj.set(js_string!("output"), to_uint8_array(output, ctx)?, false, ctx)?;
@@ -883,7 +883,7 @@ impl EvmDbRef {
                     let val = args.get_or_undefined(0).clone();
                     let acc = db.read_basic(val, ctx)?;
                     let balance = acc.map(|acc| acc.balance).unwrap_or_default();
-                    to_bigint(balance, ctx)
+                    to_bigint(balance)
                 },
                 self.clone(),
             ),
