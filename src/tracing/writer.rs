@@ -515,7 +515,7 @@ impl<W: Write> TraceWriter<W> {
         }
 
         let mut changes = changes_map.into_iter().collect::<Vec<_>>();
-        changes.sort_by(|(_, a), (_, b)| a.2.cmp(&b.2));
+        changes.sort_by_key(|(_, a)| a.2);
         let changes = changes
             .iter()
             .filter_map(|(&key, (first, last, _))| {
