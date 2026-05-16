@@ -425,36 +425,6 @@ mod tests {
         assert!(comparison_test.as_boolean().unwrap());
     }
 
-    #[test]
-    fn test_to_bigint_function_ignores_overwritten_global_bigint() {
-        let mut ctx = Context::default();
-        register_builtins(&mut ctx).unwrap();
-
-        ctx.eval(Source::from_bytes(b"globalThis.bigint = 1")).unwrap();
-
-        let result = to_bigint(U256::from(123u64)).unwrap();
-        assert!(result.is_bigint());
-        assert_eq!(result.to_string(&mut ctx).unwrap().to_std_string().unwrap(), "123");
-    }
-
-    #[test]
-    fn test_to_bigint_function_ignores_poisoned_global_bigint() {
-        let mut ctx = Context::default();
-        register_builtins(&mut ctx).unwrap();
-
-        ctx.eval(Source::from_bytes(
-            b"Object.defineProperty(globalThis, 'bigint', {
-                get() { throw new Error('poisoned bigint'); },
-                configurable: true
-            })",
-        ))
-        .unwrap();
-
-        let result = to_bigint(U256::from(456u64)).unwrap();
-        assert!(result.is_bigint());
-        assert_eq!(result.to_string(&mut ctx).unwrap().to_std_string().unwrap(), "456");
-    }
-
     fn as_length<T>(array: T) -> usize
     where
         T: Borrow<JsValue>,

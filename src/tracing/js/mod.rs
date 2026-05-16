@@ -1078,4 +1078,34 @@ mod tests {
         let res = run_trace(code, Some(bytes!("0x5F5F52600100")), true);
         assert_eq!(res, json!([json!({}), json!({}), json!({"0": 0})]));
     }
+
+    #[test]
+    fn test_bigint_survives_poisoned_global() {
+        let code = r#"{
+            res: {},
+            step: function(log, db) {
+                // Poison the global bigint alias
+                Object.defineProperty(globalThis, 'bigint', {
+                    get() { throw new Error('poisoned bigint'); },
+                    configurable: true
+                });
+
+                if (log.stack.length() > 0) {
+                    // stack.peek internally uses to_bigint
+                    this.res.stackPeek = log.stack.peek(0).toString();
+                }
+                // contract.getValue internally uses to_bigint
+                this.res.value = log.contract.getValue().toString();
+                // db.getBalance internally uses to_bigint
+                this.res.balance = db.getBalance(log.contract.getAddress()).toString();
+            },
+            fault: function() {},
+            result: function() { return this.res }
+        }"#;
+        let res = run_trace(code, None, true);
+        let obj = res.as_object().unwrap();
+        assert_eq!(obj["stackPeek"], json!("1"));
+        assert_eq!(obj["value"], json!("0"));
+        assert_eq!(obj["balance"], json!("0"));
+    }
 }
