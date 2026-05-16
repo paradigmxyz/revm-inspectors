@@ -854,6 +854,30 @@ mod tests {
     }
 
     #[test]
+    fn test_memory_slice_accepts_bigint_index() {
+        let code = r#"{
+            res: [],
+            step: function(log) { this.res.push(log.memory.slice(0, 0n)); },
+            fault: function() {},
+            result: function() { return this.res; }
+        }"#;
+        let res = run_trace(code, None, true);
+        assert_eq!(res, json!([json!({}), json!({}), json!({})]));
+    }
+
+    #[test]
+    fn test_memory_slice_rejects_bigint_index_overflow() {
+        let code = r#"{
+            depths: [],
+            step: function(log) { this.depths.push(log.memory.slice(0, 340282366920938463463374607431768211455n)); },
+            fault: function() {},
+            result: function() { return this.depths; }
+        }"#;
+        let res = run_trace(code, None, false);
+        assert_eq!(res.as_array().unwrap().len(), 0);
+    }
+
+    #[test]
     fn test_stack_peek() {
         let code = r#"{
             depths: [],

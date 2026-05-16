@@ -274,9 +274,31 @@ impl MemoryRef {
         self.0.with_inner(|mem| mem.len()).unwrap_or_default()
     }
 
-    fn parse_index(value: &JsValue, name: &str, ctx: &mut Context) -> JsResult<usize> {
+    fn parse_index(value: &JsValue, name: &str, len: usize, ctx: &mut Context) -> JsResult<usize> {
+        if let Some(index) = value.as_bigint() {
+            let index = index.to_string().parse::<usize>().map_err(|_| {
+                JsError::from_native(
+                    JsNativeError::typ().with_message(format!("invalid memory {name}: {index}")),
+                )
+            })?;
+            if index > len {
+                return Err(JsError::from_native(
+                    JsNativeError::typ().with_message(format!("invalid memory {name}: {index}")),
+                ));
+            }
+            return Ok(index);
+        }
+
         let index = value.to_numeric_number(ctx)?;
-        if !index.is_finite() || index < 0. || index > usize::MAX as f64 {
+        if !index.is_finite() || index < 0. {
+            return Err(JsError::from_native(
+                JsNativeError::typ().with_message(format!("invalid memory {name}: {index}")),
+            ));
+        }
+        let index = index.trunc();
+        const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.;
+        let max_index = (len as f64).min(MAX_SAFE_INTEGER);
+        if index > max_index {
             return Err(JsError::from_native(
                 JsNativeError::typ().with_message(format!("invalid memory {name}: {index}")),
             ));
@@ -308,9 +330,9 @@ impl MemoryRef {
             ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, args, memory, ctx| {
-                    let start = Self::parse_index(args.get_or_undefined(0), "start", ctx)?;
-                    let end = Self::parse_index(args.get_or_undefined(1), "end", ctx)?;
                     let len = memory.len();
+                    let start = Self::parse_index(args.get_or_undefined(0), "start", len, ctx)?;
+                    let end = Self::parse_index(args.get_or_undefined(1), "end", len, ctx)?;
                     if end < start || end > len {
                         return Err(Self::out_of_bounds_error(
                             len,
@@ -336,8 +358,8 @@ impl MemoryRef {
             ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, args, memory, ctx| {
-                    let offset = Self::parse_index(args.get_or_undefined(0), "offset", ctx)?;
                     let len = memory.len();
+                    let offset = Self::parse_index(args.get_or_undefined(0), "offset", len, ctx)?;
                     let Some(end) = offset.checked_add(32) else {
                         return Err(Self::out_of_bounds_error(len, offset, 32));
                     };
