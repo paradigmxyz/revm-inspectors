@@ -277,7 +277,10 @@ impl<W: Write> TraceWriter<W> {
                     (name.to_string(), args.join(", "))
                 }
                 None => {
-                    if trace.data.len() < 4 {
+                    if trace.data.len() < 4 && !trace.value.is_zero() {
+                        // Short calldata + nonzero value = receive() was invoked
+                        ("receive".to_string(), String::new())
+                    } else if trace.data.len() < 4 {
                         ("fallback".to_string(), hex::encode(&trace.data))
                     } else {
                         let (selector, data) = trace.data.split_at(4);
