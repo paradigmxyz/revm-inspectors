@@ -21,6 +21,9 @@ extern crate alloc;
 /// An inspector implementation for an EIP2930 Accesslist
 pub mod access_list;
 
+/// An inspector for collecting address appearances.
+pub mod appearance;
+
 /// implementation of an opcode counter for the EVM.
 pub mod opcode;
 
