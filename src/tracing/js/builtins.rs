@@ -65,12 +65,30 @@ pub(crate) fn json_stringify(val: JsValue, ctx: &mut Context) -> JsResult<JsStri
 /// addresses, see [PrecompileList::register_callable].
 pub(crate) fn register_builtins(ctx: &mut Context) -> JsResult<()> {
     let big_int = ctx.global_object().get(js_string!("BigInt"), ctx)?;
-    // Add toJSON method to BigInt prototype for JSON serialization support
+    // Add toJSON method and geth-compatible polyfill shims to BigInt prototype.
+    //
+    // Geth's JS tracer uses the BigInteger.js polyfill (peterolson/BigInteger.js) which exposes
+    // a global `bigInt` (camelCase) function returning objects with methods like `.equals()`,
+    // `.toJSNumber()`, `.plus()`, `.minus()`, etc. Reth uses Boa's native BigInt which lacks
+    // these methods. We add shims so geth-compatible tracers (including geth's built-in
+    // call_tracer_legacy.js) work unmodified.
+    //
+    // See: https://github.com/ethereum/go-ethereum/blob/master/eth/tracers/js/bigint.go
     ctx.eval(Source::from_bytes(
-        b"BigInt.prototype.toJSON = function() { return this.toString(); }",
+        br#"
+BigInt.prototype.toJSON = function() { return this.toString(); };
+BigInt.prototype.equals = function(other) { return this == other; };
+BigInt.prototype.toJSNumber = function() { return Number(this); };
+BigInt.prototype.plus = function(other) { return this + BigInt(other); };
+BigInt.prototype.minus = function(other) { return this - BigInt(other); };
+"#,
     ))?;
     // Create global 'bigint' alias for native BigInt constructor (lowercase for compatibility)
-    ctx.register_global_property(js_string!("bigint"), big_int, Attribute::all())?;
+    ctx.register_global_property(js_string!("bigint"), big_int.clone(), Attribute::all())?;
+    // Create global 'bigInt' alias (camelCase) for geth BigInteger.js polyfill compatibility.
+    // Geth's goja engine runs `var bigInt = function(){...}()` at global scope, making `bigInt`
+    // the standard way to construct big integers in geth JS tracers.
+    ctx.register_global_property(js_string!("bigInt"), big_int, Attribute::all())?;
     ctx.register_global_builtin_callable(
         js_string!("toHex"),
         1,
@@ -513,5 +531,79 @@ mod tests {
             addr.to_string(&mut ctx).unwrap().to_std_string().unwrap(),
             "0x8a0d8a428b30200a296dfbe693310e5d6d2c64c5"
         );
+    }
+
+    #[test]
+    fn test_bigint_camelcase_alias() {
+        let mut ctx = Context::default();
+        register_builtins(&mut ctx).unwrap();
+
+        let bigint = ctx.global_object().get(js_string!("bigInt"), &mut ctx).unwrap();
+        assert!(bigint.is_callable());
+
+        let result = ctx.eval(Source::from_bytes(b"bigInt(42).toString()")).unwrap();
+        assert_eq!(result.to_string(&mut ctx).unwrap().to_std_string().unwrap(), "42");
+
+        let result = ctx.eval(Source::from_bytes(b"bigInt('100').toString(16)")).unwrap();
+        assert_eq!(result.to_string(&mut ctx).unwrap().to_std_string().unwrap(), "64");
+    }
+
+    #[test]
+    fn test_bigint_equals_shim() {
+        let mut ctx = Context::default();
+        register_builtins(&mut ctx).unwrap();
+
+        let result = ctx.eval(Source::from_bytes(b"bigInt(1).equals(bigInt(1))")).unwrap();
+        assert!(result.as_boolean().unwrap());
+
+        let result = ctx.eval(Source::from_bytes(b"bigInt(1).equals(bigInt(2))")).unwrap();
+        assert!(!result.as_boolean().unwrap());
+
+        let result = ctx.eval(Source::from_bytes(b"BigInt(0).equals(0)")).unwrap();
+        assert!(result.as_boolean().unwrap());
+    }
+
+    #[test]
+    fn test_bigint_to_js_number_shim() {
+        let mut ctx = Context::default();
+        register_builtins(&mut ctx).unwrap();
+
+        let result = ctx.eval(Source::from_bytes(b"bigInt(42).toJSNumber()")).unwrap();
+        assert_eq!(result.to_number(&mut ctx).unwrap(), 42.0);
+
+        let result = ctx.eval(Source::from_bytes(b"typeof bigInt(42).toJSNumber()")).unwrap();
+        assert_eq!(result.to_string(&mut ctx).unwrap().to_std_string().unwrap(), "number");
+    }
+
+    #[test]
+    fn test_bigint_plus_minus_shim() {
+        let mut ctx = Context::default();
+        register_builtins(&mut ctx).unwrap();
+
+        let result = ctx.eval(Source::from_bytes(b"bigInt(1).plus(bigInt(2)).toString()")).unwrap();
+        assert_eq!(result.to_string(&mut ctx).unwrap().to_std_string().unwrap(), "3");
+
+        let result =
+            ctx.eval(Source::from_bytes(b"bigInt(10).minus(bigInt(3)).toString()")).unwrap();
+        assert_eq!(result.to_string(&mut ctx).unwrap().to_std_string().unwrap(), "7");
+    }
+
+    #[test]
+    fn test_bigint_geth_call_tracer_pattern() {
+        let mut ctx = Context::default();
+        register_builtins(&mut ctx).unwrap();
+
+        // Simulates geth's call_tracer_legacy.js patterns:
+        // bigInt(gasIn - gasCost - gas).toString(16)
+        let result =
+            ctx.eval(Source::from_bytes(b"'0x' + bigInt(1000 - 200 - 100).toString(16)")).unwrap();
+        assert_eq!(result.to_string(&mut ctx).unwrap().to_std_string().unwrap(), "0x2bc");
+
+        // !ret.equals(0) pattern
+        let result = ctx.eval(Source::from_bytes(b"var ret = bigInt(1); !ret.equals(0)")).unwrap();
+        assert!(result.as_boolean().unwrap());
+
+        let result = ctx.eval(Source::from_bytes(b"var ret = bigInt(0); !ret.equals(0)")).unwrap();
+        assert!(!result.as_boolean().unwrap());
     }
 }
