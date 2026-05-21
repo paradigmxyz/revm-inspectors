@@ -761,7 +761,7 @@ impl CallTraceStep {
         let Some(status) = self.status else {
             return false;
         };
-        status.is_error()
+        status.is_halt()
     }
 
     /// Returns the error message if it is an erroneous result.
