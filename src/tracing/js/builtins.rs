@@ -595,18 +595,15 @@ mod tests {
 
         // Simulates geth's call_tracer_legacy.js patterns:
         // bigInt(gasIn - gasCost - gas).toString(16)
-        let result = ctx
-            .eval(Source::from_bytes(b"'0x' + bigInt(1000 - 200 - 100).toString(16)"))
-            .unwrap();
+        let result =
+            ctx.eval(Source::from_bytes(b"'0x' + bigInt(1000 - 200 - 100).toString(16)")).unwrap();
         assert_eq!(result.to_string(&mut ctx).unwrap().to_std_string().unwrap(), "0x2bc");
 
         // !ret.equals(0) pattern
-        let result =
-            ctx.eval(Source::from_bytes(b"var ret = bigInt(1); !ret.equals(0)")).unwrap();
+        let result = ctx.eval(Source::from_bytes(b"var ret = bigInt(1); !ret.equals(0)")).unwrap();
         assert!(result.as_boolean().unwrap());
 
-        let result =
-            ctx.eval(Source::from_bytes(b"var ret = bigInt(0); !ret.equals(0)")).unwrap();
+        let result = ctx.eval(Source::from_bytes(b"var ret = bigInt(0); !ret.equals(0)")).unwrap();
         assert!(!result.as_boolean().unwrap());
     }
 }
