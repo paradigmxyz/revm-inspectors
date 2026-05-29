@@ -13,6 +13,7 @@ use alloc::{
     format,
     rc::Rc,
     string::{String, ToString},
+    vec::Vec,
 };
 use alloy_primitives::{Address, Bytes, B256, U256};
 use boa_engine::{
@@ -29,7 +30,7 @@ use revm::{
     interpreter::{SharedMemory, Stack},
     primitives::KECCAK_EMPTY,
     state::{AccountInfo, Bytecode, EvmState},
-    DatabaseRef,
+    Database, DatabaseRef,
 };
 
 /// A macro that creates a native function that returns via [JsValue::from]
@@ -613,8 +614,6 @@ fn build_step_stack_object(
         context.realm(),
         NativeFunction::from_copy_closure_with_captures(
             move |_this, args, state, ctx| {
-                let idx_f64 = args.get_or_undefined(0).to_numeric_number(ctx)?;
-                let idx = idx_f64 as usize;
                 let stack = state.0.borrow().stack.clone().ok_or_else(|| {
                     JsError::from_native(
                         JsNativeError::typ()
@@ -622,12 +621,13 @@ fn build_step_stack_object(
                     )
                 })?;
                 let len = stack.0.with_inner(Stack::len).unwrap_or_default();
-                if len <= idx || idx_f64 < 0. {
-                    return Err(JsError::from_native(JsNativeError::typ().with_message(format!(
-                        "tracer accessed out of bound stack: size {len}, index {idx}",
-                    ))));
+                let idx = StackRef::parse_index(args.get_or_undefined(0), len, ctx)?;
+                if len <= idx {
+                    return Err(JsError::from_native(JsNativeError::typ().with_message(
+                        format!("tracer accessed out of bound stack: size {len}, index {idx}"),
+                    )));
                 }
-                stack.peek(idx, ctx)
+                stack.peek(idx)
             },
             state.clone(),
         ),
@@ -661,8 +661,6 @@ fn build_step_memory_object(
         context.realm(),
         NativeFunction::from_copy_closure_with_captures(
             move |_this, args, state, ctx| {
-                let start = args.get_or_undefined(0).to_numeric_number(ctx)?;
-                let end = args.get_or_undefined(1).to_numeric_number(ctx)?;
                 let memory = state.0.borrow().memory.clone().ok_or_else(|| {
                     JsError::from_native(
                         JsNativeError::typ()
@@ -670,13 +668,15 @@ fn build_step_memory_object(
                     )
                 })?;
                 let len = memory.len();
-                if end < start || start < 0. || (end as usize) > len {
-                    return Err(JsError::from_native(JsNativeError::typ().with_message(format!(
-                        "tracer accessed out of bound memory: offset {start}, end {end}",
-                    ))));
+                let start = MemoryRef::parse_index(args.get_or_undefined(0), "start", len, ctx)?;
+                let end = MemoryRef::parse_index(args.get_or_undefined(1), "end", len, ctx)?;
+                if end < start || end > len {
+                    return Err(MemoryRef::out_of_bounds_error(
+                        len,
+                        start,
+                        end.saturating_sub(start),
+                    ));
                 }
-                let start = start as usize;
-                let end = end as usize;
                 let slice = memory
                     .0
                     .with_inner(|mem| mem.slice_len(start, end - start).to_vec())
@@ -692,7 +692,6 @@ fn build_step_memory_object(
         context.realm(),
         NativeFunction::from_copy_closure_with_captures(
             move |_this, args, state, ctx| {
-                let offset_f64 = args.get_or_undefined(0).to_numeric_number(ctx)?;
                 let memory = state.0.borrow().memory.clone().ok_or_else(|| {
                     JsError::from_native(
                         JsNativeError::typ()
@@ -700,11 +699,13 @@ fn build_step_memory_object(
                     )
                 })?;
                 let len = memory.len();
-                let offset = offset_f64 as usize;
-                if len < offset + 32 || offset_f64 < 0. {
-                    return Err(JsError::from_native(JsNativeError::typ().with_message(format!(
-                        "tracer accessed out of bound memory: available {len}, offset {offset}, size 32",
-                    ))));
+                let offset =
+                    MemoryRef::parse_index(args.get_or_undefined(0), "offset", len, ctx)?;
+                let Some(end) = offset.checked_add(32) else {
+                    return Err(MemoryRef::out_of_bounds_error(len, offset, 32));
+                };
+                if end > len {
+                    return Err(MemoryRef::out_of_bounds_error(len, offset, 32));
                 }
                 let slice = memory
                     .0
@@ -957,19 +958,82 @@ impl StepLog {
     }
 }
 
+/// An owned snapshot of memory contents.
+///
+/// Uses `Rc` internally so cloning is cheap (reference count bump) rather than
+/// copying the entire memory buffer on every step.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct MemorySnapshot(Rc<Vec<u8>>);
+
+impl MemorySnapshot {
+    /// Creates a snapshot by copying the context memory from `SharedMemory`.
+    pub(crate) fn from_shared_memory(mem: &SharedMemory) -> Self {
+        Self(Rc::new(mem.context_memory().to_vec()))
+    }
+
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    fn slice_len(&self, offset: usize, size: usize) -> &[u8] {
+        &self.0[offset..offset + size]
+    }
+}
+
 /// Represents the memory object
 #[derive(Clone, Debug)]
-pub(crate) struct MemoryRef(GuardedNullableGc<SharedMemory>);
+pub(crate) struct MemoryRef(GuardedNullableGc<MemorySnapshot>);
 
 impl MemoryRef {
-    /// Creates a new stack reference
-    pub(crate) fn new(mem: &SharedMemory) -> (Self, GcGuard<'_, SharedMemory>) {
-        let (inner, guard) = GuardedNullableGc::new_ref(mem);
+    /// Creates a new memory reference from an owned snapshot.
+    pub(crate) fn new_owned(mem: MemorySnapshot) -> (Self, GcGuard<'static, MemorySnapshot>) {
+        let (inner, guard) = GuardedNullableGc::new_owned(mem);
         (Self(inner), guard)
     }
 
     fn len(&self) -> usize {
         self.0.with_inner(|mem| mem.len()).unwrap_or_default()
+    }
+
+    fn invalid_index_error(name: &str, index: impl core::fmt::Display) -> JsError {
+        JsError::from_native(
+            JsNativeError::typ().with_message(format!("invalid memory {name}: {index}")),
+        )
+    }
+
+    fn check_index_bounds(index: usize, name: &str, len: usize) -> JsResult<usize> {
+        if index > len {
+            return Err(Self::invalid_index_error(name, index));
+        }
+        Ok(index)
+    }
+
+    fn parse_index(value: &JsValue, name: &str, len: usize, ctx: &mut Context) -> JsResult<usize> {
+        if value.is_undefined() {
+            return Err(Self::invalid_index_error(name, "undefined"));
+        }
+        if let Some(index) = value.as_number() {
+            if !index.is_finite() || index < 0. {
+                return Err(Self::invalid_index_error(name, index));
+            }
+        }
+        // Boa's `ToIndex` rejects BigInt, but stack-derived tracer values are BigInt.
+        if let Some(index) = value.as_bigint() {
+            let index = index.to_string();
+            let index =
+                index.parse::<usize>().map_err(|_| Self::invalid_index_error(name, &index))?;
+            return Self::check_index_bounds(index, name, len);
+        }
+
+        let index = value.to_index(ctx)?;
+        let index = usize::try_from(index).map_err(|_| Self::invalid_index_error(name, index))?;
+        Self::check_index_bounds(index, name, len)
+    }
+
+    fn out_of_bounds_error(len: usize, offset: usize, size: usize) -> JsError {
+        JsError::from_native(JsNativeError::typ().with_message(format!(
+            "tracer accessed out of bound memory: available {len}, offset {offset}, size {size}"
+        )))
     }
 
     #[cfg(test)]
@@ -991,17 +1055,16 @@ impl MemoryRef {
             ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, args, memory, ctx| {
-                    let start = args.get_or_undefined(0).to_numeric_number(ctx)?;
-                    let end = args.get_or_undefined(1).to_numeric_number(ctx)?;
-                    if end < start || start < 0. || (end as usize) > memory.len() {
-                        return Err(JsError::from_native(JsNativeError::typ().with_message(
-                            format!(
-                                "tracer accessed out of bound memory: offset {start}, end {end}"
-                            ),
-                        )));
+                    let len = memory.len();
+                    let start = Self::parse_index(args.get_or_undefined(0), "start", len, ctx)?;
+                    let end = Self::parse_index(args.get_or_undefined(1), "end", len, ctx)?;
+                    if end < start || end > len {
+                        return Err(Self::out_of_bounds_error(
+                            len,
+                            start,
+                            end.saturating_sub(start),
+                        ));
                     }
-                    let start = start as usize;
-                    let end = end as usize;
                     let size = end - start;
                     let slice = memory
                         .0
@@ -1020,12 +1083,13 @@ impl MemoryRef {
             ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, args, memory, ctx| {
-                    let offset_f64 = args.get_or_undefined(0).to_numeric_number(ctx)?;
                     let len = memory.len();
-                    let offset = offset_f64 as usize;
-                    if len < offset + 32 || offset_f64 < 0. {
-                        let msg = format!("tracer accessed out of bound memory: available {len}, offset {offset}, size 32");
-                        return Err(JsError::from_native(JsNativeError::typ().with_message(msg)));
+                    let offset = Self::parse_index(args.get_or_undefined(0), "offset", len, ctx)?;
+                    let Some(end) = offset.checked_add(32) else {
+                        return Err(Self::out_of_bounds_error(len, offset, 32));
+                    };
+                    if end > len {
+                        return Err(Self::out_of_bounds_error(len, offset, 32));
                     }
                     let slice = memory
                         .0
@@ -1096,7 +1160,7 @@ unsafe impl<DB: 'static> Trace for GcDb<DB> {
 }
 
 /// Represents the opcode object
-#[derive(Clone, Copy, Debug)]
+#[derive(Debug)]
 pub(crate) struct OpObj(pub(crate) u8);
 
 impl OpObj {
@@ -1153,13 +1217,23 @@ impl From<u8> for OpObj {
 pub(crate) struct StackRef(GuardedNullableGc<Stack>);
 
 impl StackRef {
-    /// Creates a new stack reference
-    pub(crate) fn new(stack: &Stack) -> (Self, GcGuard<'_, Stack>) {
-        let (inner, guard) = GuardedNullableGc::new_ref(stack);
+    /// Creates a new stack reference from an owned stack.
+    pub(crate) fn new_owned(stack: Stack) -> (Self, GcGuard<'static, Stack>) {
+        let (inner, guard) = GuardedNullableGc::new_owned(stack);
         (Self(inner), guard)
     }
 
-    fn peek(&self, idx: usize, _ctx: &mut Context) -> JsResult<JsValue> {
+    fn parse_index(value: &JsValue, len: usize, ctx: &mut Context) -> JsResult<usize> {
+        let index = value.to_numeric_number(ctx)?;
+        if !index.is_finite() || index < 0. || index > usize::MAX as f64 {
+            return Err(JsError::from_native(JsNativeError::typ().with_message(format!(
+                "tracer accessed out of bound stack: size {len}, index {index}"
+            ))));
+        }
+        Ok(index as usize)
+    }
+
+    fn peek(&self, idx: usize) -> JsResult<JsValue> {
         self.0
             .with_inner(|stack| {
                 stack
@@ -1197,14 +1271,13 @@ impl StackRef {
             context.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, args, stack, ctx| {
-                    let idx_f64 = args.get_or_undefined(0).to_numeric_number(ctx)?;
-                    let idx = idx_f64 as usize;
-                    if len <= idx || idx_f64 < 0. {
+                    let idx = Self::parse_index(args.get_or_undefined(0), len, ctx)?;
+                    if len <= idx {
                         return Err(JsError::from_native(JsNativeError::typ().with_message(
                             format!("tracer accessed out of bound stack: size {len}, index {idx}"),
                         )));
                     }
-                    stack.peek(idx, ctx)
+                    stack.peek(idx)
                 },
                 self,
             ),
@@ -1490,9 +1563,9 @@ impl core::fmt::Debug for EvmDbRef {
 
 impl EvmDbRef {
     /// Creates a new evm and db JS object.
-    pub(crate) fn new<'a, 'b, DB>(state: &'a EvmState, db: &'b DB) -> (Self, EvmDbGuard<'a, 'b>)
+    pub(crate) fn new<'a, 'b, DB>(state: &'a EvmState, db: &'b mut DB) -> (Self, EvmDbGuard<'a, 'b>)
     where
-        DB: DatabaseRef,
+        DB: Database,
         DB::Error: core::fmt::Display,
     {
         let (state, state_guard) = StateRef::new(state);
@@ -1503,7 +1576,7 @@ impl EvmDbRef {
         // As mentioned in the `Safety` section of [GuardedNullableGc] the caller of this function
         // needs to guarantee that the passed-in lifetime is sufficiently long for the lifetime of
         // the guard.
-        let db = JsDb(db);
+        let db = JsDb(RefCell::new(db));
         let js_db = unsafe {
             core::mem::transmute::<
                 Box<dyn DatabaseRef<Error = StringError> + '_>,
@@ -1688,7 +1761,10 @@ pub(crate) struct EvmDbGuard<'a, 'b> {
 }
 
 /// A wrapper Database for the JS context.
-pub(crate) struct JsDb<DB: DatabaseRef>(DB);
+///
+/// Wraps a `&mut DB: Database` in a `RefCell` so that the `&self` methods of
+/// [`DatabaseRef`] can drive the underlying `Database` (which requires `&mut self`).
+pub(crate) struct JsDb<'a, DB>(RefCell<&'a mut DB>);
 
 #[derive(Clone, Debug)]
 pub(crate) struct StringError(pub String);
@@ -1708,27 +1784,27 @@ impl From<String> for StringError {
     }
 }
 
-impl<DB> DatabaseRef for JsDb<DB>
+impl<DB> DatabaseRef for JsDb<'_, DB>
 where
-    DB: DatabaseRef,
+    DB: Database,
     DB::Error: core::fmt::Display,
 {
     type Error = StringError;
 
-    fn basic_ref(&self, _address: Address) -> Result<Option<AccountInfo>, Self::Error> {
-        self.0.basic_ref(_address).map_err(|e| e.to_string().into())
+    fn basic_ref(&self, address: Address) -> Result<Option<AccountInfo>, Self::Error> {
+        self.0.borrow_mut().basic(address).map_err(|e| e.to_string().into())
     }
 
-    fn code_by_hash_ref(&self, _code_hash: B256) -> Result<Bytecode, Self::Error> {
-        self.0.code_by_hash_ref(_code_hash).map_err(|e| e.to_string().into())
+    fn code_by_hash_ref(&self, code_hash: B256) -> Result<Bytecode, Self::Error> {
+        self.0.borrow_mut().code_by_hash(code_hash).map_err(|e| e.to_string().into())
     }
 
-    fn storage_ref(&self, _address: Address, _index: U256) -> Result<U256, Self::Error> {
-        self.0.storage_ref(_address, _index).map_err(|e| e.to_string().into())
+    fn storage_ref(&self, address: Address, index: U256) -> Result<U256, Self::Error> {
+        self.0.borrow_mut().storage(address, index).map_err(|e| e.to_string().into())
     }
 
-    fn block_hash_ref(&self, _number: u64) -> Result<B256, Self::Error> {
-        self.0.block_hash_ref(_number).map_err(|e| e.to_string().into())
+    fn block_hash_ref(&self, number: u64) -> Result<B256, Self::Error> {
+        self.0.borrow_mut().block_hash(number).map_err(|e| e.to_string().into())
     }
 }
 
@@ -1826,7 +1902,7 @@ mod tests {
         let mut db = CacheDB::new(EmptyDB::new());
         let state = EvmState::default();
         {
-            let (db, guard) = EvmDbRef::new(&state, &db);
+            let (db, guard) = EvmDbRef::new(&state, &mut db);
             let addr = Address::default();
             let addr = JsValue::from(js_string!(addr.to_string()));
             let db = db.into_js_object(&mut context).unwrap();
@@ -1842,7 +1918,7 @@ mod tests {
         db.insert_account_info(addr, Default::default());
 
         {
-            let (db, guard) = EvmDbRef::new(&state, &db);
+            let (db, guard) = EvmDbRef::new(&state, &mut db);
             let addr = JsValue::from(js_string!(addr.to_string()));
             let db = db.into_js_object(&mut context).unwrap();
             let res = f.call(&result, &[db.clone().into(), addr.clone()], &mut context).unwrap();
@@ -1878,10 +1954,10 @@ mod tests {
         let result_fn = obj.get(js_string!("result"), &mut context).unwrap().as_object().unwrap();
         let setup_fn = obj.get(js_string!("setup"), &mut context).unwrap().as_object().unwrap();
 
-        let db = CacheDB::new(EmptyDB::new());
+        let mut db = CacheDB::new(EmptyDB::new());
         let state = EvmState::default();
         {
-            let (db_ref, guard) = EvmDbRef::new(&state, &db);
+            let (db_ref, guard) = EvmDbRef::new(&state, &mut db);
             let js_db = db_ref.into_js_object(&mut context).unwrap();
             let _res = setup_fn.call(&(obj.clone().into()), &[js_db.into()], &mut context).unwrap();
             assert!(obj.get(js_string!("db"), &mut context).unwrap().is_object());
@@ -1922,9 +1998,9 @@ mod tests {
         let _ = stack.push(U256::from(35000));
         let _ = stack.push(U256::from(35000));
         let _ = stack.push(U256::from(35000));
-        let (stack_ref, _stack_guard) = StackRef::new(&stack);
-        let mem = SharedMemory::new();
-        let (mem_ref, _mem_guard) = MemoryRef::new(&mem);
+        let (stack_ref, _stack_guard) = StackRef::new_owned(stack);
+        let mem = MemorySnapshot::default();
+        let (mem_ref, _mem_guard) = MemoryRef::new_owned(mem);
 
         let step = StepLog {
             stack: stack_ref,
@@ -2012,9 +2088,9 @@ mod tests {
         let _ = stack.push(U256::from(35000));
         let _ = stack.push(U256::from(35000));
         let _ = stack.push(U256::from(35000));
-        let (stack_ref, _stack_guard) = StackRef::new(&stack);
-        let mem = SharedMemory::new();
-        let (mem_ref, _mem_guard) = MemoryRef::new(&mem);
+        let (stack_ref, _stack_guard) = StackRef::new_owned(stack);
+        let mem = MemorySnapshot::default();
+        let (mem_ref, _mem_guard) = MemoryRef::new_owned(mem);
 
         let step = StepLog {
             stack: stack_ref,
