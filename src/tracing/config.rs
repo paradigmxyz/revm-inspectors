@@ -84,7 +84,7 @@ impl TracingInspectorConfig {
         Self {
             record_steps: true,
             record_memory_snapshots: true,
-            record_stack_snapshots: StackSnapshotType::Full,
+            record_stack_snapshots: StackSnapshotType::All,
             record_state_diff: true,
             record_returndata_snapshots: true,
             record_opcodes_filter: None,
@@ -472,5 +472,14 @@ mod tests {
         let config = FlatCallConfig { include_precompiles: Some(false), ..Default::default() };
         let config = TracingInspectorConfig::from_flat_call_config(&config);
         assert!(config.exclude_precompile_calls);
+    }
+
+    #[test]
+    fn test_all_records_all_stack_snapshots() {
+        // `all()` enables everything, so the stack snapshot type should be the most
+        // complete variant (`All` = full stack + pushes), not `Full` (full only).
+        let config = TracingInspectorConfig::all();
+        assert_eq!(config.record_stack_snapshots, StackSnapshotType::All);
+        assert!(config.record_stack_snapshots.is_all());
     }
 }
