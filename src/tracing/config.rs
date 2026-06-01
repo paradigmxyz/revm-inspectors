@@ -222,6 +222,8 @@ impl TracingInspectorConfig {
             .set_memory_snapshots(true)
             // need stack snapshots for keccak preimages
             .set_stack_snapshots(StackSnapshotType::Full)
+            // need state diffs to capture SLOAD values in accessedSlots.reads
+            .set_state_diffs(true)
             .steps()
     }
 
