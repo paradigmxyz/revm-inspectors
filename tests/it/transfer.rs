@@ -12,6 +12,7 @@ use revm::{
     handler::EvmTr,
     inspector::InspectorEvmTr,
     primitives::hardfork::SpecId,
+    state::AccountInfo,
     Context, DatabaseCommit, InspectEvm, MainBuilder, MainContext,
 };
 use revm_inspectors::{
@@ -163,6 +164,47 @@ fn test_transfer_logs_discard_reverted_calls() {
 
     let mut evm = evm.with_inspector(TransferInspector::new(false).with_logs(true));
     let res = evm.inspect_tx(tx_env.modify().nonce(1).build_fill()).unwrap();
+    assert!(!res.result.is_success());
+    assert_eq!(evm.inspector().transfers().len(), 0);
+    assert_eq!(
+        res.result.logs().iter().filter(|log| log.address == TRANSFER_LOG_EMITTER).count(),
+        0
+    );
+}
+
+#[test]
+fn test_transfer_logs_discard_reverted_creates() {
+    // Initcode: revert immediately.
+    let code = hex!("60006000fd");
+    let deployer = Address::ZERO;
+
+    let mut db = CacheDB::new(EmptyDB::default());
+    db.insert_account_info(
+        deployer,
+        AccountInfo { balance: U256::from(u64::MAX), ..Default::default() },
+    );
+    let context = Context::mainnet().with_db(db).modify_cfg_chained(|c| c.spec = SpecId::LONDON);
+
+    let mut evm = context.build_mainnet_with_inspector(TransferInspector::new(false));
+
+    let tx_env = TxEnv {
+        caller: deployer,
+        gas_limit: 1000000,
+        kind: TransactTo::Create,
+        data: code.into(),
+        value: U256::from(10),
+        nonce: 0,
+        ..Default::default()
+    };
+
+    let res = evm.inspect_tx(tx_env.clone()).unwrap();
+    assert!(!res.result.is_success());
+    assert_eq!(evm.inspector().transfers().len(), 1);
+    assert_eq!(res.result.logs().len(), 0);
+
+    let mut evm = evm.with_inspector(TransferInspector::new(false).with_logs(true));
+
+    let res = evm.inspect_tx(tx_env).unwrap();
     assert!(!res.result.is_success());
     assert_eq!(evm.inspector().transfers().len(), 0);
     assert_eq!(

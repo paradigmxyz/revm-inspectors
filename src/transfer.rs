@@ -24,7 +24,7 @@ pub const TRANSFER_EVENT_TOPIC: B256 =
 pub struct TransferInspector {
     internal_only: bool,
     transfers: Vec<TransferOperation>,
-    call_checkpoints: Vec<TransferCheckpoint>,
+    checkpoints: Vec<TransferCheckpoint>,
     /// If enabled, will insert ERC20-style transfer logs emitted by [TRANSFER_LOG_EMITTER] for
     /// each ETH transfer.
     ///
@@ -38,12 +38,7 @@ impl TransferInspector {
     /// If `internal_only` is set to `true`, only internal transfers are collected, in other words,
     /// the top level call is ignored.
     pub fn new(internal_only: bool) -> Self {
-        Self {
-            internal_only,
-            transfers: Vec::new(),
-            call_checkpoints: Vec::new(),
-            insert_logs: false,
-        }
+        Self { internal_only, transfers: Vec::new(), checkpoints: Vec::new(), insert_logs: false }
     }
 
     /// Creates a new transfer inspector that only collects internal transfers.
@@ -70,6 +65,32 @@ impl TransferInspector {
     /// Returns an iterator over the collected transfers.
     pub fn iter(&self) -> impl Iterator<Item = &TransferOperation> {
         self.transfers.iter()
+    }
+
+    /// Records frame-entry lengths so synthetic transfer logs can follow EVM revert semantics on
+    /// `call_end` and `create_end`.
+    fn checkpoint<CTX: ContextTr>(&mut self, context: &CTX) {
+        if self.insert_logs {
+            self.checkpoints.push(TransferCheckpoint {
+                transfers_len: self.transfers.len(),
+                logs_len: context.journal().logs().len(),
+            });
+        }
+    }
+
+    /// Restores the inspector and journal after a reverted or halted frame.
+    /// This prevents RPC-only transfer logs from leaking out of failed execution.
+    fn rollback_transfers<DB: Database, JOURNAL: JournalTr<Database = DB>>(
+        &mut self,
+        journaled_state: &mut JOURNAL,
+        checkpoint: TransferCheckpoint,
+    ) {
+        self.transfers.truncate(checkpoint.transfers_len);
+
+        let logs = journaled_state.take_logs();
+        for log in logs.into_iter().take(checkpoint.logs_len) {
+            journaled_state.log(log);
+        }
     }
 
     fn on_transfer<DB: Database, JOURNAL: JournalTr<Database = DB>>(
@@ -103,6 +124,8 @@ impl TransferInspector {
     }
 }
 
+/// Transfer/log lengths captured at frame entry.
+/// Used only when synthetic transfer logs may need frame-local rollback.
 #[derive(Debug, Default, Clone, Copy)]
 struct TransferCheckpoint {
     transfers_len: usize,
@@ -114,12 +137,7 @@ where
     CTX: ContextTr,
 {
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
-        if self.insert_logs {
-            self.call_checkpoints.push(TransferCheckpoint {
-                transfers_len: self.transfers.len(),
-                logs_len: context.journal().logs().len(),
-            });
-        }
+        self.checkpoint(context);
 
         if let Some(value) = inputs.transfer_value() {
             self.on_transfer(
@@ -139,7 +157,7 @@ where
             return;
         }
 
-        let Some(checkpoint) = self.call_checkpoints.pop() else {
+        let Some(checkpoint) = self.checkpoints.pop() else {
             return;
         };
 
@@ -147,12 +165,7 @@ where
             return;
         }
 
-        self.transfers.truncate(checkpoint.transfers_len);
-
-        let logs = context.journal_mut().take_logs();
-        for log in logs.into_iter().take(checkpoint.logs_len) {
-            context.journal_mut().log(log);
-        }
+        self.rollback_transfers(context.journal_mut(), checkpoint);
     }
 
     fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
@@ -165,9 +178,31 @@ where
             CreateScheme::Custom { .. } => return None,
         };
 
+        self.checkpoint(context);
         self.on_transfer(inputs.caller(), address, inputs.value(), kind, context.journal_mut());
 
         None
+    }
+
+    fn create_end(
+        &mut self,
+        context: &mut CTX,
+        _inputs: &CreateInputs,
+        outcome: &mut CreateOutcome,
+    ) {
+        if !self.insert_logs {
+            return;
+        }
+
+        let Some(checkpoint) = self.checkpoints.pop() else {
+            return;
+        };
+
+        if outcome.result.is_ok() {
+            return;
+        }
+
+        self.rollback_transfers(context.journal_mut(), checkpoint);
     }
 
     fn selfdestruct(&mut self, contract: Address, target: Address, value: U256) {
