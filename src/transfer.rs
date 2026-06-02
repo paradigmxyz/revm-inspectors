@@ -24,6 +24,7 @@ pub const TRANSFER_EVENT_TOPIC: B256 =
 pub struct TransferInspector {
     internal_only: bool,
     transfers: Vec<TransferOperation>,
+    call_checkpoints: Vec<TransferCheckpoint>,
     /// If enabled, will insert ERC20-style transfer logs emitted by [TRANSFER_LOG_EMITTER] for
     /// each ETH transfer.
     ///
@@ -37,7 +38,12 @@ impl TransferInspector {
     /// If `internal_only` is set to `true`, only internal transfers are collected, in other words,
     /// the top level call is ignored.
     pub fn new(internal_only: bool) -> Self {
-        Self { internal_only, transfers: Vec::new(), insert_logs: false }
+        Self {
+            internal_only,
+            transfers: Vec::new(),
+            call_checkpoints: Vec::new(),
+            insert_logs: false,
+        }
     }
 
     /// Creates a new transfer inspector that only collects internal transfers.
@@ -97,11 +103,24 @@ impl TransferInspector {
     }
 }
 
+#[derive(Debug, Default, Clone, Copy)]
+struct TransferCheckpoint {
+    transfers_len: usize,
+    logs_len: usize,
+}
+
 impl<CTX> Inspector<CTX> for TransferInspector
 where
     CTX: ContextTr,
 {
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
+        if self.insert_logs {
+            self.call_checkpoints.push(TransferCheckpoint {
+                transfers_len: self.transfers.len(),
+                logs_len: context.journal().logs().len(),
+            });
+        }
+
         if let Some(value) = inputs.transfer_value() {
             self.on_transfer(
                 inputs.transfer_from(),
@@ -113,6 +132,27 @@ where
         }
 
         None
+    }
+
+    fn call_end(&mut self, context: &mut CTX, _inputs: &CallInputs, outcome: &mut CallOutcome) {
+        if !self.insert_logs {
+            return;
+        }
+
+        let Some(checkpoint) = self.call_checkpoints.pop() else {
+            return;
+        };
+
+        if outcome.result.is_ok() {
+            return;
+        }
+
+        self.transfers.truncate(checkpoint.transfers_len);
+
+        let logs = context.journal_mut().take_logs();
+        for log in logs.into_iter().take(checkpoint.logs_len) {
+            context.journal_mut().log(log);
+        }
     }
 
     fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {

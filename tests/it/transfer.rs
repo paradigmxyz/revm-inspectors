@@ -16,7 +16,7 @@ use revm::{
 };
 use revm_inspectors::{
     tracing::{TracingInspector, TracingInspectorConfig},
-    transfer::{TransferInspector, TransferKind, TransferOperation},
+    transfer::{TransferInspector, TransferKind, TransferOperation, TRANSFER_LOG_EMITTER},
 };
 
 #[test]
@@ -111,5 +111,62 @@ fn test_internal_transfers() {
             to: deployer,
             value: U256::from(10),
         }
+    );
+}
+
+#[test]
+fn test_transfer_logs_discard_reverted_calls() {
+    // Runtime: call the caller with CALLVALUE, then revert.
+    let code = hex!("6013600c60003960136000f36000600060006000343361fffff160006000fd");
+    let deployer = Address::ZERO;
+
+    let db = CacheDB::new(EmptyDB::default());
+    let context = Context::mainnet().with_db(db).modify_cfg_chained(|c| c.spec = SpecId::LONDON);
+
+    let mut insp = TracingInspector::new(TracingInspectorConfig::default_geth());
+    let mut evm = context.build_mainnet_with_inspector(&mut insp);
+    let res = evm
+        .inspect_tx(TxEnv {
+            caller: deployer,
+            gas_limit: 1000000,
+            kind: TransactTo::Create,
+            data: code.into(),
+            ..Default::default()
+        })
+        .unwrap();
+    let addr = match res.result {
+        ExecutionResult::Success { output, .. } => match output {
+            Output::Create(_, addr) => addr.unwrap(),
+            _ => panic!("Create failed"),
+        },
+        _ => panic!("Execution failed"),
+    };
+    evm.ctx().db_mut().commit(res.state);
+
+    let acc = evm.ctx().db_mut().load_account(deployer).unwrap();
+    acc.info.balance = U256::from(u64::MAX);
+
+    let tx_env = TxEnv {
+        caller: deployer,
+        gas_limit: 1000000,
+        kind: TransactTo::Call(addr),
+        value: U256::from(10),
+        nonce: 0,
+        ..Default::default()
+    };
+
+    let mut evm = evm.with_inspector(TransferInspector::new(false));
+    let res = evm.inspect_tx(tx_env.clone().modify().nonce(1).build_fill()).unwrap();
+    assert!(!res.result.is_success());
+    assert_eq!(evm.inspector().transfers().len(), 2);
+    assert_eq!(res.result.logs().len(), 0);
+
+    let mut evm = evm.with_inspector(TransferInspector::new(false).with_logs(true));
+    let res = evm.inspect_tx(tx_env.modify().nonce(1).build_fill()).unwrap();
+    assert!(!res.result.is_success());
+    assert_eq!(evm.inspector().transfers().len(), 0);
+    assert_eq!(
+        res.result.logs().iter().filter(|log| log.address == TRANSFER_LOG_EMITTER).count(),
+        0
     );
 }
