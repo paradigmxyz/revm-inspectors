@@ -214,13 +214,6 @@ where
     }
 }
 
-/// Transfer/log lengths captured before the first transfer in a frame.
-#[derive(Debug, Default, Clone, Copy)]
-struct TransferCheckpoint {
-    transfers_len: usize,
-    logs_len: usize,
-}
-
 /// A transfer operation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TransferOperation {
@@ -245,4 +238,11 @@ pub enum TransferKind {
     Create2,
     /// A SELFDESTRUCT operation
     SelfDestruct,
+}
+
+/// Transfer/log lengths captured before the first transfer in a frame.
+#[derive(Debug, Default, Clone, Copy)]
+struct TransferCheckpoint {
+    transfers_len: usize,
+    logs_len: usize,
 }
