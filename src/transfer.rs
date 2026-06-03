@@ -5,7 +5,7 @@ use revm::{
     context::JournalTr,
     context_interface::ContextTr,
     interpreter::{CallInputs, CallOutcome, CreateInputs, CreateOutcome, CreateScheme},
-    Database, Inspector,
+    Inspector,
 };
 
 /// Sender of ETH transfer log per `eth_simulateV1` spec.
@@ -24,7 +24,7 @@ pub const TRANSFER_EVENT_TOPIC: B256 =
 pub struct TransferInspector {
     internal_only: bool,
     transfers: Vec<TransferOperation>,
-    checkpoints: Vec<TransferCheckpoint>,
+    checkpoints: Vec<Option<TransferCheckpoint>>,
     /// If enabled, will insert ERC20-style transfer logs emitted by [TRANSFER_LOG_EMITTER] for
     /// each ETH transfer.
     ///
@@ -67,33 +67,52 @@ impl TransferInspector {
         self.transfers.iter()
     }
 
-    /// Records frame-entry lengths so synthetic transfer logs can follow EVM revert semantics on
-    /// `call_end` and `create_end`.
-    fn checkpoint<CTX: ContextTr>(&mut self, context: &CTX) {
+    fn begin_frame(&mut self) {
         if self.insert_logs {
-            self.checkpoints.push(TransferCheckpoint {
-                transfers_len: self.transfers.len(),
-                logs_len: context.journal().logs().len(),
-            });
+            self.checkpoints.push(None);
         }
     }
 
-    /// Restores the inspector and journal after a reverted or halted frame.
-    /// This prevents RPC-only transfer logs from leaking out of failed execution.
-    fn rollback_transfers<DB: Database, JOURNAL: JournalTr<Database = DB>>(
-        &mut self,
-        journaled_state: &mut JOURNAL,
-        checkpoint: TransferCheckpoint,
-    ) {
+    fn checkpoint_transfer<JOURNAL: JournalTr>(&mut self, journaled_state: &JOURNAL) {
+        if !self.insert_logs {
+            return;
+        }
+
+        let checkpoint = TransferCheckpoint {
+            transfers_len: self.transfers.len(),
+            logs_len: journaled_state.logs().len(),
+        };
+
+        for frame_checkpoint in self.checkpoints.iter_mut().rev() {
+            if frame_checkpoint.is_some() {
+                break;
+            }
+            *frame_checkpoint = Some(checkpoint);
+        }
+    }
+
+    fn commit_transfers(&mut self) {
+        if self.insert_logs {
+            self.checkpoints.pop();
+        }
+    }
+
+    fn rollback_transfers<JOURNAL: JournalTr>(&mut self, journaled_state: &mut JOURNAL) {
+        let Some(checkpoint) = self.checkpoints.pop().flatten() else {
+            return;
+        };
+
         self.transfers.truncate(checkpoint.transfers_len);
 
-        let logs = journaled_state.take_logs();
-        for log in logs.into_iter().take(checkpoint.logs_len) {
+        let mut logs = journaled_state.take_logs();
+        logs.truncate(checkpoint.logs_len);
+        // `JournalTr` does not expose mutable logs, so preserve the prefix through its public API.
+        for log in logs {
             journaled_state.log(log);
         }
     }
 
-    fn on_transfer<DB: Database, JOURNAL: JournalTr<Database = DB>>(
+    fn on_transfer<JOURNAL: JournalTr>(
         &mut self,
         from: Address,
         to: Address,
@@ -109,6 +128,7 @@ impl TransferInspector {
         if value.is_zero() {
             return;
         }
+        self.checkpoint_transfer(journaled_state);
         self.transfers.push(TransferOperation { kind, from, to, value });
 
         if self.insert_logs {
@@ -124,20 +144,12 @@ impl TransferInspector {
     }
 }
 
-/// Transfer/log lengths captured at frame entry.
-/// Used only when synthetic transfer logs may need frame-local rollback.
-#[derive(Debug, Default, Clone, Copy)]
-struct TransferCheckpoint {
-    transfers_len: usize,
-    logs_len: usize,
-}
-
 impl<CTX> Inspector<CTX> for TransferInspector
 where
     CTX: ContextTr,
 {
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
-        self.checkpoint(context);
+        self.begin_frame();
 
         if let Some(value) = inputs.transfer_value() {
             self.on_transfer(
@@ -153,22 +165,17 @@ where
     }
 
     fn call_end(&mut self, context: &mut CTX, _inputs: &CallInputs, outcome: &mut CallOutcome) {
-        if !self.insert_logs {
-            return;
-        }
-
-        let Some(checkpoint) = self.checkpoints.pop() else {
-            return;
-        };
-
         if outcome.result.is_ok() {
+            self.commit_transfers();
             return;
         }
 
-        self.rollback_transfers(context.journal_mut(), checkpoint);
+        self.rollback_transfers(context.journal_mut());
     }
 
     fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
+        self.begin_frame();
+
         let nonce = context.journal_mut().load_account(inputs.caller()).ok()?.data.info.nonce;
         let address = inputs.created_address(nonce);
 
@@ -178,7 +185,6 @@ where
             CreateScheme::Custom { .. } => return None,
         };
 
-        self.checkpoint(context);
         self.on_transfer(inputs.caller(), address, inputs.value(), kind, context.journal_mut());
 
         None
@@ -190,19 +196,12 @@ where
         _inputs: &CreateInputs,
         outcome: &mut CreateOutcome,
     ) {
-        if !self.insert_logs {
-            return;
-        }
-
-        let Some(checkpoint) = self.checkpoints.pop() else {
-            return;
-        };
-
         if outcome.result.is_ok() {
+            self.commit_transfers();
             return;
         }
 
-        self.rollback_transfers(context.journal_mut(), checkpoint);
+        self.rollback_transfers(context.journal_mut());
     }
 
     fn selfdestruct(&mut self, contract: Address, target: Address, value: U256) {
@@ -213,6 +212,13 @@ where
             value,
         });
     }
+}
+
+/// Transfer/log lengths captured before the first transfer in a frame.
+#[derive(Debug, Default, Clone, Copy)]
+struct TransferCheckpoint {
+    transfers_len: usize,
+    logs_len: usize,
 }
 
 /// A transfer operation.
