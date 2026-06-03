@@ -24,7 +24,7 @@ pub const TRANSFER_EVENT_TOPIC: B256 =
 pub struct TransferInspector {
     internal_only: bool,
     transfers: Vec<TransferOperation>,
-    checkpoints: Vec<Option<TransferCheckpoint>>,
+    checkpoints: Vec<TransferCheckpoint>,
     /// If enabled, will insert ERC20-style transfer logs emitted by [TRANSFER_LOG_EMITTER] for
     /// each ETH transfer.
     ///
@@ -67,27 +67,12 @@ impl TransferInspector {
         self.transfers.iter()
     }
 
-    fn begin_frame(&mut self) {
+    fn begin_frame<JOURNAL: JournalTr>(&mut self, journaled_state: &JOURNAL) {
         if self.insert_logs {
-            self.checkpoints.push(None);
-        }
-    }
-
-    fn checkpoint_transfer<JOURNAL: JournalTr>(&mut self, journaled_state: &JOURNAL) {
-        if !self.insert_logs {
-            return;
-        }
-
-        let checkpoint = TransferCheckpoint {
-            transfers_len: self.transfers.len(),
-            logs_len: journaled_state.logs().len(),
-        };
-
-        for frame_checkpoint in self.checkpoints.iter_mut().rev() {
-            if frame_checkpoint.is_some() {
-                break;
-            }
-            *frame_checkpoint = Some(checkpoint);
+            self.checkpoints.push(TransferCheckpoint {
+                transfers_len: self.transfers.len(),
+                logs_len: journaled_state.logs().len(),
+            });
         }
     }
 
@@ -98,7 +83,7 @@ impl TransferInspector {
     }
 
     fn rollback_transfers<JOURNAL: JournalTr>(&mut self, journaled_state: &mut JOURNAL) {
-        let Some(checkpoint) = self.checkpoints.pop().flatten() else {
+        let Some(checkpoint) = self.checkpoints.pop() else {
             return;
         };
 
@@ -128,7 +113,6 @@ impl TransferInspector {
         if value.is_zero() {
             return;
         }
-        self.checkpoint_transfer(journaled_state);
         self.transfers.push(TransferOperation { kind, from, to, value });
 
         if self.insert_logs {
@@ -149,7 +133,7 @@ where
     CTX: ContextTr,
 {
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
-        self.begin_frame();
+        self.begin_frame(context.journal_mut());
 
         if let Some(value) = inputs.transfer_value() {
             self.on_transfer(
@@ -174,7 +158,7 @@ where
     }
 
     fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
-        self.begin_frame();
+        self.begin_frame(context.journal_mut());
 
         let nonce = context.journal_mut().load_account(inputs.caller()).ok()?.data.info.nonce;
         let address = inputs.created_address(nonce);

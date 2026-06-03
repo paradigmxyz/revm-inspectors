@@ -282,6 +282,47 @@ fn test_transfer_logs_keep_nested_value_call_on_success() {
     assert_eq!(transfer_log_count(res.result.logs()), 1);
 }
 
+#[test]
+fn test_transfer_logs_discard_reverted_nested_selfdestruct() {
+    let deployer = Address::ZERO;
+    let beneficiary = Address::repeat_byte(0x42);
+    let mut evm = Context::mainnet().with_db(CacheDB::new(EmptyDB::default())).build_mainnet();
+
+    let mut selfdestruct_runtime = Vec::with_capacity(22);
+    selfdestruct_runtime.push(0x73);
+    selfdestruct_runtime.extend_from_slice(beneficiary.as_slice());
+    selfdestruct_runtime.push(0xff);
+
+    let target =
+        deploy_contract(&mut evm, initcode(selfdestruct_runtime), deployer, SpecId::LONDON)
+            .created_address()
+            .unwrap();
+    let caller = deploy_contract(
+        &mut evm,
+        initcode(call_target_runtime(target, 0, true)),
+        deployer,
+        SpecId::LONDON,
+    )
+    .created_address()
+    .unwrap();
+
+    evm.ctx().db_mut().load_account(target).unwrap().info.balance = U256::from(10);
+
+    let tx_env = TxEnv {
+        caller: deployer,
+        gas_limit: 1000000,
+        kind: TransactTo::Call(caller),
+        nonce: 2,
+        ..Default::default()
+    };
+
+    let mut evm = evm.with_inspector(TransferInspector::new(false).with_logs(true));
+    let res = evm.inspect_tx(tx_env).unwrap();
+    assert!(!res.result.is_success());
+    assert!(evm.inspector().transfers().is_empty());
+    assert_eq!(transfer_log_count(res.result.logs()), 0);
+}
+
 fn initcode(runtime: impl AsRef<[u8]>) -> Bytes {
     let runtime = runtime.as_ref();
     assert!(runtime.len() <= u8::MAX as usize);
