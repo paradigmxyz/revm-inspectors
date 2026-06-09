@@ -343,7 +343,7 @@ impl ReusableEvmDb {
             ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, args, state, ctx| {
-                    let db = current_db(&state)?;
+                    let db = current_db(state)?;
                     let acc = db.read_basic(args.get_or_undefined(0).clone(), ctx)?;
                     Ok(JsValue::from(acc.is_some()))
                 },
@@ -356,7 +356,7 @@ impl ReusableEvmDb {
             ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, args, state, ctx| {
-                    let db = current_db(&state)?;
+                    let db = current_db(state)?;
                     let balance = db
                         .read_basic(args.get_or_undefined(0).clone(), ctx)?
                         .map(|acc| acc.balance)
@@ -372,7 +372,7 @@ impl ReusableEvmDb {
             ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, args, state, ctx| {
-                    let db = current_db(&state)?;
+                    let db = current_db(state)?;
                     let nonce = db
                         .read_basic(args.get_or_undefined(0).clone(), ctx)?
                         .map(|acc| acc.nonce)
@@ -388,7 +388,7 @@ impl ReusableEvmDb {
             ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, args, state, ctx| {
-                    let db = current_db(&state)?;
+                    let db = current_db(state)?;
                     Ok(db.read_code(args.get_or_undefined(0).clone(), ctx)?.into())
                 },
                 state.clone(),
@@ -400,7 +400,7 @@ impl ReusableEvmDb {
             ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
                 move |_this, args, state, ctx| {
-                    let db = current_db(&state)?;
+                    let db = current_db(state)?;
                     Ok(db
                         .read_state(
                             args.get_or_undefined(0).clone(),

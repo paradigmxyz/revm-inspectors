@@ -4,6 +4,9 @@ yanked = "warn"
 ignore = [
     # https://rustsec.org/advisories/RUSTSEC-2024-0436
     "RUSTSEC-2024-0436",
+    # proc-macro-error2 is pulled in by alloy-sol-macro; no safe upgrade is available yet.
+    # https://rustsec.org/advisories/RUSTSEC-2026-0173
+    "RUSTSEC-2026-0173",
 ]
 
 [bans]
