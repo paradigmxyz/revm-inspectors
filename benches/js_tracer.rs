@@ -18,7 +18,7 @@ use revm::{
 };
 use revm_inspectors::tracing::js::JsInspector;
 use serde::Deserialize;
-use std::{collections::BTreeMap, env, fs, hint::black_box};
+use std::{collections::BTreeMap, hint::black_box};
 
 const CONTRACT_REPETITIONS: usize = 5_000;
 const RUNDLER_STYLE_REPETITIONS: u16 = 5_000;
@@ -33,6 +33,9 @@ const MAINNET_AA_BLOCK_COINBASE: Address = Address::new([
     0x0b, 0xad, 0x5f, 0x97,
 ]);
 const MAINNET_AA_PRESTATE: &str = include_str!("../testdata/repro/tx-aa-handleops-mainnet.json");
+// Vendored from alchemyplatform/rundler @ 073b093112e8b27dbf62ef6ede7664526e09243b.
+const RUNDLER_V06_REAL_SCRIPT: &str = include_str!("testdata/validationTracerV0_6.js");
+const RUNDLER_V07_REAL_SCRIPT: &str = include_str!("testdata/validationTracerV0_7.js");
 const STOP_COLLECTING_TOPIC: [u8; 32] = [
     0xbb, 0x47, 0xee, 0x3e, 0x18, 0x3a, 0x55, 0x8b, 0x1a, 0x2f, 0xf0, 0x87, 0x4b, 0x07, 0x9f, 0x3f,
     0xc5, 0x47, 0x8b, 0x74, 0x54, 0xea, 0xcf, 0x2b, 0xfc, 0x5a, 0xf2, 0xff, 0x58, 0x78, 0xf9, 0x72,
@@ -106,10 +109,8 @@ fn rundler_style_helper_contract() -> Bytes {
     code.into()
 }
 
-fn read_tracer_script(env_var: &str) -> Option<String> {
-    let path = env::var(env_var).ok()?;
-    let script = fs::read_to_string(path).ok()?;
-    Some(script.trim().trim_end_matches(";export{};").to_owned())
+fn normalize_tracer_script(script: &str) -> String {
+    script.trim().trim_end_matches(";export{};").to_owned()
 }
 
 #[derive(Debug, Deserialize)]
@@ -313,8 +314,8 @@ fn js_tracer_benches(c: &mut Criterion) {
     let rundler_contract = rundler_style_contract();
     let helper_contract = rundler_style_helper_contract();
     let mainnet_aa_db = mainnet_aa_db();
-    let rundler_v06_script = read_tracer_script("RUNDLER_V06_TRACER_PATH");
-    let rundler_v07_script = read_tracer_script("RUNDLER_V07_TRACER_PATH");
+    let rundler_v06_script = normalize_tracer_script(RUNDLER_V06_REAL_SCRIPT);
+    let rundler_v07_script = normalize_tracer_script(RUNDLER_V07_REAL_SCRIPT);
     let noop_script = r#"{
         step: function() {},
         fault: function() {},
@@ -471,39 +472,35 @@ fn js_tracer_benches(c: &mut Criterion) {
         );
     });
 
-    if let Some(script) = rundler_v06_script {
-        group.bench_function("rundler_v06_real", |b| {
-            b.iter_batched(
-                || (rundler_contract.clone(), helper_contract.clone()),
-                |(contract, helper)| {
-                    black_box(run_trace(&script, &contract, Some(&helper)));
-                },
-                BatchSize::SmallInput,
-            );
-        });
+    group.bench_function("rundler_v06_real", |b| {
+        b.iter_batched(
+            || (rundler_contract.clone(), helper_contract.clone()),
+            |(contract, helper)| {
+                black_box(run_trace(&rundler_v06_script, &contract, Some(&helper)));
+            },
+            BatchSize::SmallInput,
+        );
+    });
 
-        group.bench_function("mainnet_aa_v06_real", |b| {
-            b.iter_batched(
-                || mainnet_aa_db.clone(),
-                |db| {
-                    black_box(run_mainnet_aa_trace(&script, db));
-                },
-                BatchSize::SmallInput,
-            );
-        });
-    }
+    group.bench_function("mainnet_aa_v06_real", |b| {
+        b.iter_batched(
+            || mainnet_aa_db.clone(),
+            |db| {
+                black_box(run_mainnet_aa_trace(&rundler_v06_script, db));
+            },
+            BatchSize::SmallInput,
+        );
+    });
 
-    if let Some(script) = rundler_v07_script {
-        group.bench_function("rundler_v07_real", |b| {
-            b.iter_batched(
-                || (rundler_contract.clone(), helper_contract.clone()),
-                |(contract, helper)| {
-                    black_box(run_trace(&script, &contract, Some(&helper)));
-                },
-                BatchSize::SmallInput,
-            );
-        });
-    }
+    group.bench_function("rundler_v07_real", |b| {
+        b.iter_batched(
+            || (rundler_contract.clone(), helper_contract.clone()),
+            |(contract, helper)| {
+                black_box(run_trace(&rundler_v07_script, &contract, Some(&helper)));
+            },
+            BatchSize::SmallInput,
+        );
+    });
 
     group.finish();
 }

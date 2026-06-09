@@ -1207,6 +1207,35 @@ mod tests {
     }
 
     #[test]
+    fn test_step_reuses_log_and_db_objects() {
+        let code = r#"{
+            prevLog: null,
+            prevDb: null,
+            sameLog: [],
+            sameDb: [],
+            step: function(log, db) {
+                if (this.prevLog !== null) {
+                    this.sameLog.push(this.prevLog === log);
+                }
+                if (this.prevDb !== null) {
+                    this.sameDb.push(this.prevDb === db);
+                }
+                this.prevLog = log;
+                this.prevDb = db;
+            },
+            fault: function() {},
+            result: function() {
+                return {
+                    sameLog: this.sameLog,
+                    sameDb: this.sameDb,
+                };
+            }
+        }"#;
+        let res = run_trace(code, None, true);
+        assert_eq!(res, json!({ "sameLog": [true, true], "sameDb": [true, true] }));
+    }
+
+    #[test]
     fn test_slice_with_stack_values() {
         let code = r#"{
             res: [],
