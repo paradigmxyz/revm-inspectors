@@ -1,6 +1,6 @@
 //! Geth tests
 use crate::utils::deploy_contract;
-use alloy_primitives::{address, hex, map::HashMap, Address, Bytes, TxKind, B256};
+use alloy_primitives::{address, hex, map::HashMap, Address, Bytes, TxKind, B256, U256};
 use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::geth::{
     erc7562::Erc7562Config, mux::MuxConfig, CallConfig, FlatCallConfig, GethDebugBuiltInTracerType,
@@ -1182,4 +1182,281 @@ fn test_geth_calltracer_logs_delegatecall() {
         Some(implementation),
         "Log emitter must NOT be the implementation (bytecode) address"
     );
+}
+
+/// Executes `code` at `target` with the given accounts pre-seeded (committed storage, so
+/// `original` slot values are non-zero where set) under a default geth tracing inspector.
+///
+/// Returns the `(opcode, refund_counter)` sequence of the struct logs and the
+/// `gas_refund_counter` of every recorded call trace, in arena order.
+/// An account pre-seeded for a refund scenario: address, runtime code, and committed
+/// storage slots.
+type SeededAccount<'a> = (Address, &'a [u8], &'a [(u64, u64)]);
+
+fn trace_refund_scenario(
+    accounts: &[SeededAccount<'_>],
+    target: Address,
+) -> (Vec<(String, u64)>, Vec<u64>) {
+    let caller = address!("00000000000000000000000000000000000c0ffe");
+    let context =
+        Context::mainnet().with_db(CacheDB::<EmptyDB>::default()).modify_db_chained(|db| {
+            for (addr, code, slots) in accounts {
+                db.insert_account_info(
+                    *addr,
+                    AccountInfo {
+                        code: Some(Bytecode::new_raw(Bytes::copy_from_slice(code))),
+                        ..Default::default()
+                    },
+                );
+                for (slot, value) in *slots {
+                    db.insert_account_storage(*addr, U256::from(*slot), U256::from(*value))
+                        .unwrap();
+                }
+            }
+        });
+
+    let mut insp = TracingInspector::new(TracingInspectorConfig::default_geth());
+    let mut evm = context.build_mainnet().with_inspector(&mut insp);
+    evm.ctx().modify_cfg(|cfg| cfg.spec = SpecId::CANCUN);
+
+    let res = evm
+        .inspect_tx(TxEnv {
+            caller,
+            gas_limit: 1_000_000,
+            kind: TransactTo::Call(target),
+            data: Bytes::default(),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(res.result.is_success(), "transaction should succeed: {res:#?}");
+
+    let refunds = insp.traces().nodes().iter().map(|n| n.trace.gas_refund_counter).collect();
+    let frame =
+        insp.with_transaction_gas_used(res.result.tx_gas_used()).geth_builder().geth_traces(
+            res.result.tx_gas_used(),
+            res.result.output().unwrap_or_default().clone(),
+            GethDefaultTracingOptions::default(),
+        );
+    let steps = frame
+        .struct_logs
+        .iter()
+        .map(|l| (l.op.to_string(), l.refund_counter.unwrap_or(0)))
+        .collect();
+    (steps, refunds)
+}
+
+#[test]
+fn test_geth_structlog_refund_counter_nested_call() {
+    // Regression test for the per-frame refund underflow (issue #267, reth#14783).
+    //
+    // Contract at `target`, storage slot 0 committed to 1:
+    //   outer frame: SSTORE(0, 0)        clears the slot, +4800 refund (EIP-3529)
+    //                CALL(self, 1 byte)  enters the inner frame
+    //   inner frame: SSTORE(0, 1)        re-sets the cleared slot: -4800 + 2800 = -2000,
+    //                                    so this frame's own counter is negative
+    //                STOP
+    //
+    // geth reports the transaction-wide refund counter as of before each opcode, so the
+    // inner frame must show the refund accumulated by its parent (4800), and the STOP
+    // after the re-set must show 2800, not a value underflowed by the `as u64` cast.
+    //
+    // 0x00: CALLDATASIZE PUSH1 0x18 JUMPI            inner frame jumps (1 byte calldata)
+    // 0x04: PUSH1 0 PUSH1 0 SSTORE                   clear slot 0
+    // 0x09: PUSH1 0 PUSH1 0 PUSH1 1 PUSH1 0 PUSH1 0  ret/args/value for the self-call
+    // 0x13: ADDRESS GAS CALL POP STOP
+    // 0x18: JUMPDEST PUSH1 1 PUSH1 0 SSTORE STOP     re-set slot 0
+    let target = address!("0000000000000000000000000000000000000aaa");
+    let code = hex!("36601857600060005560006000600160006000305af150005b600160005500");
+
+    let (steps, refunds) = trace_refund_scenario(&[(target, &code, &[(0, 1)])], target);
+
+    let expected: Vec<(String, u64)> = [
+        ("CALLDATASIZE", 0),
+        ("PUSH1", 0),
+        ("JUMPI", 0),
+        ("PUSH1", 0),
+        ("PUSH1", 0),
+        ("SSTORE", 0),
+        ("PUSH1", 4800),
+        ("PUSH1", 4800),
+        ("PUSH1", 4800),
+        ("PUSH1", 4800),
+        ("PUSH1", 4800),
+        ("ADDRESS", 4800),
+        ("GAS", 4800),
+        ("CALL", 4800),
+        // inner frame, which re-runs the dispatch preamble before jumping
+        ("CALLDATASIZE", 4800),
+        ("PUSH1", 4800),
+        ("JUMPI", 4800),
+        ("JUMPDEST", 4800),
+        ("PUSH1", 4800),
+        ("PUSH1", 4800),
+        ("SSTORE", 4800),
+        ("STOP", 2800),
+        // back in the outer frame
+        ("POP", 2800),
+        ("STOP", 2800),
+    ]
+    .iter()
+    .map(|(op, refund)| (op.to_string(), *refund))
+    .collect();
+    assert_eq!(steps, expected);
+
+    // Both frames end the transaction with the same global counter.
+    assert_eq!(refunds, vec![2800, 2800]);
+}
+
+#[test]
+fn test_geth_structlog_refund_counter_reverted_call() {
+    // Same scenario as test_geth_structlog_refund_counter_nested_call, but the inner
+    // frame reverts after re-setting the slot. revm only merges a child's refund into the
+    // parent on success, mirroring geth's journal rewind, so after the revert the counter
+    // must come back to 4800. The reverted frame's call trace reports the counter as of
+    // its end, 4800 as well, since its own refund delta is discarded.
+    let target = address!("0000000000000000000000000000000000000aaa");
+    let code = hex!("36601857600060005560006000600160006000305af150005b600160005560006000fd");
+
+    let (steps, refunds) = trace_refund_scenario(&[(target, &code, &[(0, 1)])], target);
+
+    let expected: Vec<(String, u64)> = [
+        ("CALLDATASIZE", 0),
+        ("PUSH1", 0),
+        ("JUMPI", 0),
+        ("PUSH1", 0),
+        ("PUSH1", 0),
+        ("SSTORE", 0),
+        ("PUSH1", 4800),
+        ("PUSH1", 4800),
+        ("PUSH1", 4800),
+        ("PUSH1", 4800),
+        ("PUSH1", 4800),
+        ("ADDRESS", 4800),
+        ("GAS", 4800),
+        ("CALL", 4800),
+        // inner frame, which re-runs the dispatch preamble before jumping
+        ("CALLDATASIZE", 4800),
+        ("PUSH1", 4800),
+        ("JUMPI", 4800),
+        ("JUMPDEST", 4800),
+        ("PUSH1", 4800),
+        ("PUSH1", 4800),
+        ("SSTORE", 4800),
+        ("PUSH1", 2800),
+        ("PUSH1", 2800),
+        ("REVERT", 2800),
+        // back in the outer frame, the reverted refund delta is discarded
+        ("POP", 4800),
+        ("STOP", 4800),
+    ]
+    .iter()
+    .map(|(op, refund)| (op.to_string(), *refund))
+    .collect();
+    assert_eq!(steps, expected);
+
+    assert_eq!(refunds, vec![4800, 4800]);
+}
+
+#[test]
+fn test_geth_structlog_refund_counter_sibling_calls() {
+    // Two sibling calls each clear a slot in their own storage (+4800 each). The global
+    // counter must accumulate across siblings: 4800 inside and after the first child,
+    // 9600 inside and after the second. This also guards against double counting: once
+    // the parent absorbs the first child's refund, that refund must not be added again
+    // when the second child starts.
+    let target = address!("0000000000000000000000000000000000000a0a");
+    let child1 = address!("0000000000000000000000000000000000000b01");
+    let child2 = address!("0000000000000000000000000000000000000b02");
+    // PUSH1 0 x4, PUSH1 0 (value), PUSH20 <child>, GAS, CALL, POP, twice, then STOP
+    let parent_code = hex!(
+        "60006000600060006000730000000000000000000000000000000000000b015af150"
+        "60006000600060006000730000000000000000000000000000000000000b025af150"
+        "00"
+    );
+    // PUSH1 0 PUSH1 0 SSTORE STOP, clears slot 0 of the executing contract
+    let child_code = hex!("600060005500");
+
+    let (steps, refunds) = trace_refund_scenario(
+        &[
+            (target, &parent_code, &[]),
+            (child1, &child_code, &[(0, 1)]),
+            (child2, &child_code, &[(0, 1)]),
+        ],
+        target,
+    );
+
+    let expected: Vec<(String, u64)> = [
+        ("PUSH1", 0),
+        ("PUSH1", 0),
+        ("PUSH1", 0),
+        ("PUSH1", 0),
+        ("PUSH1", 0),
+        ("PUSH20", 0),
+        ("GAS", 0),
+        ("CALL", 0),
+        // first child
+        ("PUSH1", 0),
+        ("PUSH1", 0),
+        ("SSTORE", 0),
+        ("STOP", 4800),
+        // back in the parent
+        ("POP", 4800),
+        ("PUSH1", 4800),
+        ("PUSH1", 4800),
+        ("PUSH1", 4800),
+        ("PUSH1", 4800),
+        ("PUSH1", 4800),
+        ("PUSH20", 4800),
+        ("GAS", 4800),
+        ("CALL", 4800),
+        // second child
+        ("PUSH1", 4800),
+        ("PUSH1", 4800),
+        ("SSTORE", 4800),
+        ("STOP", 9600),
+        // back in the parent
+        ("POP", 9600),
+        ("STOP", 9600),
+    ]
+    .iter()
+    .map(|(op, refund)| (op.to_string(), *refund))
+    .collect();
+    assert_eq!(steps, expected);
+
+    assert_eq!(refunds, vec![9600, 4800, 9600]);
+}
+
+#[test]
+fn test_geth_structlog_refund_counter_create() {
+    // The refund accumulated before a CREATE must be visible inside the initcode frame
+    // and in the created frame's call trace (covers the create/create_end path).
+    //
+    // PUSH1 0 PUSH1 0 SSTORE          clears slot 0, +4800
+    // PUSH1 1 PUSH1 0 PUSH1 0 CREATE  initcode is the single zero byte at memory 0, STOP
+    // POP STOP
+    let target = address!("0000000000000000000000000000000000000ccc");
+    let code = hex!("6000600055600160006000f05000");
+
+    let (steps, refunds) = trace_refund_scenario(&[(target, &code, &[(0, 1)])], target);
+
+    let expected: Vec<(String, u64)> = [
+        ("PUSH1", 0),
+        ("PUSH1", 0),
+        ("SSTORE", 0),
+        ("PUSH1", 4800),
+        ("PUSH1", 4800),
+        ("PUSH1", 4800),
+        ("CREATE", 4800),
+        // initcode frame
+        ("STOP", 4800),
+        // back in the outer frame
+        ("POP", 4800),
+        ("STOP", 4800),
+    ]
+    .iter()
+    .map(|(op, refund)| (op.to_string(), *refund))
+    .collect();
+    assert_eq!(steps, expected);
+
+    assert_eq!(refunds, vec![4800, 4800]);
 }

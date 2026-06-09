@@ -97,6 +97,9 @@ pub struct CallTrace {
     /// The gas limit of the call.
     pub gas_limit: u64,
     /// The cumulative refund counter for the entire transaction context at the end of this call.
+    ///
+    /// A frame that did not succeed contributes nothing: its refunds are discarded, like
+    /// geth rewinding its global counter when a frame reverts.
     pub gas_refund_counter: u64,
     /// The final status of the call.
     pub status: Option<InstructionResult>,
@@ -677,7 +680,8 @@ pub struct CallTraceStep {
     pub returndata: Bytes,
     /// Remaining gas before step execution
     pub gas_remaining: u64,
-    /// Gas refund counter before step execution
+    /// The transaction-wide gas refund counter before step execution, matching the `refund`
+    /// field of geth's struct logs
     pub gas_refund_counter: u64,
     /// Total gas used before step execution
     pub gas_used: u64,
