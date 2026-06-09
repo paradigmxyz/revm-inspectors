@@ -475,4 +475,13 @@ mod tests {
         let config = TracingInspectorConfig::from_flat_call_config(&config);
         assert!(config.exclude_precompile_calls);
     }
+
+    #[test]
+    fn test_all_records_all_stack_snapshots() {
+        // `all()` enables everything, so the stack snapshot type should be the most
+        // complete variant (`All` = full stack + pushes), not `Full` (full only).
+        let config = TracingInspectorConfig::all();
+        assert_eq!(config.record_stack_snapshots, StackSnapshotType::All);
+        assert!(config.record_stack_snapshots.is_all());
+    }
 }
