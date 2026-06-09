@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.40.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.40.1) - 2026-06-09
+
+### Bug Fixes
+
+- Record all stack snapshots in TracingInspectorConfig::all() ([#450](https://github.com/paradigmxyz/revm-inspectors/issues/450))
+- [erc7562] Enable state diffs to capture SLOAD in accessedSlots.reads ([#451](https://github.com/paradigmxyz/revm-inspectors/issues/451))
+
+### Other
+
+- Optimize JS tracer callback object reuse ([#449](https://github.com/paradigmxyz/revm-inspectors/issues/449))
+- Allow proc-macro-error2 advisory ([#455](https://github.com/paradigmxyz/revm-inspectors/issues/455))
+- Use all stack snapshots in full tracing config ([#454](https://github.com/paradigmxyz/revm-inspectors/issues/454))
+
 ## [0.40.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.40.0) - 2026-05-21
 
 ### Bug Fixes
@@ -29,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Miscellaneous Tasks
 
+- Release 0.40.0
 - Remove EdgeCovInspector (moved to foundry-rs/foundry) ([#436](https://github.com/paradigmxyz/revm-inspectors/issues/436))
 
 ### Other
