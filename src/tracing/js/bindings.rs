@@ -33,31 +33,721 @@ use revm::{
     Database, DatabaseRef,
 };
 
-/// A macro that creates a native function that returns via [JsValue::from]
-macro_rules! js_value_getter {
-    ($value:ident, $ctx:ident) => {
-        FunctionObjectBuilder::new(
-            $ctx.realm(),
-            NativeFunction::from_copy_closure(move |_this, _args, _ctx| Ok(JsValue::from($value))),
-        )
-        .length(0)
-        .build()
-    };
+/// Shared mutable state captured by JS native functions.
+#[derive(Clone, Debug)]
+struct Shared<T>(Rc<RefCell<T>>);
+
+impl<T> Shared<T> {
+    fn new(value: T) -> Self {
+        Self(Rc::new(RefCell::new(value)))
+    }
+
+    fn replace(&self, value: T) {
+        *self.0.borrow_mut() = value;
+    }
 }
 
-/// A macro that creates a native function that returns a captured JsValue
-macro_rules! js_value_capture_getter {
-    ($value:ident, $ctx:ident) => {
-        FunctionObjectBuilder::new(
-            $ctx.realm(),
+impl<T> Finalize for Shared<T> {}
+
+unsafe impl<T> Trace for Shared<T> {
+    empty_trace!();
+}
+
+/// Reusable JS log object for opcode steps.
+#[derive(Debug)]
+pub(crate) struct ReusableStepLog {
+    state: Shared<StepLogState>,
+    object: JsObject,
+}
+
+impl ReusableStepLog {
+    pub(crate) fn new(ctx: &mut Context) -> JsResult<Self> {
+        let state = Shared::new(StepLogState::default());
+        let object = JsObject::with_object_proto(ctx.intrinsics());
+
+        object.set(js_string!("op"), build_step_op_object(state.clone(), ctx)?, false, ctx)?;
+        object.set(
+            js_string!("memory"),
+            build_step_memory_object(state.clone(), ctx)?,
+            false,
+            ctx,
+        )?;
+        object.set(
+            js_string!("stack"),
+            build_step_stack_object(state.clone(), ctx)?,
+            false,
+            ctx,
+        )?;
+        object.set(
+            js_string!("contract"),
+            build_step_contract_object(state.clone(), ctx)?,
+            false,
+            ctx,
+        )?;
+
+        let get_pc = FunctionObjectBuilder::new(
+            ctx.realm(),
             NativeFunction::from_copy_closure_with_captures(
-                move |_this, _args, input, _ctx| Ok(JsValue::from(input.clone())),
-                $value,
+                move |_this, _args, state, _ctx| Ok(JsValue::from(state.0.borrow().pc)),
+                state.clone(),
             ),
         )
         .length(0)
-        .build()
-    };
+        .build();
+        let get_gas = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                move |_this, _args, state, _ctx| Ok(JsValue::from(state.0.borrow().gas_remaining)),
+                state.clone(),
+            ),
+        )
+        .length(0)
+        .build();
+        let get_cost = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                move |_this, _args, state, _ctx| Ok(JsValue::from(state.0.borrow().cost)),
+                state.clone(),
+            ),
+        )
+        .length(0)
+        .build();
+        let get_depth = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                move |_this, _args, state, _ctx| Ok(JsValue::from(state.0.borrow().depth)),
+                state.clone(),
+            ),
+        )
+        .length(0)
+        .build();
+        let get_refund = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                move |_this, _args, state, _ctx| Ok(JsValue::from(state.0.borrow().refund)),
+                state.clone(),
+            ),
+        )
+        .length(0)
+        .build();
+        let get_error = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                move |_this, _args, state, _ctx| {
+                    Ok(state
+                        .0
+                        .borrow()
+                        .error
+                        .as_ref()
+                        .map(|error| JsValue::from(js_string!(error.as_str())))
+                        .unwrap_or_else(JsValue::undefined))
+                },
+                state.clone(),
+            ),
+        )
+        .length(0)
+        .build();
+
+        object.set(js_string!("getPC"), get_pc, false, ctx)?;
+        object.set(js_string!("getError"), get_error, false, ctx)?;
+        object.set(js_string!("getGas"), get_gas, false, ctx)?;
+        object.set(js_string!("getCost"), get_cost, false, ctx)?;
+        object.set(js_string!("getDepth"), get_depth, false, ctx)?;
+        object.set(js_string!("getRefund"), get_refund, false, ctx)?;
+
+        Ok(Self { state, object })
+    }
+
+    pub(crate) fn update(&self, step: StepLog) {
+        self.state.replace(step.into());
+    }
+
+    pub(crate) fn value(&self) -> JsValue {
+        self.object.clone().into()
+    }
+}
+
+/// Reusable JS call frame object for enter callbacks.
+#[derive(Debug)]
+pub(crate) struct ReusableCallFrame {
+    state: Shared<CallFrameState>,
+    object: JsObject,
+}
+
+impl ReusableCallFrame {
+    pub(crate) fn new(ctx: &mut Context) -> JsResult<Self> {
+        let state = Shared::new(CallFrameState::default());
+        let object = JsObject::with_object_proto(ctx.intrinsics());
+
+        let get_from = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                move |_this, _args, state, ctx| {
+                    address_to_uint8_array_value(state.0.borrow().caller, ctx)
+                },
+                state.clone(),
+            ),
+        )
+        .length(0)
+        .build();
+        let get_to = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                move |_this, _args, state, ctx| {
+                    address_to_uint8_array_value(state.0.borrow().contract, ctx)
+                },
+                state.clone(),
+            ),
+        )
+        .length(0)
+        .build();
+        let get_value = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                move |_this, _args, state, _ctx| to_bigint(state.0.borrow().value),
+                state.clone(),
+            ),
+        )
+        .length(0)
+        .build();
+        let get_input = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                move |_this, _args, state, ctx| {
+                    to_uint8_array_value(state.0.borrow().input.clone(), ctx)
+                },
+                state.clone(),
+            ),
+        )
+        .length(0)
+        .build();
+        let get_gas = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                move |_this, _args, state, _ctx| Ok(JsValue::from(state.0.borrow().gas)),
+                state.clone(),
+            ),
+        )
+        .length(0)
+        .build();
+        let get_type = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                move |_this, _args, state, _ctx| {
+                    Ok(JsValue::from(js_string!(state.0.borrow().kind.as_str())))
+                },
+                state.clone(),
+            ),
+        )
+        .length(0)
+        .build();
+
+        object.set(js_string!("getFrom"), get_from, false, ctx)?;
+        object.set(js_string!("getTo"), get_to, false, ctx)?;
+        object.set(js_string!("getValue"), get_value, false, ctx)?;
+        object.set(js_string!("getInput"), get_input, false, ctx)?;
+        object.set(js_string!("getGas"), get_gas, false, ctx)?;
+        object.set(js_string!("getType"), get_type, false, ctx)?;
+
+        Ok(Self { state, object })
+    }
+
+    pub(crate) fn update(&self, frame: CallFrame) {
+        self.state.replace(frame.into());
+    }
+
+    pub(crate) fn value(&self) -> JsValue {
+        self.object.clone().into()
+    }
+}
+
+/// Reusable JS frame result object for exit callbacks.
+#[derive(Debug)]
+pub(crate) struct ReusableFrameResult {
+    state: Shared<FrameResultState>,
+    object: JsObject,
+}
+
+impl ReusableFrameResult {
+    pub(crate) fn new(ctx: &mut Context) -> JsResult<Self> {
+        let state = Shared::new(FrameResultState::default());
+        let object = JsObject::with_object_proto(ctx.intrinsics());
+
+        let get_gas_used = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                move |_this, _args, state, _ctx| Ok(JsValue::from(state.0.borrow().gas_used)),
+                state.clone(),
+            ),
+        )
+        .length(0)
+        .build();
+        let get_output = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                move |_this, _args, state, ctx| {
+                    to_uint8_array_value(state.0.borrow().output.clone(), ctx)
+                },
+                state.clone(),
+            ),
+        )
+        .length(0)
+        .build();
+        let get_error = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                move |_this, _args, state, _ctx| {
+                    Ok(state
+                        .0
+                        .borrow()
+                        .error
+                        .as_ref()
+                        .map(|error| JsValue::from(js_string!(error.as_str())))
+                        .unwrap_or_else(JsValue::undefined))
+                },
+                state.clone(),
+            ),
+        )
+        .length(0)
+        .build();
+
+        object.set(js_string!("getGasUsed"), get_gas_used, false, ctx)?;
+        object.set(js_string!("getOutput"), get_output, false, ctx)?;
+        object.set(js_string!("getError"), get_error, false, ctx)?;
+
+        Ok(Self { state, object })
+    }
+
+    pub(crate) fn update(&self, frame: FrameResult) {
+        self.state.replace(frame.into());
+    }
+
+    pub(crate) fn value(&self) -> JsValue {
+        self.object.clone().into()
+    }
+}
+
+/// Reusable JS database object for step and fault callbacks.
+#[derive(Debug)]
+pub(crate) struct ReusableEvmDb {
+    state: Shared<EvmDbState>,
+    object: JsObject,
+}
+
+impl ReusableEvmDb {
+    pub(crate) fn new(ctx: &mut Context) -> JsResult<Self> {
+        let state = Shared::new(EvmDbState::default());
+        let object = JsObject::with_object_proto(ctx.intrinsics());
+
+        let exists = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                move |_this, args, state, ctx| {
+                    let db = current_db(state)?;
+                    let acc = db.read_basic(args.get_or_undefined(0).clone(), ctx)?;
+                    Ok(JsValue::from(acc.is_some()))
+                },
+                state.clone(),
+            ),
+        )
+        .length(1)
+        .build();
+        let get_balance = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                move |_this, args, state, ctx| {
+                    let db = current_db(state)?;
+                    let balance = db
+                        .read_basic(args.get_or_undefined(0).clone(), ctx)?
+                        .map(|acc| acc.balance)
+                        .unwrap_or_default();
+                    to_bigint(balance)
+                },
+                state.clone(),
+            ),
+        )
+        .length(1)
+        .build();
+        let get_nonce = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                move |_this, args, state, ctx| {
+                    let db = current_db(state)?;
+                    let nonce = db
+                        .read_basic(args.get_or_undefined(0).clone(), ctx)?
+                        .map(|acc| acc.nonce)
+                        .unwrap_or_default();
+                    Ok(JsValue::from(nonce))
+                },
+                state.clone(),
+            ),
+        )
+        .length(1)
+        .build();
+        let get_code = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                move |_this, args, state, ctx| {
+                    let db = current_db(state)?;
+                    Ok(db.read_code(args.get_or_undefined(0).clone(), ctx)?.into())
+                },
+                state.clone(),
+            ),
+        )
+        .length(1)
+        .build();
+        let get_state = FunctionObjectBuilder::new(
+            ctx.realm(),
+            NativeFunction::from_copy_closure_with_captures(
+                move |_this, args, state, ctx| {
+                    let db = current_db(state)?;
+                    Ok(db
+                        .read_state(
+                            args.get_or_undefined(0).clone(),
+                            args.get_or_undefined(1).clone(),
+                            ctx,
+                        )?
+                        .into())
+                },
+                state.clone(),
+            ),
+        )
+        .length(2)
+        .build();
+
+        object.set(js_string!("getBalance"), get_balance, false, ctx)?;
+        object.set(js_string!("getNonce"), get_nonce, false, ctx)?;
+        object.set(js_string!("getCode"), get_code, false, ctx)?;
+        object.set(js_string!("getState"), get_state, false, ctx)?;
+        object.set(js_string!("exists"), exists, false, ctx)?;
+
+        Ok(Self { state, object })
+    }
+
+    pub(crate) fn update(&self, db: EvmDbRef) {
+        self.state.replace(EvmDbState { current: Some(db) });
+    }
+
+    pub(crate) fn value(&self) -> JsValue {
+        self.object.clone().into()
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+struct EvmDbState {
+    current: Option<EvmDbRef>,
+}
+
+fn current_db(state: &Shared<EvmDbState>) -> JsResult<EvmDbRef> {
+    state.0.borrow().current.clone().ok_or_else(|| {
+        JsError::from_native(
+            JsNativeError::typ().with_message("tracer accessed db before it was initialized"),
+        )
+    })
+}
+
+#[derive(Clone, Debug, Default)]
+struct StepLogState {
+    stack: Option<StackRef>,
+    op: u8,
+    memory: Option<MemoryRef>,
+    pc: u64,
+    gas_remaining: u64,
+    cost: u64,
+    depth: u64,
+    refund: u64,
+    error: Option<String>,
+    contract: Contract,
+}
+
+impl From<StepLog> for StepLogState {
+    fn from(step: StepLog) -> Self {
+        Self {
+            stack: Some(step.stack),
+            op: step.op.0,
+            memory: Some(step.memory),
+            pc: step.pc,
+            gas_remaining: step.gas_remaining,
+            cost: step.cost,
+            depth: step.depth,
+            refund: step.refund,
+            error: step.error,
+            contract: step.contract,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+struct CallFrameState {
+    caller: Address,
+    contract: Address,
+    value: U256,
+    input: Bytes,
+    gas: u64,
+    kind: String,
+}
+
+impl From<CallFrame> for CallFrameState {
+    fn from(frame: CallFrame) -> Self {
+        Self {
+            caller: frame.contract.caller,
+            contract: frame.contract.contract,
+            value: frame.contract.value,
+            input: frame.contract.input,
+            gas: frame.gas,
+            kind: frame.kind.to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+struct FrameResultState {
+    gas_used: u64,
+    output: Bytes,
+    error: Option<String>,
+}
+
+impl From<FrameResult> for FrameResultState {
+    fn from(frame: FrameResult) -> Self {
+        Self { gas_used: frame.gas_used, output: frame.output, error: frame.error }
+    }
+}
+
+fn build_step_op_object(state: Shared<StepLogState>, context: &mut Context) -> JsResult<JsObject> {
+    let obj = JsObject::with_object_proto(context.intrinsics());
+    let to_number = FunctionObjectBuilder::new(
+        context.realm(),
+        NativeFunction::from_copy_closure_with_captures(
+            move |_this, _args, state, _ctx| Ok(JsValue::from(state.0.borrow().op)),
+            state.clone(),
+        ),
+    )
+    .length(0)
+    .build();
+    let is_push = FunctionObjectBuilder::new(
+        context.realm(),
+        NativeFunction::from_copy_closure_with_captures(
+            move |_this, _args, state, _ctx| {
+                Ok(JsValue::from((PUSH0..=PUSH32).contains(&state.0.borrow().op)))
+            },
+            state.clone(),
+        ),
+    )
+    .length(0)
+    .build();
+    let to_string = FunctionObjectBuilder::new(
+        context.realm(),
+        NativeFunction::from_copy_closure_with_captures(
+            move |_this, _args, state, _ctx| {
+                let value = state.0.borrow().op;
+                if let Some(op) = OpCode::new(value) {
+                    Ok(JsValue::from(js_string!(op.as_str())))
+                } else {
+                    Ok(JsValue::from(js_string!(format!("opcode {:x} not defined", value))))
+                }
+            },
+            state.clone(),
+        ),
+    )
+    .length(0)
+    .build();
+
+    obj.set(js_string!("toNumber"), to_number, false, context)?;
+    obj.set(js_string!("toString"), to_string, false, context)?;
+    obj.set(js_string!("isPush"), is_push, false, context)?;
+    Ok(obj)
+}
+
+fn build_step_stack_object(
+    state: Shared<StepLogState>,
+    context: &mut Context,
+) -> JsResult<JsObject> {
+    let obj = JsObject::with_object_proto(context.intrinsics());
+    let length = FunctionObjectBuilder::new(
+        context.realm(),
+        NativeFunction::from_copy_closure_with_captures(
+            move |_this, _args, state, _ctx| {
+                let len = state
+                    .0
+                    .borrow()
+                    .stack
+                    .as_ref()
+                    .and_then(|stack| stack.0.with_inner(Stack::len))
+                    .unwrap_or_default();
+                Ok(JsValue::from(len))
+            },
+            state.clone(),
+        ),
+    )
+    .length(0)
+    .build();
+    let peek = FunctionObjectBuilder::new(
+        context.realm(),
+        NativeFunction::from_copy_closure_with_captures(
+            move |_this, args, state, ctx| {
+                let stack = state.0.borrow().stack.clone().ok_or_else(|| {
+                    JsError::from_native(
+                        JsNativeError::typ()
+                            .with_message("tracer accessed stack before it was initialized"),
+                    )
+                })?;
+                let len = stack.0.with_inner(Stack::len).unwrap_or_default();
+                let idx = StackRef::parse_index(args.get_or_undefined(0), len, ctx)?;
+                if len <= idx {
+                    return Err(JsError::from_native(JsNativeError::typ().with_message(format!(
+                        "tracer accessed out of bound stack: size {len}, index {idx}"
+                    ))));
+                }
+                stack.peek(idx)
+            },
+            state.clone(),
+        ),
+    )
+    .length(1)
+    .build();
+
+    obj.set(js_string!("length"), length, false, context)?;
+    obj.set(js_string!("peek"), peek, false, context)?;
+    Ok(obj)
+}
+
+fn build_step_memory_object(
+    state: Shared<StepLogState>,
+    context: &mut Context,
+) -> JsResult<JsObject> {
+    let obj = JsObject::with_object_proto(context.intrinsics());
+    let length = FunctionObjectBuilder::new(
+        context.realm(),
+        NativeFunction::from_copy_closure_with_captures(
+            move |_this, _args, state, _ctx| {
+                let len = state.0.borrow().memory.as_ref().map(MemoryRef::len).unwrap_or_default();
+                Ok(JsValue::from(len as u64))
+            },
+            state.clone(),
+        ),
+    )
+    .length(0)
+    .build();
+    let slice = FunctionObjectBuilder::new(
+        context.realm(),
+        NativeFunction::from_copy_closure_with_captures(
+            move |_this, args, state, ctx| {
+                let memory = state.0.borrow().memory.clone().ok_or_else(|| {
+                    JsError::from_native(
+                        JsNativeError::typ()
+                            .with_message("tracer accessed memory before it was initialized"),
+                    )
+                })?;
+                let len = memory.len();
+                let start = MemoryRef::parse_index(args.get_or_undefined(0), "start", len, ctx)?;
+                let end = MemoryRef::parse_index(args.get_or_undefined(1), "end", len, ctx)?;
+                if end < start || end > len {
+                    return Err(MemoryRef::out_of_bounds_error(
+                        len,
+                        start,
+                        end.saturating_sub(start),
+                    ));
+                }
+                let slice = memory
+                    .0
+                    .with_inner(|mem| mem.slice_len(start, end - start).to_vec())
+                    .unwrap_or_default();
+                to_uint8_array_value(slice, ctx)
+            },
+            state.clone(),
+        ),
+    )
+    .length(2)
+    .build();
+    let get_uint = FunctionObjectBuilder::new(
+        context.realm(),
+        NativeFunction::from_copy_closure_with_captures(
+            move |_this, args, state, ctx| {
+                let memory = state.0.borrow().memory.clone().ok_or_else(|| {
+                    JsError::from_native(
+                        JsNativeError::typ()
+                            .with_message("tracer accessed memory before it was initialized"),
+                    )
+                })?;
+                let len = memory.len();
+                let offset = MemoryRef::parse_index(args.get_or_undefined(0), "offset", len, ctx)?;
+                let Some(end) = offset.checked_add(32) else {
+                    return Err(MemoryRef::out_of_bounds_error(len, offset, 32));
+                };
+                if end > len {
+                    return Err(MemoryRef::out_of_bounds_error(len, offset, 32));
+                }
+                let slice = memory
+                    .0
+                    .with_inner(|mem| mem.slice_len(offset, 32).to_vec())
+                    .unwrap_or_default();
+                to_uint8_array_value(slice, ctx)
+            },
+            state.clone(),
+        ),
+    )
+    .length(1)
+    .build();
+
+    obj.set(js_string!("slice"), slice, false, context)?;
+    obj.set(js_string!("getUint"), get_uint, false, context)?;
+    obj.set(js_string!("length"), length, false, context)?;
+    Ok(obj)
+}
+
+fn build_step_contract_object(
+    state: Shared<StepLogState>,
+    ctx: &mut Context,
+) -> JsResult<JsObject> {
+    let obj = JsObject::with_object_proto(ctx.intrinsics());
+    let get_caller = FunctionObjectBuilder::new(
+        ctx.realm(),
+        NativeFunction::from_copy_closure_with_captures(
+            move |_this, _args, state, ctx| {
+                address_to_uint8_array_value(state.0.borrow().contract.caller, ctx)
+            },
+            state.clone(),
+        ),
+    )
+    .length(0)
+    .build();
+    let get_address = FunctionObjectBuilder::new(
+        ctx.realm(),
+        NativeFunction::from_copy_closure_with_captures(
+            move |_this, _args, state, ctx| {
+                address_to_uint8_array_value(state.0.borrow().contract.contract, ctx)
+            },
+            state.clone(),
+        ),
+    )
+    .length(0)
+    .build();
+    let get_value = FunctionObjectBuilder::new(
+        ctx.realm(),
+        NativeFunction::from_copy_closure_with_captures(
+            move |_this, _args, state, _ctx| to_bigint(state.0.borrow().contract.value),
+            state.clone(),
+        ),
+    )
+    .length(0)
+    .build();
+    let get_input = FunctionObjectBuilder::new(
+        ctx.realm(),
+        NativeFunction::from_copy_closure_with_captures(
+            move |_this, _args, state, ctx| {
+                to_uint8_array_value(state.0.borrow().contract.input.clone(), ctx)
+            },
+            state.clone(),
+        ),
+    )
+    .length(0)
+    .build();
+
+    obj.set(js_string!("getCaller"), get_caller, false, ctx)?;
+    obj.set(js_string!("getAddress"), get_address, false, ctx)?;
+    obj.set(js_string!("getValue"), get_value, false, ctx)?;
+    obj.set(js_string!("getInput"), get_input, false, ctx)?;
+    Ok(obj)
 }
 
 /// A wrapper for a value that can be garbage collected, but will not give access to the value if
@@ -183,60 +873,6 @@ pub(crate) struct StepLog {
     pub(crate) contract: Contract,
 }
 
-impl StepLog {
-    /// Converts the contract object into a js object
-    ///
-    /// Caution: this expects a global property `bigint` to be present.
-    pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
-        let Self {
-            stack,
-            op,
-            memory,
-            pc,
-            gas_remaining: gas,
-            cost,
-            depth,
-            refund,
-            error,
-            contract,
-        } = self;
-        let obj = JsObject::with_object_proto(ctx.intrinsics());
-
-        // fields
-        let op = op.into_js_object(ctx)?;
-        let memory = memory.into_js_object(ctx)?;
-        let stack = stack.into_js_object(ctx)?;
-        let contract = contract.into_js_object(ctx)?;
-
-        obj.set(js_string!("op"), op, false, ctx)?;
-        obj.set(js_string!("memory"), memory, false, ctx)?;
-        obj.set(js_string!("stack"), stack, false, ctx)?;
-        obj.set(js_string!("contract"), contract, false, ctx)?;
-
-        // methods
-        let error = if let Some(error) = error {
-            JsValue::from(js_string!(error))
-        } else {
-            JsValue::undefined()
-        };
-        let get_error = js_value_capture_getter!(error, ctx);
-        let get_pc = js_value_getter!(pc, ctx);
-        let get_gas = js_value_getter!(gas, ctx);
-        let get_cost = js_value_getter!(cost, ctx);
-        let get_refund = js_value_getter!(refund, ctx);
-        let get_depth = js_value_getter!(depth, ctx);
-
-        obj.set(js_string!("getPC"), get_pc, false, ctx)?;
-        obj.set(js_string!("getError"), get_error, false, ctx)?;
-        obj.set(js_string!("getGas"), get_gas, false, ctx)?;
-        obj.set(js_string!("getCost"), get_cost, false, ctx)?;
-        obj.set(js_string!("getDepth"), get_depth, false, ctx)?;
-        obj.set(js_string!("getRefund"), get_refund, false, ctx)?;
-
-        Ok(obj)
-    }
-}
-
 /// An owned snapshot of memory contents.
 ///
 /// Uses `Rc` internally so cloning is cheap (reference count bump) rather than
@@ -314,78 +950,6 @@ impl MemoryRef {
             "tracer accessed out of bound memory: available {len}, offset {offset}, size {size}"
         )))
     }
-
-    pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
-        let obj = JsObject::with_object_proto(ctx.intrinsics());
-        let len = self.len();
-
-        let length = FunctionObjectBuilder::new(
-            ctx.realm(),
-            NativeFunction::from_copy_closure(move |_this, _args, _ctx| {
-                Ok(JsValue::from(len as u64))
-            }),
-        )
-        .length(0)
-        .build();
-
-        // slice returns the requested range of memory as a byte slice.
-        let slice = FunctionObjectBuilder::new(
-            ctx.realm(),
-            NativeFunction::from_copy_closure_with_captures(
-                move |_this, args, memory, ctx| {
-                    let len = memory.len();
-                    let start = Self::parse_index(args.get_or_undefined(0), "start", len, ctx)?;
-                    let end = Self::parse_index(args.get_or_undefined(1), "end", len, ctx)?;
-                    if end < start || end > len {
-                        return Err(Self::out_of_bounds_error(
-                            len,
-                            start,
-                            end.saturating_sub(start),
-                        ));
-                    }
-                    let size = end - start;
-                    let slice = memory
-                        .0
-                        .with_inner(|mem| mem.slice_len(start, size).to_vec())
-                        .unwrap_or_default();
-
-                    to_uint8_array_value(slice, ctx)
-                },
-                self.clone(),
-            ),
-        )
-        .length(2)
-        .build();
-
-        let get_uint = FunctionObjectBuilder::new(
-            ctx.realm(),
-            NativeFunction::from_copy_closure_with_captures(
-                move |_this, args, memory, ctx| {
-                    let len = memory.len();
-                    let offset = Self::parse_index(args.get_or_undefined(0), "offset", len, ctx)?;
-                    let Some(end) = offset.checked_add(32) else {
-                        return Err(Self::out_of_bounds_error(len, offset, 32));
-                    };
-                    if end > len {
-                        return Err(Self::out_of_bounds_error(len, offset, 32));
-                    }
-                    let slice = memory
-                        .0
-                        .with_inner(|mem| mem.slice_len(offset, 32).to_vec())
-                        .unwrap_or_default();
-                    to_uint8_array_value(slice, ctx)
-                },
-                self,
-            ),
-        )
-        .length(1)
-        .build();
-
-        obj.set(js_string!("slice"), slice, false, ctx)?;
-        obj.set(js_string!("getUint"), get_uint, false, ctx)?;
-        obj.set(js_string!("length"), length, false, ctx)?;
-        Ok(obj)
-    }
 }
 
 impl Finalize for MemoryRef {}
@@ -441,48 +1005,6 @@ unsafe impl<DB: 'static> Trace for GcDb<DB> {
 #[derive(Debug)]
 pub(crate) struct OpObj(pub(crate) u8);
 
-impl OpObj {
-    pub(crate) fn into_js_object(self, context: &mut Context) -> JsResult<JsObject> {
-        let obj = JsObject::with_object_proto(context.intrinsics());
-        let value = self.0;
-        let is_push = (PUSH0..=PUSH32).contains(&value);
-
-        let to_number = FunctionObjectBuilder::new(
-            context.realm(),
-            NativeFunction::from_copy_closure(move |_this, _args, _ctx| Ok(JsValue::from(value))),
-        )
-        .length(0)
-        .build();
-
-        let is_push = FunctionObjectBuilder::new(
-            context.realm(),
-            NativeFunction::from_copy_closure(move |_this, _args, _ctx| Ok(JsValue::from(is_push))),
-        )
-        .length(0)
-        .build();
-
-        let to_string = FunctionObjectBuilder::new(
-            context.realm(),
-            NativeFunction::from_copy_closure(move |_this, _args, _ctx| {
-                if let Some(op) = OpCode::new(value) {
-                    let s = op.as_str();
-                    Ok(JsValue::from(js_string!(s)))
-                } else {
-                    // <https://github.com/ethereum/go-ethereum/blob/7c107c2691fa66a1da60e2b95f5946c3a3921b00/core/vm/opcodes.go#L461-L461>
-                    Ok(JsValue::from(js_string!(format!("opcode {:x} not defined", value))))
-                }
-            }),
-        )
-        .length(0)
-        .build();
-
-        obj.set(js_string!("toNumber"), to_number, false, context)?;
-        obj.set(js_string!("toString"), to_string, false, context)?;
-        obj.set(js_string!("isPush"), is_push, false, context)?;
-        Ok(obj)
-    }
-}
-
 impl From<u8> for OpObj {
     fn from(op: u8) -> Self {
         Self(op)
@@ -490,7 +1012,7 @@ impl From<u8> for OpObj {
 }
 
 /// Represents the stack object
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(crate) struct StackRef(GuardedNullableGc<Stack>);
 
 impl StackRef {
@@ -531,40 +1053,6 @@ impl StackRef {
                 )
             })?
     }
-
-    pub(crate) fn into_js_object(self, context: &mut Context) -> JsResult<JsObject> {
-        let obj = JsObject::with_object_proto(context.intrinsics());
-        let len = self.0.with_inner(|stack| stack.len()).unwrap_or_default();
-        let length = FunctionObjectBuilder::new(
-            context.realm(),
-            NativeFunction::from_copy_closure(move |_this, _args, _ctx| Ok(JsValue::from(len))),
-        )
-        .length(0)
-        .build();
-
-        // peek returns the nth-from-the-top element of the stack.
-        let peek = FunctionObjectBuilder::new(
-            context.realm(),
-            NativeFunction::from_copy_closure_with_captures(
-                move |_this, args, stack, ctx| {
-                    let idx = Self::parse_index(args.get_or_undefined(0), len, ctx)?;
-                    if len <= idx {
-                        return Err(JsError::from_native(JsNativeError::typ().with_message(
-                            format!("tracer accessed out of bound stack: size {len}, index {idx}"),
-                        )));
-                    }
-                    stack.peek(idx)
-                },
-                self,
-            ),
-        )
-        .length(1)
-        .build();
-
-        obj.set(js_string!("length"), length, false, context)?;
-        obj.set(js_string!("peek"), peek, false, context)?;
-        Ok(obj)
-    }
 }
 
 impl Finalize for StackRef {}
@@ -582,59 +1070,6 @@ pub(crate) struct Contract {
     pub(crate) input: Bytes,
 }
 
-impl Contract {
-    /// Converts the contract object into a js object
-    ///
-    /// Caution: this expects a global property `bigint` to be present.
-    pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
-        let Self { caller, contract, value, input } = self;
-        let obj = JsObject::with_object_proto(ctx.intrinsics());
-
-        let get_caller = FunctionObjectBuilder::new(
-            ctx.realm(),
-            NativeFunction::from_copy_closure(move |_this, _args, ctx| {
-                address_to_uint8_array_value(caller, ctx)
-            }),
-        )
-        .length(0)
-        .build();
-
-        let get_address = FunctionObjectBuilder::new(
-            ctx.realm(),
-            NativeFunction::from_copy_closure(move |_this, _args, ctx| {
-                address_to_uint8_array_value(contract, ctx)
-            }),
-        )
-        .length(0)
-        .build();
-
-        let get_value = FunctionObjectBuilder::new(
-            ctx.realm(),
-            NativeFunction::from_copy_closure(move |_this, _args, _ctx| to_bigint(value)),
-        )
-        .length(0)
-        .build();
-
-        let input = to_uint8_array_value(input, ctx)?;
-        let get_input = FunctionObjectBuilder::new(
-            ctx.realm(),
-            NativeFunction::from_copy_closure_with_captures(
-                move |_this, _args, input, _ctx| Ok(input.clone()),
-                input,
-            ),
-        )
-        .length(0)
-        .build();
-
-        obj.set(js_string!("getCaller"), get_caller, false, ctx)?;
-        obj.set(js_string!("getAddress"), get_address, false, ctx)?;
-        obj.set(js_string!("getValue"), get_value, false, ctx)?;
-        obj.set(js_string!("getInput"), get_input, false, ctx)?;
-
-        Ok(obj)
-    }
-}
-
 /// Represents the call frame object for exit functions
 pub(crate) struct FrameResult {
     pub(crate) gas_used: u64,
@@ -642,95 +1077,11 @@ pub(crate) struct FrameResult {
     pub(crate) error: Option<String>,
 }
 
-impl FrameResult {
-    pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
-        let Self { gas_used, output, error } = self;
-        let obj = JsObject::with_object_proto(ctx.intrinsics());
-
-        let output = to_uint8_array_value(output, ctx)?;
-        let get_output = FunctionObjectBuilder::new(
-            ctx.realm(),
-            NativeFunction::from_copy_closure_with_captures(
-                move |_this, _args, output, _ctx| Ok(output.clone()),
-                output,
-            ),
-        )
-        .length(0)
-        .build();
-
-        let error = error.map(|err| JsValue::from(js_string!(err))).unwrap_or_default();
-        let get_error = js_value_capture_getter!(error, ctx);
-        let get_gas_used = js_value_getter!(gas_used, ctx);
-
-        obj.set(js_string!("getGasUsed"), get_gas_used, false, ctx)?;
-        obj.set(js_string!("getOutput"), get_output, false, ctx)?;
-        obj.set(js_string!("getError"), get_error, false, ctx)?;
-
-        Ok(obj)
-    }
-}
-
 /// Represents the call frame object for enter functions
 pub(crate) struct CallFrame {
     pub(crate) contract: Contract,
     pub(crate) kind: CallKind,
     pub(crate) gas: u64,
-}
-
-impl CallFrame {
-    pub(crate) fn into_js_object(self, ctx: &mut Context) -> JsResult<JsObject> {
-        let Self { contract: Contract { caller, contract, value, input }, kind, gas } = self;
-        let obj = JsObject::with_object_proto(ctx.intrinsics());
-
-        let get_from = FunctionObjectBuilder::new(
-            ctx.realm(),
-            NativeFunction::from_copy_closure(move |_this, _args, ctx| {
-                address_to_uint8_array_value(caller, ctx)
-            }),
-        )
-        .length(0)
-        .build();
-
-        let get_to = FunctionObjectBuilder::new(
-            ctx.realm(),
-            NativeFunction::from_copy_closure(move |_this, _args, ctx| {
-                address_to_uint8_array_value(contract, ctx)
-            }),
-        )
-        .length(0)
-        .build();
-
-        let get_value = FunctionObjectBuilder::new(
-            ctx.realm(),
-            NativeFunction::from_copy_closure(move |_this, _args, _ctx| to_bigint(value)),
-        )
-        .length(0)
-        .build();
-
-        let input = to_uint8_array_value(input, ctx)?;
-        let get_input = FunctionObjectBuilder::new(
-            ctx.realm(),
-            NativeFunction::from_copy_closure_with_captures(
-                move |_this, _args, input, _ctx| Ok(input.clone()),
-                input,
-            ),
-        )
-        .length(0)
-        .build();
-
-        let get_gas = js_value_getter!(gas, ctx);
-        let ty = js_string!(kind.to_string());
-        let get_type = js_value_capture_getter!(ty, ctx);
-
-        obj.set(js_string!("getFrom"), get_from, false, ctx)?;
-        obj.set(js_string!("getTo"), get_to, false, ctx)?;
-        obj.set(js_string!("getValue"), get_value, false, ctx)?;
-        obj.set(js_string!("getInput"), get_input, false, ctx)?;
-        obj.set(js_string!("getGas"), get_gas, false, ctx)?;
-        obj.set(js_string!("getType"), get_type, false, ctx)?;
-
-        Ok(obj)
-    }
 }
 
 /// The `ctx` object that represents the context in which the transaction is executed.
@@ -826,6 +1177,12 @@ impl JsEvmContext {
 #[derive(Clone)]
 pub(crate) struct EvmDbRef {
     inner: Rc<EvmDbRefInner>,
+}
+
+impl core::fmt::Debug for EvmDbRef {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("EvmDbRef").finish_non_exhaustive()
+    }
 }
 
 impl EvmDbRef {
@@ -1093,21 +1450,39 @@ mod tests {
         };
         register_builtins(&mut ctx).unwrap();
 
-        let obj = contract.clone().into_js_object(&mut ctx).unwrap();
+        let stack = Stack::new();
+        let (stack_ref, _stack_guard) = StackRef::new_owned(stack);
+        let mem = MemorySnapshot::default();
+        let (mem_ref, _mem_guard) = MemoryRef::new_owned(mem);
+        let step = StepLog {
+            stack: stack_ref,
+            op: OpObj(0),
+            memory: mem_ref,
+            pc: 0,
+            gas_remaining: 0,
+            cost: 0,
+            depth: 0,
+            refund: 0,
+            error: None,
+            contract: contract.clone(),
+        };
+        let reusable_step = ReusableStepLog::new(&mut ctx).unwrap();
+        reusable_step.update(step);
+
         let s = "({
-                caller: function(contract) { return contract.getCaller(); },
-                value: function(contract) { return contract.getValue(); },
-                address: function(contract) { return contract.getAddress(); },
-                input: function(contract) { return contract.getInput(); }
+                caller: function(log) { return log.contract.getCaller(); },
+                value: function(log) { return log.contract.getValue(); },
+                address: function(log) { return log.contract.getAddress(); },
+                input: function(log) { return log.contract.getInput(); }
         })";
 
-        let contract_arg = JsValue::from(obj);
+        let log_arg = reusable_step.value();
         let eval_obj = ctx.eval(Source::from_bytes(s)).unwrap();
         let call = eval_obj.as_object().unwrap().get(js_string!("caller"), &mut ctx).unwrap();
         let res = call
             .as_callable()
             .unwrap()
-            .call(&JsValue::undefined(), core::slice::from_ref(&contract_arg), &mut ctx)
+            .call(&JsValue::undefined(), core::slice::from_ref(&log_arg), &mut ctx)
             .unwrap();
         assert!(res.is_object());
         let obj = res.as_object().unwrap();
@@ -1119,7 +1494,7 @@ mod tests {
         let res = get_address
             .as_callable()
             .unwrap()
-            .call(&JsValue::undefined(), core::slice::from_ref(&contract_arg), &mut ctx)
+            .call(&JsValue::undefined(), core::slice::from_ref(&log_arg), &mut ctx)
             .unwrap();
         assert!(res.is_object());
 
@@ -1130,7 +1505,7 @@ mod tests {
         let res = call
             .as_callable()
             .unwrap()
-            .call(&JsValue::undefined(), core::slice::from_ref(&contract_arg), &mut ctx)
+            .call(&JsValue::undefined(), core::slice::from_ref(&log_arg), &mut ctx)
             .unwrap();
         assert_eq!(
             res.to_string(&mut ctx).unwrap().to_std_string().unwrap(),
@@ -1138,11 +1513,8 @@ mod tests {
         );
 
         let call = eval_obj.as_object().unwrap().get(js_string!("input"), &mut ctx).unwrap();
-        let res = call
-            .as_callable()
-            .unwrap()
-            .call(&JsValue::undefined(), &[contract_arg], &mut ctx)
-            .unwrap();
+        let res =
+            call.as_callable().unwrap().call(&JsValue::undefined(), &[log_arg], &mut ctx).unwrap();
 
         let buf = bytes_from_value(res, &mut ctx).unwrap();
         assert_eq!(buf, contract.input);
@@ -1168,17 +1540,19 @@ mod tests {
 
         let mut db = CacheDB::new(EmptyDB::new());
         let state = EvmState::default();
+        let reusable_db = ReusableEvmDb::new(&mut context).unwrap();
         {
             let (db, guard) = EvmDbRef::new(&state, &mut db);
             let addr = Address::default();
             let addr = JsValue::from(js_string!(addr.to_string()));
-            let db = db.into_js_object(&mut context).unwrap();
-            let res = f.call(&result, &[db.clone().into(), addr.clone()], &mut context).unwrap();
+            reusable_db.update(db);
+            let db = reusable_db.value();
+            let res = f.call(&result, &[db.clone(), addr.clone()], &mut context).unwrap();
             assert!(!res.as_boolean().unwrap());
 
             // drop the db which also drops any GC values
             drop(guard);
-            let res = f.call(&result, &[db.clone().into(), addr.clone()], &mut context);
+            let res = f.call(&result, &[db.clone(), addr.clone()], &mut context);
             assert!(res.is_err());
         }
         let addr = Address::default();
@@ -1187,15 +1561,16 @@ mod tests {
         {
             let (db, guard) = EvmDbRef::new(&state, &mut db);
             let addr = JsValue::from(js_string!(addr.to_string()));
-            let db = db.into_js_object(&mut context).unwrap();
-            let res = f.call(&result, &[db.clone().into(), addr.clone()], &mut context).unwrap();
+            reusable_db.update(db);
+            let db = reusable_db.value();
+            let res = f.call(&result, &[db.clone(), addr.clone()], &mut context).unwrap();
 
             // account exists
             assert!(res.as_boolean().unwrap());
 
             // drop the db which also drops any GC values
             drop(guard);
-            let res = f.call(&result, &[db.clone().into(), addr.clone()], &mut context);
+            let res = f.call(&result, &[db.clone(), addr.clone()], &mut context);
             assert!(res.is_err());
         }
     }
@@ -1225,8 +1600,10 @@ mod tests {
         let state = EvmState::default();
         {
             let (db_ref, guard) = EvmDbRef::new(&state, &mut db);
-            let js_db = db_ref.into_js_object(&mut context).unwrap();
-            let _res = setup_fn.call(&(obj.clone().into()), &[js_db.into()], &mut context).unwrap();
+            let reusable_db = ReusableEvmDb::new(&mut context).unwrap();
+            reusable_db.update(db_ref);
+            let _res =
+                setup_fn.call(&(obj.clone().into()), &[reusable_db.value()], &mut context).unwrap();
             assert!(obj.get(js_string!("db"), &mut context).unwrap().is_object());
 
             let addr = Address::default();
@@ -1282,9 +1659,10 @@ mod tests {
             contract: Default::default(),
         };
 
-        let js_step = step.into_js_object(&mut context).unwrap();
+        let reusable_step = ReusableStepLog::new(&mut context).unwrap();
+        reusable_step.update(step);
 
-        let _ = step_fn.call(&eval, &[js_step.into()], &mut context).unwrap();
+        let _ = step_fn.call(&eval, &[reusable_step.value()], &mut context).unwrap();
 
         let res = result_fn.call(&eval, &[], &mut context).unwrap();
         let val = json_stringify(res.clone(), &mut context).unwrap().to_std_string().unwrap();
@@ -1372,9 +1750,10 @@ mod tests {
             contract: Default::default(),
         };
 
-        let js_step = step.into_js_object(&mut context).unwrap();
+        let reusable_step = ReusableStepLog::new(&mut context).unwrap();
+        reusable_step.update(step);
 
-        let _ = step_fn.call(&eval, &[js_step.into()], &mut context).unwrap();
+        let _ = step_fn.call(&eval, &[reusable_step.value()], &mut context).unwrap();
 
         let res = result_fn.call(&eval, &[], &mut context).unwrap();
         let val = json_stringify(res.clone(), &mut context).unwrap().to_std_string().unwrap();
