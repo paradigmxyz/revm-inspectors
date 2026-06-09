@@ -84,7 +84,7 @@ impl TracingInspectorConfig {
         Self {
             record_steps: true,
             record_memory_snapshots: true,
-            record_stack_snapshots: StackSnapshotType::Full,
+            record_stack_snapshots: StackSnapshotType::All,
             record_state_diff: true,
             record_returndata_snapshots: true,
             record_opcodes_filter: None,
