@@ -63,7 +63,7 @@ impl DebugInspector {
                 Self::PreStateTracer(inspector.clone(), *config)
             }
             Self::Noop(inspector) => Self::Noop(*inspector),
-            Self::Mux(inspector, config) => Self::Mux(inspector.clone(), config.clone()),
+            Self::Mux(inspector, config) => Self::Mux(inspector.try_clone()?, config.clone()),
             Self::FlatCallTracer(inspector) => Self::FlatCallTracer(inspector.clone()),
             Self::Erc7562Tracer(inspector, config) => {
                 Self::Erc7562Tracer(inspector.clone(), config.clone())
@@ -235,10 +235,31 @@ impl DebugInspector {
                     .into()
             }
             Self::Noop(_) => NoopFrame::default().into(),
-            Self::Mux(inspector, _) => inspector
-                .try_into_mux_frame(res, db, tx_info)
-                .map_err(DebugInspectorError::Database)?
-                .into(),
+            Self::Mux(inspector, _) => {
+                #[cfg(feature = "js-tracer")]
+                let frame = inspector
+                    .try_into_mux_frame_with_js(
+                        res,
+                        tx_env,
+                        block_env,
+                        db,
+                        tx_info,
+                        tx_context.unwrap_or_default(),
+                    )
+                    .map_err(|err| match err {
+                        crate::tracing::MuxJsFrameError::Database(err) => {
+                            DebugInspectorError::Database(err)
+                        }
+                        crate::tracing::MuxJsFrameError::Js(err) => {
+                            DebugInspectorError::JsInspector(err)
+                        }
+                    })?;
+                #[cfg(not(feature = "js-tracer"))]
+                let frame = inspector
+                    .try_into_mux_frame(res, db, tx_info)
+                    .map_err(DebugInspectorError::Database)?;
+                frame.into()
+            }
             Self::FlatCallTracer(inspector) => {
                 inspector.set_transaction_gas_limit(tx_env.gas_limit());
                 inspector.set_transaction_caller(tx_env.caller());

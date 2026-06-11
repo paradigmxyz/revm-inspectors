@@ -264,6 +264,11 @@ impl JsInspector {
         &self.transaction_context
     }
 
+    /// Returns the JS code this inspector was created with.
+    pub fn code(&self) -> &str {
+        &self.code
+    }
+
     /// Sets the transaction context.
     pub fn set_transaction_context(&mut self, transaction_context: TransactionContext) {
         self.transaction_context = transaction_context;
