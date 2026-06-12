@@ -18,6 +18,9 @@
 
 extern crate alloc;
 
+#[cfg(feature = "js-tracer")]
+use time as _;
+
 /// An inspector implementation for an EIP2930 Accesslist
 pub mod access_list;
 
