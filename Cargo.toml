@@ -49,9 +49,10 @@ serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 # js-tracer
 boa_engine = { version = "0.21", optional = true }
 boa_gc = { version = "0.21", optional = true }
-# Work around time 0.3.48's conflicting conversion impls exposed through boa_engine.
-# See https://github.com/time-rs/time/issues/783.
-time = { version = "=0.3.47", optional = true, default-features = false }
+# time 0.3.48's conflicting conversion impls (https://github.com/time-rs/time/issues/783)
+# are resolved as of 0.3.51, so the previous `=0.3.47` pin is relaxed to stay
+# compatible with downstream consumers (e.g. reth's vergen requiring time >=0.3.51).
+time = { version = "0.3", optional = true, default-features = false }
 
 [dev-dependencies]
 alloy-hardforks = "0.4"
