@@ -75,3 +75,17 @@ std = [
 ]
 serde = ["dep:serde", "revm/serde"]
 js-tracer = ["dep:boa_engine", "dep:boa_gc", "dep:time"]
+
+[patch.crates-io]
+revm = { git = "https://github.com/bluealloy/revm", rev = "35d8fb4f97f90d7232964d3bc9a70c607a1d7f50" }
+revm-bytecode = { git = "https://github.com/bluealloy/revm", rev = "35d8fb4f97f90d7232964d3bc9a70c607a1d7f50" }
+revm-context = { git = "https://github.com/bluealloy/revm", rev = "35d8fb4f97f90d7232964d3bc9a70c607a1d7f50" }
+revm-context-interface = { git = "https://github.com/bluealloy/revm", rev = "35d8fb4f97f90d7232964d3bc9a70c607a1d7f50" }
+revm-database = { git = "https://github.com/bluealloy/revm", rev = "35d8fb4f97f90d7232964d3bc9a70c607a1d7f50" }
+revm-database-interface = { git = "https://github.com/bluealloy/revm", rev = "35d8fb4f97f90d7232964d3bc9a70c607a1d7f50" }
+revm-handler = { git = "https://github.com/bluealloy/revm", rev = "35d8fb4f97f90d7232964d3bc9a70c607a1d7f50" }
+revm-inspector = { git = "https://github.com/bluealloy/revm", rev = "35d8fb4f97f90d7232964d3bc9a70c607a1d7f50" }
+revm-interpreter = { git = "https://github.com/bluealloy/revm", rev = "35d8fb4f97f90d7232964d3bc9a70c607a1d7f50" }
+revm-precompile = { git = "https://github.com/bluealloy/revm", rev = "35d8fb4f97f90d7232964d3bc9a70c607a1d7f50" }
+revm-primitives = { git = "https://github.com/bluealloy/revm", rev = "35d8fb4f97f90d7232964d3bc9a70c607a1d7f50" }
+revm-state = { git = "https://github.com/bluealloy/revm", rev = "35d8fb4f97f90d7232964d3bc9a70c607a1d7f50" }
