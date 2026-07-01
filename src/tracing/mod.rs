@@ -78,6 +78,19 @@ pub struct TracingInspector {
     traces: CallTraceArena,
     /// Tracks active calls
     trace_stack: Vec<usize>,
+    /// For each active frame, the transaction-wide gas refund accumulated by its ancestor
+    /// frames when the frame started. Kept in sync with `trace_stack`.
+    ///
+    /// revm's `Gas::refunded()` is local to a frame and can go negative (e.g. when a frame
+    /// re-sets a storage slot that an outer frame cleared), while geth reports a single
+    /// transaction-wide counter in its traces. The global counter for the current frame is
+    /// `frame_refund_stack.last() + interp.gas.refunded()`.
+    frame_refund_stack: Vec<i64>,
+    /// The most recent `Gas::refunded()` value observed for the currently executing frame.
+    ///
+    /// Used to seed `frame_refund_stack` when a child frame starts, since the call and
+    /// create hooks don't have access to the parent interpreter.
+    last_frame_refund: i64,
     /// Tracks whether the next `step_end` should be recorded. Set in `start_step`.
     record_step_end: bool,
     /// Tracks the return value of the last call
@@ -109,6 +122,8 @@ impl TracingInspector {
         let Self {
             traces,
             trace_stack,
+            frame_refund_stack,
+            last_frame_refund,
             last_call_return_data,
             last_journal_len,
             spec_id,
@@ -131,6 +146,8 @@ impl TracingInspector {
 
         traces.clear();
         trace_stack.clear();
+        frame_refund_stack.clear();
+        *last_frame_refund = 0;
         last_call_return_data.take();
         spec_id.take();
         *last_journal_len = 0;
@@ -358,6 +375,13 @@ impl TracingInspector {
         // find an empty steps vec or create a new one
         let steps = self.reusable_step_vecs.pop().unwrap_or_default();
 
+        // Seed the new frame with the transaction-wide refund accumulated so far: the refund
+        // the ancestors had when the parent frame started, plus the parent's own counter as
+        // of its last observed step. The root frame starts at zero.
+        let ancestor_refund =
+            self.frame_refund_stack.last().map_or(0, |anc| anc + self.last_frame_refund);
+        self.frame_refund_stack.push(ancestor_refund);
+
         self.trace_stack.push(self.traces.push_trace(
             0,
             push_kind,
@@ -392,10 +416,19 @@ impl TracingInspector {
         let InterpreterResult { result, ref output, ref gas } = *result;
 
         let trace_idx = self.pop_trace_idx();
+        let ancestor_refund =
+            self.frame_refund_stack.pop().expect("more traces were filled than started");
         let trace = &mut self.traces.arena[trace_idx].trace;
 
         trace.gas_used = gas.total_gas_spent();
-        trace.gas_refund_counter = gas.refunded().max(0) as u64;
+        // The transaction-wide refund counter at the end of this call. The frame's own
+        // refund only counts if it succeeded: revm merges a child's refund into the parent
+        // on success only (see `EthFrame::return_result`), and geth rewinds its global
+        // counter via the journal when a frame reverts.
+        let tx_refund =
+            if result.is_ok() { ancestor_refund + gas.refunded() } else { ancestor_refund };
+        debug_assert!(tx_refund >= 0, "transaction-wide refund counter must not go negative");
+        trace.gas_refund_counter = tx_refund.max(0) as u64;
 
         trace.status = Some(result);
         trace.success = trace.status.is_some_and(|status| status.is_ok());
@@ -465,11 +498,16 @@ impl TracingInspector {
             Bytes::new()
         };
 
-        let gas_used = gas_used(
-            interp.runtime_flag.spec_id(),
-            interp.gas.total_gas_spent(),
-            interp.gas.refunded() as u64,
-        );
+        // The transaction-wide refund counter as of before this step executes. This mirrors
+        // geth, whose struct logger reads the global counter before each opcode. The frame's
+        // own `Gas::refunded()` can be negative and is meaningless in isolation, see
+        // `Self::frame_refund_stack`.
+        let tx_refund = (self.frame_refund_stack.last().copied().unwrap_or(0)
+            + interp.gas.refunded())
+        .max(0) as u64;
+
+        let gas_used =
+            gas_used(interp.runtime_flag.spec_id(), interp.gas.total_gas_spent(), tx_refund);
 
         let mut immediate_bytes = None;
         if self.config.record_immediate_bytes {
@@ -491,7 +529,7 @@ impl TracingInspector {
             memory,
             returndata,
             gas_remaining: interp.gas.remaining(),
-            gas_refund_counter: interp.gas.refunded() as u64,
+            gas_refund_counter: tx_refund,
             gas_used,
             immediate_bytes,
 
@@ -603,6 +641,7 @@ where
 {
     #[inline]
     fn step(&mut self, interp: &mut Interpreter, context: &mut CTX) {
+        self.last_frame_refund = interp.gas.refunded();
         if self.config.record_steps {
             self.start_step(interp, context);
         }
@@ -610,6 +649,10 @@ where
 
     #[inline]
     fn step_end(&mut self, interp: &mut Interpreter, context: &mut CTX) {
+        // Refresh after the opcode ran: SSTORE and SELFDESTRUCT record refunds during
+        // execution, and a CALL or CREATE spawning next reads this value when seeding the
+        // child frame in `start_trace_on_call`.
+        self.last_frame_refund = interp.gas.refunded();
         if self.config.record_steps {
             self.fill_step_on_step_end(interp, context);
         }
