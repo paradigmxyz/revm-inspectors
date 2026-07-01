@@ -19,6 +19,8 @@ use revm::{
     state::AccountInfo,
     Context, InspectEvm, MainBuilder, MainContext,
 };
+#[cfg(not(feature = "js-tracer"))]
+use revm_inspectors::tracing::MuxError;
 use revm_inspectors::tracing::{
     DebugInspector, MuxInspector, TracingInspector, TracingInspectorConfig,
 };
@@ -1182,4 +1184,17 @@ fn test_geth_calltracer_logs_delegatecall() {
         Some(implementation),
         "Log emitter must NOT be the implementation (bytecode) address"
     );
+}
+
+#[cfg(not(feature = "js-tracer"))]
+#[test]
+fn test_geth_mux_tracer_rejects_js_tracer_without_feature() {
+    // Without the js-tracer feature, a mux config containing a JS tracer key must keep
+    // returning a clean error instead of panicking. This pins the pre-existing contract.
+    let config =
+        MuxConfig(HashMap::from_iter([(GethDebugTracerType::JsTracer("{}".to_string()), None)]));
+    assert!(matches!(
+        MuxInspector::try_from_config(config),
+        Err(MuxError::UnsupportedTracerType(GethDebugTracerType::JsTracer(_)))
+    ));
 }

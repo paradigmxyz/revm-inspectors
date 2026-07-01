@@ -19,13 +19,25 @@ use revm::{
 };
 use thiserror::Error;
 
+#[cfg(feature = "js-tracer")]
+use crate::tracing::{js::JsInspector, TransactionContext};
+#[cfg(feature = "js-tracer")]
+use alloc::string::ToString;
+#[cfg(feature = "js-tracer")]
+use alloy_rpc_types_trace::geth::GethTrace;
+#[cfg(feature = "js-tracer")]
+use revm::context_interface::{Block, Transaction};
+
 /// Mux tracing inspector that runs and collects results of multiple inspectors at once.
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct MuxInspector {
     /// An instance of FourByteInspector that can be reused
     four_byte: Option<FourByteInspector>,
     /// An instance of TracingInspector that can be reused
     tracing: Option<TracingInspector>,
+    /// One JS inspector per JS tracer key in the mux config
+    #[cfg(feature = "js-tracer")]
+    js: Vec<JsInspector>,
     /// Configurations for different Geth trace types
     configs: Vec<(GethDebugBuiltInTracerType, TraceConfig)>,
 }
@@ -45,11 +57,21 @@ impl MuxInspector {
         let mut four_byte = None;
         let mut inspector_config = TracingInspectorConfig::none();
         let mut configs = Vec::new();
+        #[cfg(feature = "js-tracer")]
+        let mut js = Vec::new();
 
         // Process each tracer configuration
         for (tracer_type, tracer_config) in config.0 {
             let builtin = match tracer_type {
                 GethDebugTracerType::BuiltInTracer(b) => b,
+                #[cfg(feature = "js-tracer")]
+                GethDebugTracerType::JsTracer(code) => {
+                    let config =
+                        tracer_config.map(|c| c.into_json()).unwrap_or(serde_json::Value::Null);
+                    js.push(JsInspector::new(code, config)?);
+                    continue;
+                }
+                #[cfg(not(feature = "js-tracer"))]
                 _ => return Err(Error::UnsupportedTracerType(tracer_type)),
             };
             #[allow(unreachable_patterns)]
@@ -104,7 +126,27 @@ impl MuxInspector {
 
         let tracing = (!configs.is_empty()).then(|| TracingInspector::new(inspector_config));
 
-        Ok(MuxInspector { four_byte, tracing, configs })
+        Ok(MuxInspector {
+            four_byte,
+            tracing,
+            #[cfg(feature = "js-tracer")]
+            js,
+            configs,
+        })
+    }
+
+    /// Attempts to create a copy of this inspector.
+    ///
+    /// This is fallible because JS tracers cannot be cloned and are re-created from their
+    /// original code instead.
+    pub fn try_clone(&self) -> Result<Self, Error> {
+        Ok(Self {
+            four_byte: self.four_byte.clone(),
+            tracing: self.tracing.clone(),
+            #[cfg(feature = "js-tracer")]
+            js: self.js.iter().map(JsInspector::try_clone).collect::<Result<_, _>>()?,
+            configs: self.configs.clone(),
+        })
     }
 
     /// Try converting this [MuxInspector] into a [MuxFrame].
@@ -165,6 +207,37 @@ impl MuxInspector {
 
         Ok(MuxFrame(frame))
     }
+
+    /// Same as [`Self::try_into_mux_frame`], but additionally resolves any configured JS
+    /// tracers into the frame, keyed by their original code as
+    /// [`GethDebugTracerType::JsTracer`].
+    #[cfg(feature = "js-tracer")]
+    pub fn try_into_mux_frame_with_js<DB: DatabaseRef>(
+        &mut self,
+        result: &ResultAndState<impl HaltReasonTr>,
+        tx: &impl Transaction,
+        block: &impl Block,
+        db: &DB,
+        tx_info: TransactionInfo,
+        tx_context: TransactionContext,
+    ) -> Result<MuxFrame, MuxJsFrameError<DB::Error>>
+    where
+        DB::Error: core::fmt::Display,
+    {
+        let mut frame =
+            self.try_into_mux_frame(result, db, tx_info).map_err(MuxJsFrameError::Database)?;
+
+        for inspector in &mut self.js {
+            inspector.set_transaction_context(tx_context);
+            let value = inspector.json_result(result.clone(), tx, block, db)?;
+            frame.0.insert(
+                GethDebugTracerType::JsTracer(inspector.code().to_string()),
+                GethTrace::JS(value),
+            );
+        }
+
+        Ok(frame)
+    }
 }
 
 impl<CTX> Inspector<CTX> for MuxInspector
@@ -189,6 +262,10 @@ where
         if let Some(ref mut inspector) = self.tracing {
             inspector.step(interp, context);
         }
+        #[cfg(feature = "js-tracer")]
+        for inspector in &mut self.js {
+            inspector.step(interp, context);
+        }
     }
 
     #[inline]
@@ -197,6 +274,10 @@ where
             inspector.step_end(interp, context);
         }
         if let Some(ref mut inspector) = self.tracing {
+            inspector.step_end(interp, context);
+        }
+        #[cfg(feature = "js-tracer")]
+        for inspector in &mut self.js {
             inspector.step_end(interp, context);
         }
     }
@@ -226,6 +307,10 @@ where
         if let Some(ref mut inspector) = self.four_byte {
             let _ = inspector.call(context, inputs);
         }
+        #[cfg(feature = "js-tracer")]
+        for inspector in &mut self.js {
+            let _ = inspector.call(context, inputs);
+        }
         if let Some(ref mut inspector) = self.tracing {
             return inspector.call(context, inputs);
         }
@@ -240,11 +325,19 @@ where
         if let Some(ref mut inspector) = self.tracing {
             inspector.call_end(context, inputs, outcome);
         }
+        #[cfg(feature = "js-tracer")]
+        for inspector in &mut self.js {
+            inspector.call_end(context, inputs, outcome);
+        }
     }
 
     #[inline]
     fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
         if let Some(ref mut inspector) = self.four_byte {
+            let _ = inspector.create(context, inputs);
+        }
+        #[cfg(feature = "js-tracer")]
+        for inspector in &mut self.js {
             let _ = inspector.create(context, inputs);
         }
         if let Some(ref mut inspector) = self.tracing {
@@ -266,6 +359,10 @@ where
         if let Some(ref mut inspector) = self.tracing {
             inspector.create_end(context, inputs, outcome);
         }
+        #[cfg(feature = "js-tracer")]
+        for inspector in &mut self.js {
+            inspector.create_end(context, inputs, outcome);
+        }
     }
 
     #[inline]
@@ -275,6 +372,10 @@ where
         }
         if let Some(ref mut inspector) = self.tracing {
             <TracingInspector as Inspector<CTX>>::selfdestruct(inspector, contract, target, value);
+        }
+        #[cfg(feature = "js-tracer")]
+        for inspector in &mut self.js {
+            <JsInspector as Inspector<CTX>>::selfdestruct(inspector, contract, target, value);
         }
     }
 
@@ -324,4 +425,20 @@ pub enum Error {
     /// Error when deserializing the config
     #[error("error deserializing config: {0}")]
     InvalidConfig(#[from] serde_json::Error),
+    /// Error from a JS tracer
+    #[cfg(feature = "js-tracer")]
+    #[error(transparent)]
+    Js(#[from] crate::tracing::js::JsInspectorError),
+}
+
+/// Error type for [`MuxInspector::try_into_mux_frame_with_js`]
+#[cfg(feature = "js-tracer")]
+#[derive(Debug, Error)]
+pub enum MuxJsFrameError<E> {
+    /// Database error while building the builtin tracer frames
+    #[error("database error: {0}")]
+    Database(E),
+    /// Error while resolving a JS tracer result
+    #[error(transparent)]
+    Js(#[from] crate::tracing::js::JsInspectorError),
 }
