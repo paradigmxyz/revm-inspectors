@@ -322,37 +322,56 @@ impl<W: Write> TraceWriter<W> {
         let log_style = self.log_style();
         self.write_branch()?;
 
-        if let Some(name) = log.decoded_name() {
-            write!(self.writer, "emit {name}({log_style}")?;
-            if let Some(params) = log.decoded_params() {
+        match (log.decoded_name(), log.decoded_params()) {
+            // Fully decoded event: `emit Name(param: value, ...)`.
+            (Some(name), Some(params)) => {
+                write!(self.writer, "emit {name}({log_style}")?;
                 for (i, (param_name, value)) in params.iter().enumerate() {
                     if i > 0 {
                         self.writer.write_all(b", ")?;
                     }
                     write!(self.writer, "{param_name}: {value}")?;
                 }
+                writeln!(self.writer, "{log_style:#})")?;
             }
-            writeln!(self.writer, "{log_style:#})")?;
-        } else {
-            for (i, topic) in log.raw_log.topics().iter().enumerate() {
-                if i == 0 {
-                    self.writer.write_all(b" emit topic 0")?;
-                } else {
-                    self.write_pipes()?;
-                    write!(self.writer, "       topic {i}")?;
-                }
-                writeln!(self.writer, ": {log_style}{topic}{log_style:#}")?;
+            // `topic0` matched a known event but the data is not ABI-decodable: surface the
+            // event name and still show the raw topics/data instead of dropping either half.
+            (Some(name), None) => {
+                writeln!(self.writer, "emit {name}")?;
+                self.write_raw_log(log, "       ")?;
             }
-
-            if !log.raw_log.topics().is_empty() {
-                self.write_pipes()?;
+            // Unknown event: raw topics/data only.
+            (None, _) => {
+                self.write_raw_log(log, " emit ")?;
             }
-            writeln!(
-                self.writer,
-                "          data: {log_style}{data}{log_style:#}",
-                data = log.raw_log.data
-            )?;
         }
+
+        Ok(())
+    }
+
+    /// Writes the raw topics and data of a `log`. `first_prefix` is printed inline before
+    /// `topic 0`, so the caller controls the first line: `" emit "` for a fully undecoded log,
+    /// or padding when an `emit Name` header line has already been written.
+    fn write_raw_log(&mut self, log: &CallLog, first_prefix: &str) -> io::Result<()> {
+        let log_style = self.log_style();
+        for (i, topic) in log.raw_log.topics().iter().enumerate() {
+            if i == 0 {
+                write!(self.writer, "{first_prefix}topic 0")?;
+            } else {
+                self.write_pipes()?;
+                write!(self.writer, "       topic {i}")?;
+            }
+            writeln!(self.writer, ": {log_style}{topic}{log_style:#}")?;
+        }
+
+        if !log.raw_log.topics().is_empty() {
+            self.write_pipes()?;
+        }
+        writeln!(
+            self.writer,
+            "          data: {log_style}{data}{log_style:#}",
+            data = log.raw_log.data
+        )?;
 
         Ok(())
     }
