@@ -621,11 +621,7 @@ where
             let log_count = self.log_count();
             let trace = self.last_trace();
             trace.ordering.push(TraceMemberOrder::Log(trace.logs.len()));
-            trace.logs.push(
-                CallLog::from(log)
-                    .with_position(trace.children.len() as u64)
-                    .with_index(log_count as u64),
-            );
+            trace.logs.push(CallLog::from(log).with_index(log_count as u64));
         }
     }
 
