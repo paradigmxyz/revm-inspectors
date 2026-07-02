@@ -189,7 +189,7 @@ pub struct CallLog {
     pub decoded: Option<Box<DecodedCallLog>>,
     /// The position of the log relative to subcalls within the same trace.
     pub position: u64,
-    /// The position of the log relative to subcalls within the same trace.
+    /// The index of the log in the transaction trace.
     pub index: u64,
 }
 
@@ -388,6 +388,35 @@ impl CallTraceNode {
         })
     }
 
+    /// Converts recorded logs into geth log frames.
+    ///
+    /// `CallLogFrame::position` is relative to child calls in the same frame, so derive it from
+    /// the recorded member ordering instead of persisting it while tracing.
+    fn geth_call_log_frames(&self) -> Vec<CallLogFrame> {
+        let mut log_positions = self.logs.iter().map(|log| log.position).collect::<Vec<_>>();
+        let mut call_position = 0;
+
+        for item in &self.ordering {
+            match *item {
+                TraceMemberOrder::Call(_) => call_position += 1,
+                TraceMemberOrder::Log(log_idx) => log_positions[log_idx] = call_position,
+                TraceMemberOrder::Step(_) => {}
+            }
+        }
+
+        self.logs
+            .iter()
+            .zip(log_positions)
+            .map(|(log, position)| CallLogFrame {
+                address: Some(log.address),
+                topics: Some(log.raw_log.topics().to_vec()),
+                data: Some(log.raw_log.data.clone()),
+                position: Some(position),
+                index: Some(log.index),
+            })
+            .collect()
+    }
+
     /// If the trace is a selfdestruct, returns the `TransactionTrace` for a parity trace.
     pub fn parity_selfdestruct_trace(&self, trace_address: Vec<usize>) -> Option<TransactionTrace> {
         let trace = self.parity_selfdestruct_action()?;
@@ -468,17 +497,7 @@ impl CallTraceNode {
         }
 
         if include_logs && !self.logs.is_empty() {
-            call_frame.logs = self
-                .logs
-                .iter()
-                .map(|log| CallLogFrame {
-                    address: Some(log.address),
-                    topics: Some(log.raw_log.topics().to_vec()),
-                    data: Some(log.raw_log.data.clone()),
-                    position: Some(log.position),
-                    index: Some(log.index),
-                })
-                .collect();
+            call_frame.logs = self.geth_call_log_frames();
         }
 
         call_frame
