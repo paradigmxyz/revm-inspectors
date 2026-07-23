@@ -23,7 +23,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        rust: ["stable", "nightly", "1.91"] # MSRV
+        rust: ["stable", "nightly", "1.94"] # MSRV
         flags: ["", "--all-features"]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -37,10 +37,10 @@ jobs:
           cache-on-failure: true
       # Only run tests on latest stable and above
       - name: build
-        if: ${{ matrix.rust == '1.91' }} # MSRV
+        if: ${{ matrix.rust == '1.94' }} # MSRV
         run: cargo build --workspace ${{ matrix.flags }}
       - name: test
-        if: ${{ matrix.rust != '1.91' }} # MSRV
+        if: ${{ matrix.rust != '1.94' }} # MSRV
         run: cargo test --workspace ${{ matrix.flags }}
 
   feature-checks:
