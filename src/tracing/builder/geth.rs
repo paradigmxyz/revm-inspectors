@@ -20,7 +20,7 @@ use alloy_rpc_types_trace::geth::{
 };
 use revm::{
     bytecode::opcode,
-    context_interface::result::{HaltReasonTr, ResultAndState},
+    context_interface::result::{HaltReasonTr, ResultAndState, ResultGas},
     primitives::KECCAK_EMPTY,
     state::{AccountInfo, EvmState},
     DatabaseRef,
@@ -123,6 +123,20 @@ impl<'a> GethTraceBuilder<'a> {
         return_value: Bytes,
         opts: GethDefaultTracingOptions,
     ) -> DefaultFrame {
+        self.geth_traces_with_result_gas(
+            ResultGas::default().with_total_gas_spent(receipt_gas_used),
+            return_value,
+            opts,
+        )
+    }
+
+    /// Generate a geth-style trace with EIP-8037 transaction gas accounting.
+    pub fn geth_traces_with_result_gas(
+        &self,
+        gas: ResultGas,
+        return_value: Bytes,
+        opts: GethDefaultTracingOptions,
+    ) -> DefaultFrame {
         if self.nodes.is_empty() {
             return Default::default();
         }
@@ -138,7 +152,11 @@ impl<'a> GethTraceBuilder<'a> {
         DefaultFrame {
             // If the top-level trace succeeded, then it was a success
             failed: !main_trace.success,
-            gas: receipt_gas_used,
+            gas: gas.tx_gas_used(),
+            regular_gas_used: (gas.state_gas_spent_final() > 0)
+                .then_some(gas.block_regular_gas_used()),
+            state_gas_used: (gas.state_gas_spent_final() > 0).then_some(gas.block_state_gas_used()),
+            gas_refund: (gas.state_gas_spent_final() > 0).then_some(gas.final_refunded()),
             return_value,
             struct_logs,
             ..Default::default()
@@ -153,6 +171,14 @@ impl<'a> GethTraceBuilder<'a> {
     /// [revm::context::result::ExecutionResult] of the executed
     /// transaction.
     pub fn geth_call_traces(&self, opts: CallConfig, gas_used: u64) -> CallFrame {
+        self.geth_call_traces_with_result_gas(
+            opts,
+            ResultGas::default().with_total_gas_spent(gas_used),
+        )
+    }
+
+    /// Generate a geth-style call trace with EIP-8037 transaction gas accounting.
+    pub fn geth_call_traces_with_result_gas(&self, opts: CallConfig, gas: ResultGas) -> CallFrame {
         if self.nodes.is_empty() {
             return Default::default();
         }
@@ -161,7 +187,12 @@ impl<'a> GethTraceBuilder<'a> {
         // first fill up the root
         let main_trace_node = &self.nodes[0];
         let mut root_call_frame = main_trace_node.geth_empty_call_frame(include_logs);
-        root_call_frame.gas_used = U256::from(gas_used);
+        root_call_frame.gas_used = U256::from(gas.tx_gas_used());
+        if gas.state_gas_spent_final() > 0 {
+            root_call_frame.regular_gas_used = Some(U256::from(gas.block_regular_gas_used()));
+            root_call_frame.state_gas_used = Some(U256::from(gas.block_state_gas_used()));
+            root_call_frame.gas_refund = Some(U256::from(gas.final_refunded()));
+        }
 
         // selfdestructs are not recorded as individual call traces but are derived from
         // the call trace and are added as additional `CallFrame` objects to the parent call
