@@ -134,12 +134,14 @@ impl<'a> GethTraceBuilder<'a> {
         let mut storage = HashMap::default();
         self.fill_geth_trace(main_trace_node, &opts, &mut storage, &mut struct_logs);
 
+        #[allow(clippy::needless_update)]
         DefaultFrame {
             // If the top-level trace succeeded, then it was a success
             failed: !main_trace.success,
             gas: receipt_gas_used,
             return_value,
             struct_logs,
+            ..Default::default()
         }
     }
 
