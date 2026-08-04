@@ -705,6 +705,7 @@ impl CallTraceStep {
         opts: &GethDefaultTracingOptions,
         depth: u64,
     ) -> StructLog {
+        #[allow(clippy::needless_update)]
         StructLog {
             depth,
             error: self.as_error(),
@@ -731,6 +732,7 @@ impl CallTraceStep {
 
             // This is always `None` in the RPC response.
             memory_size: None,
+            ..Default::default()
         }
     }
 
