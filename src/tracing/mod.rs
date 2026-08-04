@@ -21,7 +21,7 @@ use revm::{
         CallInput, CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, Interpreter,
         InterpreterResult,
     },
-    primitives::{hardfork::SpecId, Address, Bytes, Log, B256, U256},
+    primitives::{hardfork::SpecId, Address, Bytes, Log, B256, I256, U256},
     Inspector, JournalEntry,
 };
 
@@ -494,6 +494,12 @@ impl TracingInspector {
             gas_refund_counter: interp.gas.refunded() as u64,
             gas_used,
             immediate_bytes,
+            state_gas_cost: None,
+            state_gas_reservoir: (interp.gas.reservoir() > 0
+                || interp.gas.state_gas_spent() != 0
+                || interp.gas.state_gas_spilled() != 0)
+                .then_some(interp.gas.reservoir()),
+            state_gas_spent: interp.gas.state_gas_spent(),
 
             // These fields will be populated in `step_end`.
             push_stack: None,
@@ -591,6 +597,10 @@ impl TracingInspector {
         // step the remaining gas here, at the end of the step.
         // TODO: Figure out why this can overflow. https://github.com/paradigmxyz/revm-inspectors/pull/38
         step.gas_cost = step.gas_remaining.saturating_sub(interp.gas.remaining());
+        let state_gas_delta = interp.gas.state_gas_spent().saturating_sub(step.state_gas_spent);
+        if state_gas_delta != 0 {
+            step.state_gas_cost = Some(I256::try_from(state_gas_delta).unwrap());
+        }
 
         // set the status
         step.status = interp.bytecode.action().as_ref().and_then(|i| i.instruction_result())

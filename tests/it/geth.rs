@@ -156,6 +156,41 @@ fn test_geth_erc7562_tracer() {
 }
 
 #[test]
+fn test_geth_state_gas_tracer() {
+    let caller = address!("1000000000000000000000000000000000000002");
+    let context = Context::mainnet().with_db(CacheDB::<EmptyDB>::default());
+    let mut inspector = DebugInspector::new(GethDebugTracingOptions::state_gas_tracer()).unwrap();
+    let mut evm = context.build_mainnet().with_inspector(&mut inspector);
+
+    let res = evm
+        .inspect_tx(TxEnv {
+            caller,
+            gas_limit: 1000000,
+            kind: TransactTo::Call(Address::ZERO),
+            data: Bytes::default(),
+            nonce: 0,
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(res.result.is_success(), "{res:#?}");
+
+    let (ctx, inspector) = evm.ctx_inspector();
+    let tx_env = ctx.tx().clone();
+    let block_env = ctx.block().clone();
+    let trace = inspector.get_result(None, &tx_env, &block_env, &res, ctx.db_mut()).unwrap();
+
+    match trace {
+        GethTrace::StateGasTracer(frame) => {
+            assert_eq!(frame.gas_used, res.result.gas().tx_gas_used());
+            assert_eq!(frame.regular_gas_used, res.result.gas().block_regular_gas_used());
+            assert_eq!(frame.state_gas_used, res.result.gas().block_state_gas_used());
+            assert_eq!(frame.gas_refund, res.result.gas().final_refunded());
+        }
+        _ => panic!("Expected StateGasTracer"),
+    }
+}
+
+#[test]
 fn test_geth_mux_tracer() {
     /*
     contract LogTracing {
