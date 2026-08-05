@@ -9,7 +9,7 @@ use alloc::{
     vec::Vec,
 };
 pub use alloy_primitives::Log;
-use alloy_primitives::{Address, Bytes, FixedBytes, LogData, I256, U256};
+use alloy_primitives::{Address, Bytes, FixedBytes, LogData, U256};
 use alloy_rpc_types_trace::{
     geth::{CallFrame, CallLogFrame, GethDefaultTracingOptions, StructLog},
     parity::{
@@ -687,10 +687,11 @@ pub struct CallTraceStep {
     /// Gas cost of step execution
     pub gas_cost: u64,
     /// Net state-gas change caused by this step.
-    pub state_gas_cost: Option<I256>,
+    pub state_gas_cost: Option<i64>,
     /// State-gas reservoir before this step.
     pub state_gas_reservoir: Option<u64>,
     /// State-gas spent before this step, used to calculate `state_gas_cost`.
+    #[cfg_attr(feature = "serde", serde(skip))]
     pub state_gas_spent: i64,
     /// Change of the contract state after step execution (effect of the SLOAD/SSTORE instructions)
     pub storage_change: Option<Box<StorageChange>>,

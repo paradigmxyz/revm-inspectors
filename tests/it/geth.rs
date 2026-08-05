@@ -1,6 +1,6 @@
 //! Geth tests
 use crate::utils::deploy_contract;
-use alloy_primitives::{address, hex, map::HashMap, Address, Bytes, TxKind, B256};
+use alloy_primitives::{address, hex, map::HashMap, Address, Bytes, TxKind, B256, U256};
 use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::geth::{
     erc7562::Erc7562Config, mux::MuxConfig, CallConfig, FlatCallConfig, GethDebugBuiltInTracerType,
@@ -10,7 +10,7 @@ use alloy_rpc_types_trace::geth::{
 use revm::{
     bytecode::{opcode, Bytecode},
     context::TxEnv,
-    context_interface::{ContextTr, TransactTo},
+    context_interface::{result::ResultGas, ContextTr, TransactTo},
     database::CacheDB,
     database_interface::EmptyDB,
     handler::EvmTr,
@@ -155,18 +155,31 @@ fn test_geth_erc7562_tracer() {
     }
 }
 
-#[test]
-fn test_geth_state_gas_tracer() {
+fn trace_contract(
+    spec: SpecId,
+    opts: GethDebugTracingOptions,
+    code: Bytes,
+) -> (GethTrace, ResultGas) {
+    let contract = address!("1000000000000000000000000000000000000001");
     let caller = address!("1000000000000000000000000000000000000002");
-    let context = Context::mainnet().with_db(CacheDB::<EmptyDB>::default());
-    let mut inspector = DebugInspector::new(GethDebugTracingOptions::state_gas_tracer()).unwrap();
+    let context = Context::mainnet()
+        .with_db(CacheDB::<EmptyDB>::default())
+        .modify_cfg_chained(|cfg| cfg.set_spec_and_mainnet_gas_params(spec))
+        .modify_db_chained(|db| {
+            db.insert_account_info(
+                contract,
+                AccountInfo { code: Some(Bytecode::new_raw(code)), ..Default::default() },
+            );
+        });
+    let mut inspector = DebugInspector::new(opts).unwrap();
     let mut evm = context.build_mainnet().with_inspector(&mut inspector);
 
     let res = evm
         .inspect_tx(TxEnv {
             caller,
-            gas_limit: 1000000,
-            kind: TransactTo::Call(Address::ZERO),
+            gas_limit: 1_000_000,
+            gas_price: 0,
+            kind: TransactTo::Call(contract),
             data: Bytes::default(),
             nonce: 0,
             ..Default::default()
@@ -178,15 +191,100 @@ fn test_geth_state_gas_tracer() {
     let tx_env = ctx.tx().clone();
     let block_env = ctx.block().clone();
     let trace = inspector.get_result(None, &tx_env, &block_env, &res, ctx.db_mut()).unwrap();
+    (trace, *res.result.gas())
+}
+
+#[test]
+fn test_geth_state_gas_tracer() {
+    // SSTORE slot 0 from zero to one, then STOP.
+    let code = hex!("600160005500").into();
+    let (trace, gas) =
+        trace_contract(SpecId::AMSTERDAM, GethDebugTracingOptions::state_gas_tracer(), code);
+    assert!(gas.block_state_gas_used() > 0);
 
     match trace {
         GethTrace::StateGasTracer(frame) => {
-            assert_eq!(frame.gas_used, res.result.gas().tx_gas_used());
-            assert_eq!(frame.regular_gas_used, res.result.gas().block_regular_gas_used());
-            assert_eq!(frame.state_gas_used, res.result.gas().block_state_gas_used());
-            assert_eq!(frame.gas_refund, res.result.gas().final_refunded());
+            assert_eq!(frame.gas_used, gas.tx_gas_used());
+            assert_eq!(frame.regular_gas_used, gas.block_regular_gas_used());
+            assert_eq!(frame.state_gas_used, gas.block_state_gas_used());
+            assert_eq!(frame.gas_refund, gas.final_refunded());
         }
         _ => panic!("Expected StateGasTracer"),
+    }
+}
+
+#[test]
+fn test_geth_eip8037_fields_follow_fork() {
+    // SSTORE slot 0 from zero to one and restore it to zero. This exercises both positive and
+    // negative per-opcode state-gas changes while leaving the transaction's final state gas at
+    // zero.
+    let code = hex!("6001600055600060005500");
+
+    for (spec, enabled) in [(SpecId::OSAKA, false), (SpecId::AMSTERDAM, true)] {
+        let (trace, gas) = trace_contract(spec, GethDebugTracingOptions::default(), code.into());
+        assert_eq!(gas.block_state_gas_used(), 0);
+
+        let GethTrace::Default(frame) = trace else {
+            panic!("Expected default tracer");
+        };
+        assert_eq!(frame.regular_gas_used, enabled.then_some(gas.block_regular_gas_used()));
+        assert_eq!(frame.state_gas_used, enabled.then_some(0));
+        assert_eq!(frame.gas_refund, enabled.then_some(gas.final_refunded()));
+
+        let sstores =
+            frame.struct_logs.iter().filter(|log| log.opcode() == "SSTORE").collect::<Vec<_>>();
+        assert_eq!(sstores.len(), 2);
+        if enabled {
+            assert!(sstores[0].state_gas_cost.is_some_and(|cost| cost > 0), "{sstores:#?}");
+            assert!(sstores[1].state_gas_cost.is_some_and(|cost| cost < 0), "{sstores:#?}");
+            assert!(frame.struct_logs.iter().all(|log| log.state_gas_reservoir.is_some()));
+        } else {
+            assert!(frame
+                .struct_logs
+                .iter()
+                .all(|log| { log.state_gas_cost.is_none() && log.state_gas_reservoir.is_none() }));
+        }
+
+        let value = serde_json::to_value(&frame).unwrap();
+        assert_eq!(value.get("regularGasUsed").is_some(), enabled);
+        assert_eq!(value.get("stateGasUsed").is_some(), enabled);
+        assert_eq!(value.get("gasRefund").is_some(), enabled);
+        if enabled {
+            let sstore_logs = value["structLogs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .filter(|log| log["op"] == "SSTORE")
+                .collect::<Vec<_>>();
+            assert!(sstore_logs[0]["stateGasCost"].as_i64().is_some_and(|cost| cost > 0));
+            assert!(sstore_logs[1]["stateGasCost"].as_i64().is_some_and(|cost| cost < 0));
+        }
+
+        let (trace, call_gas) = trace_contract(
+            spec,
+            GethDebugTracingOptions::call_tracer(CallConfig::default()),
+            code.into(),
+        );
+        let GethTrace::CallTracer(frame) = trace else {
+            panic!("Expected call tracer");
+        };
+        assert_eq!(
+            frame.regular_gas_used,
+            enabled.then(|| U256::from(call_gas.block_regular_gas_used()))
+        );
+        assert_eq!(frame.state_gas_used, enabled.then_some(U256::ZERO));
+        assert_eq!(frame.gas_refund, enabled.then(|| U256::from(call_gas.final_refunded())));
+
+        // Empty-code calls do not initialize an interpreter, so the fork must also be captured at
+        // frame entry.
+        let (trace, empty_gas) =
+            trace_contract(spec, GethDebugTracingOptions::default(), Bytes::new());
+        let GethTrace::Default(frame) = trace else {
+            panic!("Expected default tracer");
+        };
+        assert_eq!(frame.regular_gas_used, enabled.then_some(empty_gas.block_regular_gas_used()));
+        assert_eq!(frame.state_gas_used, enabled.then_some(0));
+        assert_eq!(frame.gas_refund, enabled.then_some(empty_gas.final_refunded()));
     }
 }
 
@@ -255,6 +353,7 @@ fn test_geth_mux_tracer() {
             GethDebugTracerType::BuiltInTracer(GethDebugBuiltInTracerType::FlatCallTracer),
             Some(GethDebugTracerConfig(serde_json::to_value(flatcall_config).unwrap())),
         ),
+        (GethDebugTracerType::BuiltInTracer(GethDebugBuiltInTracerType::StateGasTracer), None),
     ]));
 
     let mut insp = MuxInspector::try_from_config(config.clone()).unwrap();
@@ -277,7 +376,7 @@ fn test_geth_mux_tracer() {
     let frame =
         inspector.try_into_mux_frame(&res, ctx.db_ref(), TransactionInfo::default()).unwrap();
 
-    assert_eq!(frame.0.len(), 4);
+    assert_eq!(frame.0.len(), 5);
     assert!(frame.0.contains_key(&GethDebugTracerType::BuiltInTracer(
         GethDebugBuiltInTracerType::FourByteTracer
     )));
@@ -289,6 +388,9 @@ fn test_geth_mux_tracer() {
     )));
     assert!(frame.0.contains_key(&GethDebugTracerType::BuiltInTracer(
         GethDebugBuiltInTracerType::FlatCallTracer
+    )));
+    assert!(frame.0.contains_key(&GethDebugTracerType::BuiltInTracer(
+        GethDebugBuiltInTracerType::StateGasTracer
     )));
 
     let four_byte_frame = frame.0
@@ -344,6 +446,19 @@ fn test_geth_mux_tracer() {
             assert!(traces[5].trace.error.is_none());
         }
         _ => panic!("Expected FlatCallTracer"),
+    }
+
+    let state_gas_frame = frame.0
+        [&GethDebugTracerType::BuiltInTracer(GethDebugBuiltInTracerType::StateGasTracer)]
+        .clone();
+    match state_gas_frame {
+        GethTrace::StateGasTracer(state_gas) => {
+            assert_eq!(state_gas.gas_used, res.result.gas().tx_gas_used());
+            assert_eq!(state_gas.regular_gas_used, res.result.gas().block_regular_gas_used());
+            assert_eq!(state_gas.state_gas_used, res.result.gas().block_state_gas_used());
+            assert_eq!(state_gas.gas_refund, res.result.gas().final_refunded());
+        }
+        _ => panic!("Expected StateGasTracer"),
     }
 }
 

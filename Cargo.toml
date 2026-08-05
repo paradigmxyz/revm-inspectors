@@ -75,4 +75,4 @@ js-tracer = ["dep:boa_engine", "dep:boa_gc"]
 
 [patch.crates-io]
 # Temporary dependency patch for the pending EIP-8037 RPC types.
-alloy-rpc-types-trace = { git = "https://github.com/alloy-rs/alloy", rev = "bfd6f67cd4b96a207797d9520a5ee592518e9828" }
+alloy-rpc-types-trace = { git = "https://github.com/alloy-rs/alloy", rev = "8c1630dfe56b55214d210726da9562faafc475af" }
