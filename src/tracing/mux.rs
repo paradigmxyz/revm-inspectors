@@ -159,7 +159,7 @@ impl MuxInspector {
                 TraceConfig::Noop => NoopFrame::default().into(),
                 TraceConfig::StateGas => StateGasTrace {
                     gas_used: result.result.gas().tx_gas_used(),
-                    regular_gas_used: result.result.gas().block_regular_gas_used(),
+                    execution_gas_used: result.result.gas().block_regular_gas_used(),
                     state_gas_used: result.result.gas().block_state_gas_used(),
                     gas_refund: result.result.gas().final_refunded(),
                 }

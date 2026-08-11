@@ -246,7 +246,7 @@ impl DebugInspector {
             Self::Noop(_) => NoopFrame::default().into(),
             Self::StateGasTracer(_) => alloy_rpc_types_trace::geth::StateGasTrace {
                 gas_used: res.result.gas().tx_gas_used(),
-                regular_gas_used: res.result.gas().block_regular_gas_used(),
+                execution_gas_used: res.result.gas().block_regular_gas_used(),
                 state_gas_used: res.result.gas().block_state_gas_used(),
                 gas_refund: res.result.gas().final_refunded(),
             }

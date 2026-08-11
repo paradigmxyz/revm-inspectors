@@ -173,7 +173,7 @@ impl<'a> GethTraceBuilder<'a> {
             // If the top-level trace succeeded, then it was a success
             failed: !main_trace.success,
             gas: receipt_gas_used,
-            regular_gas_used: gas.map(|gas| gas.block_regular_gas_used()),
+            execution_gas_used: gas.map(|gas| gas.block_regular_gas_used()),
             state_gas_used: gas.map(|gas| gas.block_state_gas_used()),
             gas_refund: gas.map(|gas| gas.final_refunded()),
             return_value,
@@ -214,7 +214,7 @@ impl<'a> GethTraceBuilder<'a> {
         let mut root_call_frame = main_trace_node.geth_empty_call_frame(include_logs);
         root_call_frame.gas_used = U256::from(gas_used);
         if let Some(gas) = gas.filter(|_| self.is_eip8037_enabled()) {
-            root_call_frame.regular_gas_used = Some(U256::from(gas.block_regular_gas_used()));
+            root_call_frame.execution_gas_used = Some(U256::from(gas.block_regular_gas_used()));
             root_call_frame.state_gas_used = Some(U256::from(gas.block_state_gas_used()));
             root_call_frame.gas_refund = Some(U256::from(gas.final_refunded()));
         }

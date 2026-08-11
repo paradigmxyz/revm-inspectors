@@ -205,7 +205,7 @@ fn test_geth_state_gas_tracer() {
     match trace {
         GethTrace::StateGasTracer(frame) => {
             assert_eq!(frame.gas_used, gas.tx_gas_used());
-            assert_eq!(frame.regular_gas_used, gas.block_regular_gas_used());
+            assert_eq!(frame.execution_gas_used, gas.block_regular_gas_used());
             assert_eq!(frame.state_gas_used, gas.block_state_gas_used());
             assert_eq!(frame.gas_refund, gas.final_refunded());
         }
@@ -227,7 +227,7 @@ fn test_geth_eip8037_fields_follow_fork() {
         let GethTrace::Default(frame) = trace else {
             panic!("Expected default tracer");
         };
-        assert_eq!(frame.regular_gas_used, enabled.then_some(gas.block_regular_gas_used()));
+        assert_eq!(frame.execution_gas_used, enabled.then_some(gas.block_regular_gas_used()));
         assert_eq!(frame.state_gas_used, enabled.then_some(0));
         assert_eq!(frame.gas_refund, enabled.then_some(gas.final_refunded()));
 
@@ -246,7 +246,7 @@ fn test_geth_eip8037_fields_follow_fork() {
         }
 
         let value = serde_json::to_value(&frame).unwrap();
-        assert_eq!(value.get("regularGasUsed").is_some(), enabled);
+        assert_eq!(value.get("executionGasUsed").is_some(), enabled);
         assert_eq!(value.get("stateGasUsed").is_some(), enabled);
         assert_eq!(value.get("gasRefund").is_some(), enabled);
         if enabled {
@@ -269,7 +269,7 @@ fn test_geth_eip8037_fields_follow_fork() {
             panic!("Expected call tracer");
         };
         assert_eq!(
-            frame.regular_gas_used,
+            frame.execution_gas_used,
             enabled.then(|| U256::from(call_gas.block_regular_gas_used()))
         );
         assert_eq!(frame.state_gas_used, enabled.then_some(U256::ZERO));
@@ -282,7 +282,7 @@ fn test_geth_eip8037_fields_follow_fork() {
         let GethTrace::Default(frame) = trace else {
             panic!("Expected default tracer");
         };
-        assert_eq!(frame.regular_gas_used, enabled.then_some(empty_gas.block_regular_gas_used()));
+        assert_eq!(frame.execution_gas_used, enabled.then_some(empty_gas.block_regular_gas_used()));
         assert_eq!(frame.state_gas_used, enabled.then_some(0));
         assert_eq!(frame.gas_refund, enabled.then_some(empty_gas.final_refunded()));
     }
@@ -454,7 +454,7 @@ fn test_geth_mux_tracer() {
     match state_gas_frame {
         GethTrace::StateGasTracer(state_gas) => {
             assert_eq!(state_gas.gas_used, res.result.gas().tx_gas_used());
-            assert_eq!(state_gas.regular_gas_used, res.result.gas().block_regular_gas_used());
+            assert_eq!(state_gas.execution_gas_used, res.result.gas().block_regular_gas_used());
             assert_eq!(state_gas.state_gas_used, res.result.gas().block_state_gas_used());
             assert_eq!(state_gas.gas_refund, res.result.gas().final_refunded());
         }
