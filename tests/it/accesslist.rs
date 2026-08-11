@@ -1,11 +1,92 @@
 //! Accesslist tests
 
-use alloy_primitives::{address, hex};
+use alloy_primitives::{address, b256, hex};
+use alloy_rpc_types_eth::{AccessList, AccessListItem};
 use revm::{
     bytecode::Bytecode, context::TxEnv, context_interface::TransactTo, database::CacheDB,
     database_interface::EmptyDB, state::AccountInfo, Context, InspectEvm, MainBuilder, MainContext,
 };
 use revm_inspectors::access_list::AccessListInspector;
+
+#[test]
+fn access_list_addresses_are_sorted() {
+    let lower = address!("0000000000000000000000000000000000000001");
+    let higher = address!("0000000000000000000000000000000000000002");
+    let lower_slot = b256!("0000000000000000000000000000000000000000000000000000000000000001");
+    let higher_slot = b256!("0000000000000000000000000000000000000000000000000000000000000002");
+    let inspector = AccessListInspector::new(AccessList(vec![
+        AccessListItem { address: higher, storage_keys: vec![higher_slot, lower_slot] },
+        AccessListItem { address: lower, storage_keys: vec![] },
+    ]));
+
+    let expected = AccessList(vec![
+        AccessListItem { address: lower, storage_keys: vec![] },
+        AccessListItem { address: higher, storage_keys: vec![lower_slot, higher_slot] },
+    ]);
+    assert_eq!(inspector.access_list(), expected);
+    assert_eq!(inspector.into_access_list(), expected);
+}
+
+#[test]
+fn initial_access_list_merges_slots_for_duplicate_addresses() {
+    let account = address!("0000000000000000000000000000000000000010");
+    let lower_slot = b256!("0000000000000000000000000000000000000000000000000000000000000001");
+    let higher_slot = b256!("0000000000000000000000000000000000000000000000000000000000000002");
+    let inspector = AccessListInspector::new(AccessList(vec![
+        AccessListItem { address: account, storage_keys: vec![higher_slot, lower_slot] },
+        AccessListItem { address: account, storage_keys: vec![lower_slot] },
+    ]));
+
+    let expected = AccessList(vec![AccessListItem {
+        address: account,
+        storage_keys: vec![lower_slot, higher_slot],
+    }]);
+    assert_eq!(inspector.access_list(), expected);
+    assert_eq!(inspector.into_access_list(), expected);
+}
+
+#[test]
+fn initial_access_list_omits_addresses_excluded_by_execution() {
+    let caller = address!("0000000000000000000000000000000000000010");
+    let callee = address!("0000000000000000000000000000000000000020");
+    let retained = address!("0000000000000000000000000000000000000030");
+    let precompile = address!("0000000000000000000000000000000000000001");
+    let slot = b256!("0000000000000000000000000000000000000000000000000000000000000001");
+    let initial_access_list = AccessList(vec![
+        AccessListItem { address: caller, storage_keys: vec![] },
+        AccessListItem { address: callee, storage_keys: vec![slot] },
+        AccessListItem { address: precompile, storage_keys: vec![] },
+        AccessListItem { address: retained, storage_keys: vec![slot] },
+    ]);
+    let context =
+        Context::mainnet().with_db(CacheDB::<EmptyDB>::default()).modify_db_chained(|db| {
+            db.insert_account_info(
+                callee,
+                AccountInfo {
+                    code: Some(Bytecode::new_raw(hex!("00").into())),
+                    ..Default::default()
+                },
+            );
+        });
+
+    let mut inspector = AccessListInspector::new(initial_access_list);
+    let mut evm = context.build_mainnet().with_inspector(&mut inspector);
+    let result = evm
+        .inspect_tx(TxEnv {
+            caller,
+            gas_limit: 100_000,
+            kind: TransactTo::Call(callee),
+            nonce: 0,
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(result.result.is_success(), "{result:#?}");
+
+    assert_eq!(
+        inspector.into_access_list(),
+        AccessList(vec![AccessListItem { address: retained, storage_keys: vec![slot] }])
+    );
+}
 
 #[test]
 fn test_access_list_precompile() {
