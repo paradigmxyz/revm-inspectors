@@ -1,6 +1,6 @@
 //! Geth tests
 use crate::utils::deploy_contract;
-use alloy_primitives::{address, hex, map::HashMap, Address, Bytes, TxKind, B256};
+use alloy_primitives::{address, hex, map::HashMap, Address, Bytes, LogData, TxKind, B256};
 use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::geth::{
     erc7562::Erc7562Config, mux::MuxConfig, CallConfig, FlatCallConfig, GethDebugBuiltInTracerType,
@@ -20,8 +20,49 @@ use revm::{
     Context, InspectEvm, MainBuilder, MainContext,
 };
 use revm_inspectors::tracing::{
+    types::{CallLog, CallTraceNode, TraceMemberOrder},
     DebugInspector, MuxInspector, TracingInspector, TracingInspectorConfig,
 };
+
+#[test]
+fn test_geth_calltracer_log_positions_are_derived_from_ordering() {
+    fn call_log(index: u64) -> CallLog {
+        CallLog {
+            address: Address::ZERO,
+            raw_log: LogData::default(),
+            decoded: None,
+            // Use a stale value to ensure geth output derives position from node ordering.
+            position: 99,
+            index,
+        }
+    }
+
+    let node = CallTraceNode {
+        children: vec![1, 2],
+        logs: vec![call_log(0), call_log(1), call_log(2), call_log(3)],
+        ordering: vec![
+            TraceMemberOrder::Log(0),
+            TraceMemberOrder::Call(0),
+            TraceMemberOrder::Log(1),
+            TraceMemberOrder::Log(2),
+            TraceMemberOrder::Call(1),
+            TraceMemberOrder::Log(3),
+        ],
+        ..Default::default()
+    };
+
+    let frame = node.geth_empty_call_frame(true);
+
+    assert_eq!(frame.logs.len(), 4);
+    assert_eq!(
+        frame.logs.iter().map(|log| log.position).collect::<Vec<_>>(),
+        vec![Some(0), Some(1), Some(1), Some(2)]
+    );
+    assert_eq!(
+        frame.logs.iter().map(|log| log.index).collect::<Vec<_>>(),
+        vec![Some(0), Some(1), Some(2), Some(3)]
+    );
+}
 
 #[test]
 fn test_geth_calltracer_logs() {
