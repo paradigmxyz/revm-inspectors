@@ -686,6 +686,13 @@ pub struct CallTraceStep {
     // Fields filled in `step_end`
     /// Gas cost of step execution
     pub gas_cost: u64,
+    /// Net state-gas change caused by this step.
+    pub state_gas_cost: Option<i64>,
+    /// State-gas reservoir before this step.
+    pub state_gas_reservoir: Option<u64>,
+    /// State-gas spent before this step, used to calculate `state_gas_cost`.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub state_gas_spent: i64,
     /// Change of the contract state after step execution (effect of the SLOAD/SSTORE instructions)
     pub storage_change: Option<Box<StorageChange>>,
     /// Final status of the step
@@ -713,6 +720,8 @@ impl CallTraceStep {
             error: self.as_error(),
             gas: self.gas_remaining,
             gas_cost: self.gas_cost,
+            state_gas_cost: self.state_gas_cost,
+            state_gas_reservoir: self.state_gas_reservoir,
             op: if self.op.is_valid() { self.op.as_str().into() } else { "Unknown".into() },
             pc: self.pc as u64,
             refund_counter: Some(self.gas_refund_counter),

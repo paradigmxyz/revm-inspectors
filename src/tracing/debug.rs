@@ -40,6 +40,8 @@ pub enum DebugInspector {
     PreStateTracer(TracingInspector, PreStateConfig),
     /// Noop tracer
     Noop(revm::inspector::NoOpInspector),
+    /// EIP-8037 state-gas tracer
+    StateGasTracer(revm::inspector::NoOpInspector),
     /// Mux tracer
     Mux(MuxInspector, MuxConfig),
     /// FlatCallTracer
@@ -63,6 +65,7 @@ impl DebugInspector {
                 Self::PreStateTracer(inspector.clone(), *config)
             }
             Self::Noop(inspector) => Self::Noop(*inspector),
+            Self::StateGasTracer(inspector) => Self::StateGasTracer(*inspector),
             Self::Mux(inspector, config) => Self::Mux(inspector.clone(), config.clone()),
             Self::FlatCallTracer(inspector) => Self::FlatCallTracer(inspector.clone()),
             Self::Erc7562Tracer(inspector, config) => {
@@ -111,6 +114,9 @@ impl DebugInspector {
                     }
                     GethDebugBuiltInTracerType::NoopTracer => {
                         Self::Noop(revm::inspector::NoOpInspector)
+                    }
+                    GethDebugBuiltInTracerType::StateGasTracer => {
+                        Self::StateGasTracer(revm::inspector::NoOpInspector)
                     }
                     GethDebugBuiltInTracerType::MuxTracer => {
                         let config = tracer_config
@@ -187,7 +193,7 @@ impl DebugInspector {
             | Self::FlatCallTracer(inspector)
             | Self::Erc7562Tracer(inspector, _)
             | Self::Default(inspector, _) => inspector.fuse(),
-            Self::Noop(_) => {}
+            Self::Noop(_) | Self::StateGasTracer(_) => {}
             Self::Mux(inspector, config) => {
                 *inspector = MuxInspector::try_from_config(config.clone())?;
             }
@@ -224,7 +230,10 @@ impl DebugInspector {
             Self::CallTracer(inspector, config) => {
                 inspector.set_transaction_gas_limit(tx_env.gas_limit());
                 inspector.set_transaction_caller(tx_env.caller());
-                inspector.geth_builder().geth_call_traces(*config, res.result.tx_gas_used()).into()
+                inspector
+                    .geth_builder()
+                    .geth_call_traces_with_result_gas(*config, *res.result.gas())
+                    .into()
             }
             Self::PreStateTracer(inspector, config) => {
                 inspector.set_transaction_gas_limit(tx_env.gas_limit());
@@ -235,6 +244,13 @@ impl DebugInspector {
                     .into()
             }
             Self::Noop(_) => NoopFrame::default().into(),
+            Self::StateGasTracer(_) => alloy_rpc_types_trace::geth::StateGasTrace {
+                gas_used: res.result.gas().tx_gas_used(),
+                execution_gas_used: res.result.gas().block_regular_gas_used(),
+                state_gas_used: res.result.gas().block_state_gas_used(),
+                gas_refund: res.result.gas().final_refunded(),
+            }
+            .into(),
             Self::Mux(inspector, _) => inspector
                 .try_into_mux_frame(res, db, tx_info)
                 .map_err(DebugInspectorError::Database)?
@@ -261,8 +277,8 @@ impl DebugInspector {
                 inspector.set_transaction_caller(tx_env.caller());
                 inspector
                     .geth_builder()
-                    .geth_traces(
-                        res.result.tx_gas_used(),
+                    .geth_traces_with_result_gas(
+                        *res.result.gas(),
                         res.result.output().unwrap_or_default().clone(),
                         *config,
                     )
@@ -293,6 +309,7 @@ macro_rules! delegate {
             Self::Erc7562Tracer($insp, _) => Inspector::<CTX>::$method($insp, $($arg),*),
             Self::Default($insp, _) => Inspector::<CTX>::$method($insp, $($arg),*),
             Self::Noop($insp) => Inspector::<CTX>::$method($insp, $($arg),*),
+            Self::StateGasTracer($insp) => Inspector::<CTX>::$method($insp, $($arg),*),
             Self::Mux($insp, _) => Inspector::<CTX>::$method($insp, $($arg),*),
             #[cfg(feature = "js-tracer")]
             Self::Js($insp) => Inspector::<CTX>::$method($insp, $($arg),*),
