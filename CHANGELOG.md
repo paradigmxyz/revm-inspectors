@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.42.2](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.42.2) - 2026-08-12
+
+### Bug Fixes
+
+- [tracing] Default unspecified CallFrame fields ([#480](https://github.com/paradigmxyz/revm-inspectors/issues/480))
+
 ## [0.42.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.42.1) - 2026-08-12
 
 ### Bug Fixes
@@ -14,6 +20,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Dependencies
 
 - [deps] Bump actions/checkout from 6.0.2 to 7.0.1 ([#473](https://github.com/paradigmxyz/revm-inspectors/issues/473))
+
+### Miscellaneous Tasks
+
+- Release 0.42.1
 
 ## [0.42.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.42.0) - 2026-07-31
 
