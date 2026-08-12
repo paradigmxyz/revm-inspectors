@@ -72,7 +72,3 @@ std = [
 ]
 serde = ["dep:serde", "revm/serde"]
 js-tracer = ["dep:boa_engine", "dep:boa_gc"]
-
-[patch.crates-io]
-# Temporary dependency patch for the pending EIP-8037 RPC types.
-alloy-rpc-types-trace = { git = "https://github.com/alloy-rs/alloy", rev = "cf5166faffd795e9a35d3497447799d1b4bd1566" }
