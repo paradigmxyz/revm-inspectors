@@ -430,6 +430,7 @@ impl CallTraceNode {
 
     /// Converts this call trace into an _empty_ geth [CallFrame]
     pub fn geth_empty_call_frame(&self, include_logs: bool) -> CallFrame {
+        #[allow(clippy::needless_update)]
         let mut call_frame = CallFrame {
             typ: self.trace.kind.to_string(),
             from: self.trace.caller,
@@ -443,6 +444,7 @@ impl CallTraceNode {
             revert_reason: None,
             calls: Default::default(),
             logs: Default::default(),
+            ..Default::default()
         };
 
         if self.trace.kind.is_static_call() {
