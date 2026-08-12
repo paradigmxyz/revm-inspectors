@@ -5,12 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.40.3](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.40.3) - 2026-08-12
+
+### Bug Fixes
+
+- [tracing] Add defaults to trace literals ([#474](https://github.com/paradigmxyz/revm-inspectors/issues/474))
+
 ## [0.40.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.40.1) - 2026-06-09
 
 ### Bug Fixes
 
 - Record all stack snapshots in TracingInspectorConfig::all() ([#450](https://github.com/paradigmxyz/revm-inspectors/issues/450))
 - [erc7562] Enable state diffs to capture SLOAD in accessedSlots.reads ([#451](https://github.com/paradigmxyz/revm-inspectors/issues/451))
+
+### Miscellaneous Tasks
+
+- Release 0.40.1
 
 ### Other
 
