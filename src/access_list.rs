@@ -40,14 +40,12 @@ impl AccessListInspector {
     ///
     /// The `access_list` is the provided access list from the call request
     pub fn new(access_list: AccessList) -> Self {
-        Self {
-            excluded: Default::default(),
-            touched_slots: access_list
-                .0
-                .into_iter()
-                .map(|v| (v.address, v.storage_keys.into_iter().collect()))
-                .collect(),
+        let mut touched_slots: HashMap<Address, BTreeSet<B256>> = Default::default();
+        for item in access_list.0 {
+            touched_slots.entry(item.address).or_default().extend(item.storage_keys);
         }
+
+        Self { excluded: Default::default(), touched_slots }
     }
 
     /// Returns the excluded addresses.
@@ -66,6 +64,12 @@ impl AccessListInspector {
         self.touched_slots
     }
 
+    fn collect_sorted_access_list(items: impl Iterator<Item = AccessListItem>) -> AccessList {
+        let mut access_list = AccessList(items.collect());
+        access_list.0.sort_unstable_by_key(|item| item.address);
+        access_list
+    }
+
     /// Returns list of addresses and storage keys used by the transaction. It gives you the list of
     /// addresses and storage keys that were touched during execution.
     pub fn into_access_list(self) -> AccessList {
@@ -73,7 +77,7 @@ impl AccessListInspector {
             address,
             storage_keys: slots.into_iter().collect(),
         });
-        AccessList(items.collect())
+        Self::collect_sorted_access_list(items)
     }
 
     /// Returns list of addresses and storage keys used by the transaction. It gives you the list of
@@ -83,7 +87,7 @@ impl AccessListInspector {
             address: *address,
             storage_keys: slots.iter().copied().collect(),
         });
-        AccessList(items.collect())
+        Self::collect_sorted_access_list(items)
     }
 
     /// Collects addresses which should be excluded from the access list. Must be called before the
@@ -107,6 +111,7 @@ impl AccessListInspector {
         let auth_addrs = context.tx().authorization_list().flat_map(|a| a.authority());
 
         self.excluded = [from, to].into_iter().chain(precompiles).chain(auth_addrs).collect();
+        self.touched_slots.retain(|address, _| !self.excluded.contains(address));
     }
 }
 
