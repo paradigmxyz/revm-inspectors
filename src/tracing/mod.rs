@@ -621,7 +621,9 @@ where
     CTX: ContextTr<Journal: JournalExt>,
 {
     fn initialize_interp(&mut self, interp: &mut Interpreter, _context: &mut CTX) {
-        self.spec_id = Some(interp.runtime_flag.spec_id());
+        if self.spec_id.is_none() {
+            self.spec_id = Some(interp.runtime_flag.spec_id());
+        }
     }
 
     #[inline]
@@ -653,7 +655,9 @@ where
     }
 
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
-        self.spec_id = Some(context.cfg().spec().into());
+        if self.spec_id.is_none() {
+            self.spec_id = Some(context.cfg().spec().into());
+        }
 
         // determine correct `from` and `to` based on the call scheme
         let (from, to) = match inputs.scheme {
@@ -700,7 +704,9 @@ where
     }
 
     fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
-        self.spec_id = Some(context.cfg().spec().into());
+        if self.spec_id.is_none() {
+            self.spec_id = Some(context.cfg().spec().into());
+        }
 
         let nonce = context.journal_mut().load_account(inputs.caller()).ok()?.info.nonce;
         self.start_trace_on_call(
