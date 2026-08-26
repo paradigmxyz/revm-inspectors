@@ -5,11 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.43.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.43.0) - 2026-08-26
+
+### Dependencies
+
+- Bump revm to 43.0.0 ([#483](https://github.com/paradigmxyz/revm-inspectors/issues/483))
+- [deps] Bump Swatinem/rust-cache from 2.9.1 to 2.9.2 ([#481](https://github.com/paradigmxyz/revm-inspectors/issues/481))
+
+### Features
+
+- [tracing] Support EIP-8037 trace fields ([#476](https://github.com/paradigmxyz/revm-inspectors/issues/476))
+
+### Performance
+
+- [tracing] Avoid repeated spec ID writes ([#482](https://github.com/paradigmxyz/revm-inspectors/issues/482))
+
 ## [0.42.2](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.42.2) - 2026-08-12
 
 ### Bug Fixes
 
 - [tracing] Default unspecified CallFrame fields ([#480](https://github.com/paradigmxyz/revm-inspectors/issues/480))
+
+### Miscellaneous Tasks
+
+- Release 0.42.2
 
 ## [0.42.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.42.1) - 2026-08-12
 
