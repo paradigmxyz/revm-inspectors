@@ -1,11 +1,45 @@
 //! Accesslist tests
 
-use alloy_primitives::{address, hex};
+use alloy_eip2930::{AccessList, AccessListItem};
+use alloy_primitives::{address, hex, Address, B256};
 use revm::{
     bytecode::Bytecode, context::TxEnv, context_interface::TransactTo, database::CacheDB,
     database_interface::EmptyDB, state::AccountInfo, Context, InspectEvm, MainBuilder, MainContext,
 };
 use revm_inspectors::access_list::AccessListInspector;
+
+#[test]
+fn initial_access_list_is_normalized_and_pruned() {
+    let [caller, callee, lower, higher] = [0x10, 0x20, 0x30, 0x40].map(Address::with_last_byte);
+    let [lower_slot, higher_slot] = [1, 2].map(B256::with_last_byte);
+    let item = |address, storage_keys| AccessListItem { address, storage_keys };
+    let initial = AccessList(vec![
+        item(caller, vec![]),
+        item(higher, vec![higher_slot]),
+        item(callee, vec![lower_slot]),
+        item(higher, vec![lower_slot, lower_slot]),
+        item(Address::with_last_byte(1), vec![]),
+        item(lower, vec![]),
+    ]);
+
+    let context = Context::mainnet().with_db(CacheDB::<EmptyDB>::default());
+    let mut inspector = AccessListInspector::new(initial);
+    let mut evm = context.build_mainnet().with_inspector(&mut inspector);
+    let result = evm
+        .inspect_tx(TxEnv {
+            caller,
+            gas_limit: 100_000,
+            kind: TransactTo::Call(callee),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(result.result.is_success(), "{result:#?}");
+
+    let expected =
+        AccessList(vec![item(lower, vec![]), item(higher, vec![lower_slot, higher_slot])]);
+    assert_eq!(inspector.access_list(), expected);
+    assert_eq!(inspector.into_access_list(), expected);
+}
 
 #[test]
 fn test_access_list_precompile() {

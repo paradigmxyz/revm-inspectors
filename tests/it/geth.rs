@@ -1258,7 +1258,8 @@ fn test_geth_calltracer_logs_delegatecall() {
     // Proxy bytecode: DELEGATECALL(gas=0xFFFF, addr=implementation, 0, 0, 0, 0); STOP
     let proxy_code = {
         let mut code = Vec::new();
-        code.extend_from_slice(&hex!("6000600060006000")); // retSize, retOffset, argsSize, argsOffset
+        code.extend_from_slice(&hex!("6000600060006000")); // retSize, retOffset, argsSize,
+                                                           // argsOffset
         code.push(0x73); // PUSH20
         code.extend_from_slice(implementation.as_slice()); // implementation address
         code.extend_from_slice(&hex!("61FFFF")); // PUSH2 gas
