@@ -1,7 +1,7 @@
 use alloc::collections::BTreeSet;
 use alloy_primitives::{
     map::{HashMap, HashSet},
-    Address, TxKind, B256,
+    Address, TxKind, B256, U256,
 };
 use revm::context::transaction::AuthorizationTr;
 
@@ -9,7 +9,7 @@ use alloy_rpc_types_eth::{AccessList, AccessListItem};
 use revm::{
     bytecode::opcode,
     context::JournalTr,
-    context_interface::{ContextTr, Transaction},
+    context_interface::{Cfg, ContextTr, Transaction},
     inspector::JournalExt,
     interpreter::{
         interpreter_types::{InputsTr, Jumps},
@@ -104,7 +104,17 @@ impl AccessListInspector {
         let precompiles = context.journal_ref().precompile_addresses().clone();
 
         // 7702 authorities should be excluded because those get loaded anyway
-        let auth_addrs = context.tx().authorization_list().flat_map(|a| a.authority());
+        let chain_id = context.cfg().chain_id();
+        let auth_addrs = context.tx().authorization_list().filter_map(|authorization| {
+            let auth_chain_id = authorization.chain_id();
+            if !auth_chain_id.is_zero() && auth_chain_id != U256::from(chain_id) {
+                return None;
+            }
+            if authorization.nonce() == u64::MAX {
+                return None;
+            }
+            authorization.authority()
+        });
 
         self.excluded = [from, to].into_iter().chain(precompiles).chain(auth_addrs).collect();
     }
