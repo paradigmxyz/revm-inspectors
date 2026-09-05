@@ -80,6 +80,8 @@ pub struct TracingInspector {
     trace_stack: Vec<usize>,
     /// Tracks whether the next `step_end` should be recorded. Set in `start_step`.
     record_step_end: bool,
+    /// Number of opcode steps captured across all calls since the last reset.
+    recorded_steps: u64,
     /// Tracks the return value of the last call
     last_call_return_data: Option<Bytes>,
     /// Tracks the journal len in the step, used in step_end to check if the journal has changed
@@ -113,6 +115,7 @@ impl TracingInspector {
             last_journal_len,
             spec_id,
             record_step_end,
+            recorded_steps,
             // kept
             config,
             reusable_step_vecs,
@@ -135,6 +138,7 @@ impl TracingInspector {
         spec_id.take();
         *last_journal_len = 0;
         *record_step_end = false;
+        *recorded_steps = 0;
     }
 
     /// Resets the inspector to it's initial state of [Self::new].
@@ -427,12 +431,14 @@ impl TracingInspector {
         // that not a known constant.
         let op = OpCode::new_or_unknown(interp.bytecode.opcode());
 
-        let record = self.config.should_record_opcode(op);
+        let record = self.config.should_record_opcode(op)
+            && self.config.step_limit.is_none_or(|limit| limit == 0 || self.recorded_steps < limit);
         self.record_step_end = record;
         if !record {
             return;
         }
 
+        self.recorded_steps += 1;
         let trace_idx = self.last_trace_idx();
         let node = &mut self.traces.arena[trace_idx];
 
