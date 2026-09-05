@@ -37,7 +37,6 @@ fn test_debug_empty_tracer() {
         assert_eq!(*inner.config(), TracingInspectorConfig::from_geth_config(&expected_config));
 
         // Write memory and storage, and call the identity precompile to populate return data.
-        // This is the same runtime deployed by scripts/test-empty-tracer.py.
         let code = hex!("602a6000526020600060206000600461fffffa50602a60005560206000f3");
         let account = address!("1000000000000000000000000000000000000001");
         let context =
