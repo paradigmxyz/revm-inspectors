@@ -1,11 +1,11 @@
 use alloc::collections::BTreeSet;
+use alloy_eip2930::{AccessList, AccessListItem};
 use alloy_primitives::{
     map::{HashMap, HashSet},
     Address, TxKind, B256, U256,
 };
 use revm::context::transaction::AuthorizationTr;
 
-use alloy_rpc_types_eth::{AccessList, AccessListItem};
 use revm::{
     bytecode::opcode,
     context::JournalTr,
@@ -39,7 +39,8 @@ impl AccessListInspector {
     /// Creates a new inspector instance
     ///
     /// The `access_list` is the provided access list from the call request
-    pub fn new(access_list: AccessList) -> Self {
+    pub fn new(mut access_list: AccessList) -> Self {
+        access_list.dedup();
         Self {
             excluded: Default::default(),
             touched_slots: access_list
@@ -73,7 +74,9 @@ impl AccessListInspector {
             address,
             storage_keys: slots.into_iter().collect(),
         });
-        AccessList(items.collect())
+        let mut access_list = AccessList(items.collect());
+        access_list.sort();
+        access_list
     }
 
     /// Returns list of addresses and storage keys used by the transaction. It gives you the list of
@@ -83,7 +86,9 @@ impl AccessListInspector {
             address: *address,
             storage_keys: slots.iter().copied().collect(),
         });
-        AccessList(items.collect())
+        let mut access_list = AccessList(items.collect());
+        access_list.sort();
+        access_list
     }
 
     /// Collects addresses which should be excluded from the access list. Must be called before the
@@ -117,6 +122,8 @@ impl AccessListInspector {
         });
 
         self.excluded = [from, to].into_iter().chain(precompiles).chain(auth_addrs).collect();
+        // Remove seeded excluded entries; SLOAD/SSTORE can re-add slots accessed during execution.
+        self.touched_slots.retain(|address, _| !self.excluded.contains(address));
     }
 }
 

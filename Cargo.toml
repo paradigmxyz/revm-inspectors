@@ -30,6 +30,7 @@ clippy.lint_groups_priority = "allow"
 
 [dependencies]
 # eth
+alloy-eip2930 = { version = "0.2.4", default-features = false }
 alloy-rpc-types-eth = { version = "2.0", default-features = false }
 alloy-rpc-types-trace = { version = "2.0", default-features = false }
 alloy-sol-types = { version = "1.4", default-features = false }
