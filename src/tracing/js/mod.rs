@@ -4,9 +4,8 @@ use crate::tracing::{
     config::TraceStyle,
     js::{
         bindings::{
-            CallFrame, Contract, EvmDbRef, FrameResult, JsEvmContext, MemoryRef, MemorySnapshot,
-            ReusableCallFrame, ReusableEvmDb, ReusableFrameResult, ReusableStepLog, StackRef,
-            StepLog,
+            CallFrame, Contract, FrameResult, JsEvmContext, PreStep, ReusableCallFrame,
+            ReusableEvmDb, ReusableFrameResult, ReusableStepLog, StepInfo,
         },
         builtins::{register_builtins, to_serde_value, PrecompileList},
     },
@@ -21,9 +20,8 @@ use alloc::{
 use alloy_primitives::{Address, Bytes, U256};
 pub use boa_engine::vm::RuntimeLimits;
 use boa_engine::{js_string, Context, JsError, JsObject, JsResult, JsValue, Script, Source};
-use core::borrow::Borrow;
 use revm::{
-    bytecode::OpCode,
+    bytecode::opcode,
     context::JournalTr,
     context_interface::{
         result::{ExecutionResult, HaltReasonTr, Output, ResultAndState},
@@ -34,7 +32,7 @@ use revm::{
     interpreter::{
         interpreter_types::{Jumps, LoopControl},
         CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, Gas, InstructionResult,
-        Interpreter, InterpreterAction, InterpreterResult, Stack,
+        Interpreter, InterpreterAction, InterpreterResult,
     },
     DatabaseRef, Inspector,
 };
@@ -53,31 +51,6 @@ pub const LOOP_ITERATION_LIMIT: u64 = 200_000;
 /// Once exceeded, the function will throw an error.
 pub const RECURSION_LIMIT: usize = 10_000;
 
-/// Pre-execution state captured in `step()` to be used in `step_end()`.
-///
-/// The JS step callback needs the pre-execution stack/memory state but the post-execution gas
-/// cost. This struct holds the snapshot from `step()` so `step_end()` can invoke the callback
-/// with the correct gas cost.
-#[derive(Debug)]
-struct PendingStep {
-    /// Cloned stack from before opcode execution
-    stack: Stack,
-    /// Program counter
-    pc: u64,
-    /// Opcode being executed
-    op: u8,
-    /// Gas remaining before execution
-    gas_remaining: u64,
-    /// Call depth
-    depth: u64,
-    /// Gas refund counter
-    refund: u64,
-    /// Contract info
-    contract: Contract,
-    /// Total gas spent before this opcode (to compute delta in step_end)
-    gas_spent_before: u64,
-}
-
 /// A javascript inspector that will delegate inspector functions to javascript functions
 ///
 /// See also <https://geth.ethereum.org/docs/developers/evm-tracing/custom-tracer#custom-javascript-tracing>
@@ -91,6 +64,8 @@ pub struct JsInspector {
     config: serde_json::Value,
     /// The evaluated object that contains the inspector functions.
     obj: JsObject,
+    /// [`Self::obj`] as the `this` value of the callbacks.
+    this: JsValue,
     /// The context of the transaction that is being inspected.
     transaction_context: TransactionContext,
 
@@ -121,14 +96,15 @@ pub struct JsInspector {
     reusable_db: ReusableEvmDb,
     /// Keeps track of the current call stack.
     call_stack: Vec<CallStackItem>,
+    /// Id assigned to the next call, see [`CallStackItem::id`]. Never reset, so ids stay unique
+    /// across transactions traced by the same inspector.
+    next_call_id: u64,
     /// Marker to track whether the precompiles have been registered.
     precompiles_registered: bool,
-    /// Pre-execution state captured in `step()` to be processed in `step_end()`.
-    pending_step: Option<PendingStep>,
-    /// Cached memory snapshot, only updated when the previous opcode modifies memory.
-    cached_memory: MemorySnapshot,
-    /// The opcode from the previous step, used to decide whether to re-snapshot memory.
-    prev_op: Option<OpCode>,
+    /// Whether `step` recorded a step that `step_end` still has to report.
+    step_pending: bool,
+    /// Total gas spent before the pending step, to compute the step's cost in `step_end`.
+    gas_spent_before: u64,
 }
 
 impl core::fmt::Debug for JsInspector {
@@ -202,6 +178,7 @@ impl JsInspector {
             code,
             script,
             config,
+            this: obj.clone().into(),
             obj,
             transaction_context,
             result_fn,
@@ -214,10 +191,10 @@ impl JsInspector {
             reusable_frame_result,
             reusable_db,
             call_stack: Default::default(),
+            next_call_id: 1,
             precompiles_registered: false,
-            pending_step: None,
-            cached_memory: MemorySnapshot::default(),
-            prev_op: None,
+            step_pending: false,
+            gas_spent_before: 0,
         })
     }
 
@@ -239,6 +216,7 @@ impl JsInspector {
     pub fn fuse(&mut self) -> Result<(), JsInspectorError> {
         let TracerObject { obj, result_fn, fault_fn, enter_fn, exit_fn, step_fn } =
             TracerObject::evaluate(&self.script, &self.config, &mut self.ctx)?;
+        self.this = obj.clone().into();
         self.obj = obj;
         self.result_fn = result_fn;
         self.fault_fn = fault_fn;
@@ -246,10 +224,10 @@ impl JsInspector {
         self.exit_fn = exit_fn;
         self.step_fn = step_fn;
         self.call_stack.clear();
+        // call ids must stay unique across transactions, see `CallStackItem::id`
         self.precompiles_registered = false;
-        self.pending_step = None;
-        self.cached_memory = MemorySnapshot::default();
-        self.prev_op = None;
+        self.step_pending = false;
+        self.gas_spent_before = 0;
         Ok(())
     }
 
@@ -303,7 +281,6 @@ impl JsInspector {
     {
         let ResultAndState { result, state } = res;
         let mut db = WrapDatabaseRef(db);
-        let (db, _db_guard) = EvmDbRef::new(&state, &mut db);
 
         let gas_used = result.tx_gas_used();
         let mut to = None;
@@ -357,42 +334,18 @@ impl JsInspector {
             error,
         };
         let ctx = ctx.into_js_object(&mut self.ctx)?;
-        let db = db.into_js_object(&mut self.ctx)?;
+        let _db_scope = self.reusable_db.enter(&state, &mut db);
         Ok(self.result_fn.call(
-            &(self.obj.clone().into()),
-            &[ctx.into(), db.into()],
+            &self.this,
+            &[ctx.into(), self.reusable_db.value()],
             &mut self.ctx,
         )?)
-    }
-
-    fn try_fault(&mut self, step: StepLog, db: EvmDbRef) -> JsResult<()> {
-        self.reusable_step_log.update(step);
-        self.reusable_db.update(db);
-        let step = self.reusable_step_log.value();
-        let db = self.reusable_db.value();
-        self.fault_fn.call(&(self.obj.clone().into()), &[step, db], &mut self.ctx)?;
-        Ok(())
-    }
-
-    fn try_step(&mut self, step: StepLog, db: EvmDbRef) -> JsResult<()> {
-        if let Some(step_fn) = &self.step_fn {
-            self.reusable_step_log.update(step);
-            self.reusable_db.update(db);
-            let step = self.reusable_step_log.value();
-            let db = self.reusable_db.value();
-            step_fn.call(&(self.obj.clone().into()), &[step, db], &mut self.ctx)?;
-        }
-        Ok(())
     }
 
     fn try_enter(&mut self, frame: CallFrame) -> JsResult<()> {
         if let Some(enter_fn) = &self.enter_fn {
             self.reusable_call_frame.update(frame);
-            enter_fn.call(
-                &(self.obj.clone().into()),
-                &[self.reusable_call_frame.value()],
-                &mut self.ctx,
-            )?;
+            enter_fn.call(&self.this, &[self.reusable_call_frame.value()], &mut self.ctx)?;
         }
         Ok(())
     }
@@ -400,11 +353,7 @@ impl JsInspector {
     fn try_exit(&mut self, frame: FrameResult) -> JsResult<()> {
         if let Some(exit_fn) = &self.exit_fn {
             self.reusable_frame_result.update(frame);
-            exit_fn.call(
-                &(self.obj.clone().into()),
-                &[self.reusable_frame_result.value()],
-                &mut self.ctx,
-            )?;
+            exit_fn.call(&self.this, &[self.reusable_frame_result.value()], &mut self.ctx)?;
         }
         Ok(())
     }
@@ -451,10 +400,12 @@ impl JsInspector {
         gas_limit: u64,
     ) -> &CallStackItem {
         let call = CallStackItem {
+            id: self.next_call_id,
             contract: Contract { caller, contract, value, input },
             kind,
             gas_limit,
         };
+        self.next_call_id += 1;
         self.call_stack.push(call);
         self.active_call()
     }
@@ -477,104 +428,74 @@ impl<CTX> Inspector<CTX> for JsInspector
 where
     CTX: ContextTr<Journal: JournalExt>,
 {
-    fn step(&mut self, interp: &mut Interpreter, context: &mut CTX) {
+    fn step(&mut self, interp: &mut Interpreter, _context: &mut CTX) {
         if self.step_fn.is_none() {
             return;
         }
 
-        // Update the cached memory snapshot only if the previous opcode modified memory.
-        // This avoids an expensive Vec<u8> clone on every single step.
-        let should_update_memory = self.prev_op.is_none_or(|prev| prev.modifies_memory());
-        if should_update_memory {
-            self.cached_memory = MemorySnapshot::from_shared_memory(interp.memory.borrow());
-        }
-
-        let op = interp.bytecode.opcode();
-        self.prev_op = OpCode::new(op);
-
-        let active_call = self.active_call();
-        self.pending_step = Some(PendingStep {
-            stack: interp.stack.clone(),
+        // The JS step callback expects the pre-execution stack and memory but the gas cost of the
+        // opcode, which is only known after it executed. Instead of copying the stack and memory,
+        // only the parts the opcode can overwrite are saved here and the callback is invoked in
+        // `step_end`.
+        self.gas_spent_before = interp.gas.total_gas_spent();
+        self.step_pending = true;
+        let memory = interp.memory.context_memory();
+        self.reusable_step_log.record_pre_execution(PreStep {
             pc: interp.bytecode.pc() as u64,
-            op,
+            op: interp.bytecode.opcode(),
             gas_remaining: interp.gas.remaining(),
-            depth: context.journal_ref().depth() as u64,
             refund: interp.gas.refunded() as u64,
-            contract: Contract {
-                caller: interp.input.caller_address,
-                contract: interp.input.target_address,
-                value: active_call.contract.value,
-                input: active_call.contract.input.clone(),
-            },
-            gas_spent_before: interp.gas.total_gas_spent(),
+            stack: interp.stack.data(),
+            memory: &memory,
         });
     }
 
     fn step_end(&mut self, interp: &mut Interpreter, context: &mut CTX) {
-        if self.step_fn.is_none() {
+        let Some(step_fn) = &self.step_fn else {
+            return;
+        };
+        if !core::mem::take(&mut self.step_pending) {
             return;
         }
 
-        let Some(pending) = self.pending_step.take() else {
-            return;
-        };
-
-        let is_revert = interp
-            .bytecode
-            .action()
-            .as_ref()
-            .is_some_and(|a| a.instruction_result().map(|r| r.is_revert()).unwrap_or(false));
+        let result = interp.bytecode.action().as_ref().and_then(|a| a.instruction_result());
+        let is_revert = result.is_some_and(|r| r.is_revert());
 
         // Compute the actual gas cost now that the opcode has executed
-        let cost = interp.gas.total_gas_spent().saturating_sub(pending.gas_spent_before);
+        let cost = interp.gas.total_gas_spent().saturating_sub(self.gas_spent_before);
+        let depth = context.journal_ref().depth() as u64;
+        let call = self.call_stack.last().expect("call stack is empty");
+        let info = StepInfo {
+            cost,
+            depth,
+            error: if is_revert { result.map(|result| format!("{result:?}")) } else { None },
+            op: is_revert.then_some(opcode::REVERT),
+            caller: interp.input.caller_address,
+            contract: interp.input.target_address,
+            value: call.contract.value,
+            input: &call.contract.input,
+            call_id: call.id,
+        };
 
-        let (db_mut, state) = context.journal_mut().db_and_state_mut();
-        let (db, _db_guard) = EvmDbRef::new(state, db_mut);
+        let (db, state) = context.journal_mut().db_and_state_mut();
+        let res = {
+            let _db_scope = self.reusable_db.enter(state, db);
+            let _step_scope = self.reusable_step_log.enter(
+                interp.stack.data(),
+                interp.memory.context_memory(),
+                info,
+            );
+            let args = [self.reusable_step_log.value(), self.reusable_db.value()];
+            let f = if is_revert { &self.fault_fn } else { step_fn };
+            f.call(&self.this, &args, &mut self.ctx)
+        };
 
-        let (stack, _stack_guard) = StackRef::new_owned(pending.stack);
-        let (memory, _memory_guard) = MemoryRef::new_owned(self.cached_memory.clone());
-
-        if is_revert {
-            let step = StepLog {
-                stack,
-                op: OpCode::REVERT.get().into(),
-                pc: pending.pc,
-                memory,
-                gas_remaining: pending.gas_remaining,
-                cost,
-                depth: pending.depth,
-                refund: pending.refund,
-                error: interp
-                    .bytecode
-                    .action()
-                    .as_ref()
-                    .and_then(|i| i.instruction_result().map(|i| format!("{i:?}"))),
-                contract: pending.contract,
-            };
-            let _ = self.try_fault(step, db);
-        } else {
-            let step = StepLog {
-                stack,
-                op: pending.op.into(),
-                memory,
-                pc: pending.pc,
-                gas_remaining: pending.gas_remaining,
-                cost,
-                depth: pending.depth,
-                refund: pending.refund,
-                error: None,
-                contract: pending.contract,
-            };
-            if self.try_step(step, db).is_err() {
-                // Only set revert if the opcode didn't already set an action (e.g. STOP/RETURN).
-                // If the opcode completed successfully, we can't revert it after the fact.
-                if interp.bytecode.action().is_none() {
-                    interp.bytecode.set_action(InterpreterAction::new_halt(
-                        InstructionResult::Revert,
-                        interp.gas,
-                    ));
-                }
-            }
+        // Only set revert if the opcode didn't already set an action (e.g. STOP/RETURN).
+        // If the opcode completed successfully, we can't revert it after the fact.
+        if !is_revert && res.is_err() && interp.bytecode.action().is_none() {
+            interp
+                .bytecode
+                .set_action(InterpreterAction::new_halt(InstructionResult::Revert, interp.gas));
         }
     }
 
@@ -759,6 +680,8 @@ impl TracerObject {
 /// Represents an active call
 #[derive(Debug)]
 struct CallStackItem {
+    /// Unique id of the call within the inspector, used to detect call changes between steps.
+    id: u64,
     contract: Contract,
     kind: CallKind,
     gas_limit: u64,
@@ -1303,6 +1226,52 @@ mod tests {
         }"#;
         let res = run_trace(code, Some(bytes!("0x5F5F52600100")), true);
         assert_eq!(res, json!([json!({}), json!({}), json!({"0": 0})]));
+    }
+
+    #[test]
+    fn test_step_sees_pre_execution_stack() {
+        let code = r#"{
+            res: [],
+            step: function(log) {
+                if (log.op.toString() === 'ADD') {
+                    this.res.push(log.stack.length());
+                    this.res.push(log.stack.peek(0));
+                    this.res.push(log.stack.peek(1));
+                }
+                if (log.op.toString() === 'STOP') {
+                    this.res.push(log.stack.length());
+                    this.res.push(log.stack.peek(0));
+                }
+            },
+            fault: function() {},
+            result: function() { return this.res }
+        }"#;
+        // PUSH1 1, PUSH1 2, ADD, STOP
+        let res = run_trace(code, Some(bytes!("0x600160020100")), true);
+        assert_eq!(res, json!([2, "2", "1", 1, "3"]));
+    }
+
+    #[test]
+    fn test_step_sees_pre_execution_memory() {
+        let code = r#"{
+            res: [],
+            step: function(log) {
+                var op = log.op.toString();
+                if (op === 'MSTORE8' || op === 'STOP') {
+                    this.res.push(log.memory.length());
+                    if (log.memory.length() > 0) {
+                        this.res.push(log.memory.getUint(0)[0]);
+                        this.res.push(log.memory.slice(0, 2)[0]);
+                    }
+                }
+            },
+            fault: function() {},
+            result: function() { return this.res }
+        }"#;
+        // PUSH1 0xff, PUSH1 0, MSTORE8, PUSH1 0xaa, PUSH1 0, MSTORE8, STOP
+        let res = run_trace(code, Some(bytes!("0x60ff60005360aa60005300")), true);
+        // the second MSTORE8 must still see the value written by the first one
+        assert_eq!(res, json!([0, 32, 255, 255, 32, 170, 170]));
     }
 
     #[test]
