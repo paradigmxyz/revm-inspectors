@@ -3,12 +3,7 @@ use crate::tracing::{
     types::{CallKind, CallTraceNode, CallTraceStepStackItem},
     utils::load_account_code,
 };
-use alloc::{
-    borrow::Cow,
-    collections::{BTreeMap, VecDeque},
-    format, vec,
-    vec::Vec,
-};
+use alloc::{borrow::Cow, collections::BTreeMap, format, vec, vec::Vec};
 use alloy_primitives::{
     map::{Entry, HashMap},
     Address, Bytes, B256, U256,
@@ -77,20 +72,18 @@ impl<'a> GethTraceBuilder<'a> {
         storage: &mut HashMap<Address, BTreeMap<B256, B256>>,
         struct_logs: &mut Vec<StructLog>,
     ) {
-        // A stack with all the steps of the trace and all its children's steps.
-        // This is used to process the steps in the order they appear in the transactions.
-        // Steps are grouped by their Call Trace Node, in order to process them all in the order
-        // they appear in the transaction, we need to process steps of call nodes when they appear.
-        // When we find a call step, we push all the steps of the child trace on the stack, so they
-        // are processed next. The very next step is the last item on the stack
-        let mut step_stack = VecDeque::with_capacity(main_trace_node.trace.steps.len());
+        // Suspend only the parent iterator when entering a child. Scratch space scales with
+        // call depth rather than step count, and a trace without subcalls needs no allocation.
+        let mut steps = main_trace_node.steps_with_children();
+        let mut parents = Vec::new();
 
-        main_trace_node.push_steps_on_stack(&mut step_stack);
-
-        // Iterate over the steps inside the given trace
-        while let Some(CallTraceStepStackItem { trace_node, step, call_child_id }) =
-            step_stack.pop_back()
-        {
+        loop {
+            let Some(CallTraceStepStackItem { trace_node, step, call_child_id }) = steps.next()
+            else {
+                let Some(parent) = parents.pop() else { break };
+                steps = parent;
+                continue;
+            };
             // We increment the depth by one because steps that are part of call at depth N should
             // have depth N + 1. For example, steps inside of a top-level call should
             // have depth 1.
@@ -115,11 +108,10 @@ impl<'a> GethTraceBuilder<'a> {
             // Add step to geth trace
             struct_logs.push(log);
 
-            // If the step is a call, we first push all the steps of the child trace on the stack,
-            // so they are processed next
+            // Visit the child immediately after its call opcode, then resume the parent.
             if let Some(call_child_id) = call_child_id {
-                let child_trace = &self.nodes[call_child_id];
-                child_trace.push_steps_on_stack(&mut step_stack);
+                parents.push(steps);
+                steps = self.nodes[call_child_id].steps_with_children();
             }
         }
     }
@@ -644,12 +636,160 @@ fn account_was_empty(account: &AccountInfo) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tracing::types::{CallTrace, CallTraceStep, StorageChange, StorageChangeReason};
     use alloy_primitives::{address, U256};
     use revm::{
         database::CacheDB,
         database_interface::EmptyDB,
+        interpreter::InstructionResult,
         state::{Account, AccountInfo},
     };
+
+    fn test_step(pc: usize, op: u8) -> CallTraceStep {
+        CallTraceStep {
+            pc,
+            op: opcode::OpCode::new_or_unknown(op),
+            stack: Some(vec![U256::from(pc)].into_boxed_slice()),
+            push_stack: None,
+            memory: None,
+            returndata: Bytes::from(vec![pc as u8]),
+            gas_remaining: 1000 - pc as u64,
+            gas_refund_counter: 0,
+            gas_used: pc as u64,
+            gas_cost: 1,
+            state_gas_cost: None,
+            state_gas_reservoir: None,
+            state_gas_spent: 0,
+            storage_change: (op == opcode::SSTORE).then(|| {
+                alloc::boxed::Box::new(StorageChange {
+                    key: U256::ZERO,
+                    value: U256::from(pc),
+                    had_value: None,
+                    reason: StorageChangeReason::SSTORE,
+                })
+            }),
+            status: (op == opcode::REVERT).then_some(InstructionResult::Revert),
+            immediate_bytes: None,
+            decoded: None,
+        }
+    }
+
+    #[test]
+    fn opcode_trace_resumes_parents_after_nested_and_empty_calls() {
+        // Cover all call-like opcodes, a precompile with no steps, an empty creation,
+        // a reverting grandchild, and a final call opcode that failed before recording a child.
+        type Fixture = (Option<usize>, usize, &'static [usize], &'static [u8]);
+        let fixtures: &[Fixture] = &[
+            (
+                None,
+                0,
+                &[1, 2, 4, 5, 6],
+                &[
+                    opcode::SSTORE,
+                    opcode::CALL,
+                    opcode::CALLCODE,
+                    opcode::STATICCALL,
+                    opcode::CREATE,
+                    opcode::CREATE2,
+                    opcode::CALL,
+                ],
+            ),
+            (Some(0), 1, &[], &[]),
+            (
+                Some(0),
+                1,
+                &[3],
+                &[opcode::SSTORE, opcode::DELEGATECALL, opcode::SLOAD, opcode::STOP],
+            ),
+            (Some(2), 2, &[], &[opcode::SSTORE, opcode::REVERT]),
+            (Some(0), 1, &[], &[opcode::RETURN]),
+            (Some(0), 1, &[], &[]),
+            (Some(0), 1, &[], &[opcode::STOP]),
+        ];
+        let mut nodes: Vec<_> = fixtures
+            .iter()
+            .enumerate()
+            .map(|(idx, &(parent, depth, children, ops))| {
+                CallTraceNode {
+                    idx,
+                    parent,
+                    children: children.to_vec(),
+                    trace: CallTrace {
+                        depth,
+                        maybe_precompile: Some(idx == 1),
+                        address: Address::with_last_byte(idx as u8),
+                        // The grandchild executes in its parent's storage context.
+                        caller: Address::with_last_byte(2),
+                        kind: if idx == 3 { CallKind::DelegateCall } else { CallKind::Call },
+                        steps: ops
+                            .iter()
+                            .enumerate()
+                            .map(|(pc, &op)| test_step(idx * 10 + pc, op))
+                            .collect(),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }
+            })
+            .collect();
+        nodes[0].trace.steps.last_mut().unwrap().status = Some(InstructionResult::OutOfGas);
+        let builder = GethTraceBuilder::new(nodes);
+        let expected = [
+            (0, 1),
+            (1, 1),
+            (2, 1),
+            (20, 2),
+            (21, 2),
+            (30, 3),
+            (31, 3),
+            (22, 2),
+            (23, 2),
+            (3, 1),
+            (40, 2),
+            (4, 1),
+            (5, 1),
+            (60, 2),
+            (6, 1),
+        ];
+        for disable_storage in [false, true] {
+            let opts = GethDefaultTracingOptions {
+                disable_storage: Some(disable_storage),
+                enable_return_data: Some(true),
+                ..Default::default()
+            };
+            let frame = builder.geth_traces(123, Bytes::new(), opts);
+            assert_eq!(frame.gas, 123);
+            assert_eq!(
+                frame.struct_logs.iter().map(|log| (log.pc, log.depth)).collect::<Vec<_>>(),
+                expected
+            );
+            for log in &frame.struct_logs {
+                assert_eq!(log.stack, Some(vec![U256::from(log.pc)]));
+                assert_eq!(log.return_data, Some(Bytes::from(vec![log.pc as u8])));
+                assert_eq!(log.gas, 1000 - log.pc);
+                let value = match log.pc {
+                    0 => Some(0),
+                    20 => Some(20),
+                    30 | 22 => Some(30),
+                    _ => None,
+                };
+                assert_eq!(
+                    log.storage,
+                    value
+                        .filter(|_| !disable_storage)
+                        .map(|value| { BTreeMap::from([(B256::ZERO, U256::from(value).into())]) })
+                );
+            }
+        }
+        assert!(GethTraceBuilder::new(vec![])
+            .geth_traces(0, Bytes::new(), Default::default())
+            .struct_logs
+            .is_empty());
+        assert!(GethTraceBuilder::new(vec![CallTraceNode::default()])
+            .geth_traces(0, Bytes::new(), Default::default())
+            .struct_logs
+            .is_empty());
+    }
 
     #[test]
     fn prestate_diff_keeps_prefunded_created_accounts() {
