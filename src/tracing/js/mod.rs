@@ -235,10 +235,26 @@ impl JsInspector {
     ///
     /// This evaluates the tracer script again in the existing JS context, which yields a fresh
     /// tracer object (and invokes its `setup` function) without parsing the script again. Global
-    /// state the previous tracer object may have modified, e.g. prototypes, is kept.
+    /// state the previous tracer object may have modified, e.g. prototypes, is kept. Callback
+    /// wrappers are recreated so their own properties do not carry over between transactions.
     pub fn fuse(&mut self) -> Result<(), JsInspectorError> {
         let TracerObject { obj, result_fn, fault_fn, enter_fn, exit_fn, step_fn } =
             TracerObject::evaluate(&self.script, &self.config, &mut self.ctx)?;
+        // Callback objects are mutable JS objects: replacing their Rust state does not remove
+        // user-defined properties or restore overwritten methods. Rebuild them once per
+        // transaction, while retaining the parsed script and reusing wrappers within a transaction.
+        let reusable_step_log =
+            ReusableStepLog::new(&mut self.ctx).map_err(JsInspectorError::EvalCode)?;
+        let reusable_call_frame =
+            ReusableCallFrame::new(&mut self.ctx).map_err(JsInspectorError::EvalCode)?;
+        let reusable_frame_result =
+            ReusableFrameResult::new(&mut self.ctx).map_err(JsInspectorError::EvalCode)?;
+        let reusable_db = ReusableEvmDb::new(&mut self.ctx).map_err(JsInspectorError::EvalCode)?;
+
+        self.reusable_step_log = reusable_step_log;
+        self.reusable_call_frame = reusable_call_frame;
+        self.reusable_frame_result = reusable_frame_result;
+        self.reusable_db = reusable_db;
         self.obj = obj;
         self.result_fn = result_fn;
         self.fault_fn = fault_fn;
@@ -1347,6 +1363,79 @@ mod tests {
             let block = ctx.block().clone();
             let count = inspector.json_result(res, &tx, &block, ctx.db_mut()).unwrap();
             assert_eq!(count.as_u64().unwrap(), 3);
+            inspector.fuse().unwrap();
+        }
+    }
+
+    #[test]
+    fn test_fuse_resets_callback_objects() {
+        let code = r#"{
+            counts: { log: 0, db: 0, enter: 0, exit: 0 },
+            setup: function(config) {
+                if (config.used) throw new Error("config was reused");
+                config.used = true;
+                this.ready = true;
+            },
+            mark: function(object, kind) {
+                if (!this.ready) throw new Error("setup was not called");
+                if (!object.seen) {
+                    // Non-configurable properties cannot be removed by clearing the wrapper.
+                    Object.defineProperty(object, "seen", { value: true });
+                    this.counts[kind]++;
+                }
+            },
+            step: function(log, db) {
+                this.mark(log, "log");
+                this.mark(db, "db");
+            },
+            enter: function(frame) { this.mark(frame, "enter"); },
+            exit: function(result) { this.mark(result, "exit"); },
+            fault: function() {},
+            result: function() { return this.counts; }
+        }"#;
+        let addr = Address::repeat_byte(0x01);
+        let child = Address::repeat_byte(0x02);
+        // Call the child twice to also verify that wrappers are reused within a transaction.
+        let mut bytecode = Vec::new();
+        for _ in 0..2 {
+            bytecode.extend_from_slice(&hex!("60006000600060006000"));
+            bytecode.push(0x73); // PUSH20
+            bytecode.extend_from_slice(child.as_slice());
+            bytecode.extend_from_slice(&hex!("61fffff150")); // PUSH2 gas, CALL, POP
+        }
+        bytecode.push(0x00);
+        let mut db = CacheDB::new(EmptyDB::default());
+        db.insert_account_info(
+            addr,
+            AccountInfo { code: Some(Bytecode::new_legacy(bytecode.into())), ..Default::default() },
+        );
+        db.insert_account_info(
+            child,
+            AccountInfo {
+                code: Some(Bytecode::new_legacy(hex!("600100").into())),
+                ..Default::default()
+            },
+        );
+        let inspector = JsInspector::new(code.to_string(), json!({})).unwrap();
+        let mut evm = revm::Context::mainnet()
+            .modify_cfg_chained(|cfg| cfg.spec = SpecId::CANCUN)
+            .with_db(db)
+            .build_mainnet_with_inspector(inspector);
+
+        for _ in 0..3 {
+            let res = evm
+                .inspect_tx(TxEnv {
+                    gas_limit: 1_000_000,
+                    kind: TransactTo::Call(addr),
+                    ..Default::default()
+                })
+                .unwrap();
+            assert!(res.result.is_success());
+            let (ctx, inspector) = evm.ctx_inspector();
+            let tx = ctx.tx().clone();
+            let block = ctx.block().clone();
+            let counts = inspector.json_result(res, &tx, &block, ctx.db_mut()).unwrap();
+            assert_eq!(counts, json!({"log": 1, "db": 1, "enter": 1, "exit": 1}));
             inspector.fuse().unwrap();
         }
     }
