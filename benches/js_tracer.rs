@@ -505,5 +505,31 @@ fn js_tracer_benches(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, js_tracer_benches);
+fn js_tracer_reset_benches(c: &mut Criterion) {
+    let mut group = c.benchmark_group("js_tracer_reset");
+    for (name, script) in
+        [("rundler_v06", RUNDLER_V06_REAL_SCRIPT), ("rundler_v07", RUNDLER_V07_REAL_SCRIPT)]
+    {
+        let script = normalize_tracer_script(script);
+        group.bench_function(format!("{name}/fuse"), |b| {
+            let mut inspector =
+                JsInspector::new(script.to_string(), serde_json::Value::Null).unwrap();
+            b.iter(|| {
+                inspector.fuse().unwrap();
+                black_box(&inspector);
+            });
+        });
+        group.bench_function(format!("{name}/recreate"), |b| {
+            let mut inspector =
+                JsInspector::new(script.to_string(), serde_json::Value::Null).unwrap();
+            b.iter(|| {
+                inspector = inspector.try_clone().unwrap();
+                black_box(&inspector);
+            });
+        });
+    }
+    group.finish();
+}
+
+criterion_group!(benches, js_tracer_benches, js_tracer_reset_benches);
 criterion_main!(benches);
