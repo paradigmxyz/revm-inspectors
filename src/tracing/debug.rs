@@ -81,6 +81,11 @@ impl DebugInspector {
     pub fn new(opts: GethDebugTracingOptions) -> Result<Self, DebugInspectorError> {
         let GethDebugTracingOptions { config, tracer, tracer_config, .. } = opts;
 
+        // Normalize an empty tracer name to None so it selects DebugInspector::Default below,
+        // the opcode logger that produces structLogs, just like an absent tracer name.
+        // See https://github.com/ethereum/execution-apis/blob/main/src/schemas/opcode-tracer.yaml
+        let tracer = tracer.filter(|tracer| !tracer.as_str().is_empty());
+
         let this = if let Some(tracer) = tracer {
             #[allow(unreachable_patterns)]
             match tracer {

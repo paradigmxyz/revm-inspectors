@@ -23,6 +23,111 @@ use revm_inspectors::tracing::{
     DebugInspector, MuxInspector, TracingInspector, TracingInspectorConfig,
 };
 
+/// Exercise the RPC options through dispatch, execution, and result serialization.
+#[test]
+fn test_debug_empty_tracer() {
+    fn trace(options: serde_json::Value) -> serde_json::Value {
+        let opts: GethDebugTracingOptions = serde_json::from_value(options).unwrap();
+        let expected_config = opts.config;
+        let mut inspector = DebugInspector::new(opts).unwrap();
+        let DebugInspector::Default(inner, config) = &inspector else {
+            panic!("expected the default opcode logger");
+        };
+        assert_eq!(*config, expected_config);
+        assert_eq!(*inner.config(), TracingInspectorConfig::from_geth_config(&expected_config));
+
+        // Write memory and storage, and call the identity precompile to populate return data.
+        let code = hex!("602a6000526020600060206000600461fffffa50602a60005560206000f3");
+        let account = address!("1000000000000000000000000000000000000001");
+        let context =
+            Context::mainnet().with_db(CacheDB::<EmptyDB>::default()).modify_db_chained(|db| {
+                db.insert_account_info(
+                    account,
+                    AccountInfo {
+                        code: Some(Bytecode::new_raw(code.into())),
+                        ..Default::default()
+                    },
+                );
+            });
+        let mut evm = context.build_mainnet().with_inspector(&mut inspector);
+        let res = evm
+            .inspect_tx(TxEnv {
+                gas_limit: 100000,
+                kind: TransactTo::Call(account),
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(res.result.is_success());
+        let (ctx, inspector) = evm.ctx_inspector();
+        let tx = ctx.tx().clone();
+        let block = ctx.block().clone();
+        let result = inspector.get_result(None, &tx, &block, &res, ctx.db_mut()).unwrap();
+        assert!(matches!(result, GethTrace::Default(_)));
+        let result = serde_json::to_value(result).unwrap();
+        let logs = result["structLogs"].as_array().unwrap();
+        assert!(!logs.is_empty());
+        for (field, enabled) in [
+            ("memory", expected_config.enable_memory.unwrap_or_default()),
+            ("stack", !expected_config.disable_stack.unwrap_or_default()),
+            ("storage", !expected_config.disable_storage.unwrap_or_default()),
+            ("returnData", expected_config.enable_return_data.unwrap_or_default()),
+        ] {
+            let populated = logs.iter().any(|log| match log.get(field) {
+                Some(serde_json::Value::Array(value)) => !value.is_empty(),
+                Some(serde_json::Value::Object(value)) => !value.is_empty(),
+                Some(serde_json::Value::String(value)) => !value.is_empty() && value != "0x",
+                _ => false,
+            });
+            assert_eq!(populated, enabled, "{field}");
+            if !enabled {
+                assert!(logs.iter().all(|log| log.get(field).is_none()), "{field}");
+            }
+        }
+        result
+    }
+
+    let mut configs = vec![serde_json::json!({})];
+    for flags in 0..16 {
+        configs.push(serde_json::json!({
+            "enableMemory": flags & 1 != 0,
+            "disableStack": flags & 2 != 0,
+            "disableStorage": flags & 4 != 0,
+            "enableReturnData": flags & 8 != 0,
+        }));
+    }
+    for mut options in configs {
+        let absent = trace(options.clone());
+        options["tracer"] = serde_json::json!("");
+        assert_eq!(trace(options.clone()), absent, "options: {options}");
+    }
+}
+
+#[test]
+fn test_debug_nonempty_tracer() {
+    let opts = serde_json::from_value(serde_json::json!({"tracer": "callTracer"})).unwrap();
+    assert!(matches!(DebugInspector::new(opts).unwrap(), DebugInspector::CallTracer(..)));
+
+    let code = "{step: function() {}, fault: function() {}, result: function() {return {};}}";
+    for code in [code, " ", "\t\n"] {
+        let opts = serde_json::from_value(serde_json::json!({"tracer": code})).unwrap();
+        let result = DebugInspector::new(opts);
+        #[cfg(not(feature = "js-tracer"))]
+        assert!(matches!(
+            result,
+            Err(revm_inspectors::tracing::DebugInspectorError::JsTracerNotEnabled)
+        ));
+        #[cfg(feature = "js-tracer")]
+        if code.trim().is_empty() {
+            assert!(matches!(
+                result,
+                Err(revm_inspectors::tracing::DebugInspectorError::JsInspector(_))
+            ));
+        } else {
+            assert!(matches!(result.unwrap(), DebugInspector::Js(_)));
+        }
+    }
+}
+
 #[test]
 fn test_geth_calltracer_logs() {
     /*
