@@ -6,6 +6,7 @@ use alloy_rpc_types_trace::{
     },
     parity::TraceType,
 };
+use core::num::NonZeroU64;
 use revm::bytecode::opcode::OpCode;
 
 /// 256 bits each marking whether an opcode should be included into steps trace or not.
@@ -60,8 +61,8 @@ pub struct TracingInspectorConfig {
     /// Whether to record every individual opcode level step.
     pub record_steps: bool,
     /// Maximum number of opcode steps to capture across all calls in a transaction.
-    /// `None` or zero means unlimited. Execution continues after capture stops.
-    pub step_limit: Option<u64>,
+    /// `None` means unlimited. Execution continues after capture stops.
+    pub step_limit: Option<NonZeroU64>,
     /// Whether to record individual memory snapshots.
     pub record_memory_snapshots: bool,
     /// Whether to record individual stack snapshots.
@@ -195,7 +196,7 @@ impl TracingInspectorConfig {
     #[inline]
     pub fn from_geth_config(config: &GethDefaultTracingOptions) -> Self {
         Self {
-            step_limit: config.limit,
+            step_limit: config.limit.and_then(NonZeroU64::new),
             record_memory_snapshots: config.enable_memory.unwrap_or_default(),
             record_stack_snapshots: if config.disable_stack.unwrap_or_default() {
                 StackSnapshotType::None
@@ -266,7 +267,7 @@ impl TracingInspectorConfig {
         if other.record_steps {
             self.step_limit = if self.record_steps {
                 match (self.step_limit, other.step_limit) {
-                    (Some(a), Some(b)) if a != 0 && b != 0 => Some(a.max(b)),
+                    (Some(a), Some(b)) => Some(a.max(b)),
                     _ => None,
                 }
             } else {
@@ -467,12 +468,18 @@ mod tests {
             limit: Some(2),
             ..Default::default()
         });
-        let larger = TracingInspectorConfig { step_limit: Some(4), ..limited };
+        let larger = TracingInspectorConfig { step_limit: NonZeroU64::new(4), ..limited };
         for (other, expected) in [
-            (TracingInspectorConfig::none(), Some(2)),
-            (larger, Some(4)),
+            (TracingInspectorConfig::none(), NonZeroU64::new(2)),
+            (larger, NonZeroU64::new(4)),
             (TracingInspectorConfig::default_geth(), None),
-            (TracingInspectorConfig { step_limit: Some(0), ..limited }, None),
+            (
+                TracingInspectorConfig::from_geth_config(&GethDefaultTracingOptions {
+                    limit: Some(0),
+                    ..Default::default()
+                }),
+                None,
+            ),
         ] {
             let mut merged = limited;
             merged.merge(other);

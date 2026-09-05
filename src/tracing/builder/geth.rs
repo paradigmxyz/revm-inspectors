@@ -79,7 +79,7 @@ impl<'a> GethTraceBuilder<'a> {
         while let Some(CallTraceStepStackItem { trace_node, step, call_child_id }) =
             step_stack.pop_back()
         {
-            if opts.limit.is_some_and(|limit| limit != 0 && struct_logs.len() as u64 >= limit) {
+            if opts.limit.is_some_and(|limit| struct_logs.len() as u64 >= limit) {
                 break;
             }
 
@@ -134,7 +134,9 @@ impl<'a> GethTraceBuilder<'a> {
         let main_trace_node = &self.nodes[0];
         let main_trace = &main_trace_node.trace;
 
-        let capacity = opts.limit.filter(|limit| *limit != 0).map_or_else(
+        let opts =
+            GethDefaultTracingOptions { limit: opts.limit.filter(|limit| *limit != 0), ..opts };
+        let capacity = opts.limit.map_or_else(
             || self.trace_step_count(),
             |limit| self.trace_step_count().min(usize::try_from(limit).unwrap_or(usize::MAX)),
         );

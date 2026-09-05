@@ -432,7 +432,7 @@ impl TracingInspector {
         let op = OpCode::new_or_unknown(interp.bytecode.opcode());
 
         let record = self.config.should_record_opcode(op)
-            && self.config.step_limit.is_none_or(|limit| limit == 0 || self.recorded_steps < limit);
+            && self.config.step_limit.is_none_or(|limit| self.recorded_steps < limit.get());
         self.record_step_end = record;
         if !record {
             return;
