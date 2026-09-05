@@ -132,6 +132,21 @@ fn opcode_trace_resumes_parents_after_nested_and_empty_calls() {
                     .map(|value| { BTreeMap::from([(B256::ZERO, U256::from(value).into())]) })
             );
         }
+        for limit in [0, 1, 3, 6, 9, 99] {
+            let limited = builder.geth_traces(
+                123,
+                Bytes::new(),
+                GethDefaultTracingOptions {
+                    limit: Some(limit),
+                    disable_storage: Some(disable_storage),
+                    enable_return_data: Some(true),
+                    ..Default::default()
+                },
+            );
+            let len =
+                if limit == 0 { expected.len() } else { (limit as usize).min(expected.len()) };
+            assert_eq!(limited.struct_logs, frame.struct_logs[..len]);
+        }
     }
     assert!(GethTraceBuilder::new(vec![])
         .geth_traces(0, Bytes::new(), Default::default())
