@@ -82,6 +82,8 @@ pub struct TracingInspector {
     record_step_end: bool,
     /// Number of logs recorded so far, used as the index of the next log.
     log_count: usize,
+    /// Number of opcode steps captured across all calls since the last reset.
+    recorded_steps: u64,
     /// Tracks the journal len in the step, used in step_end to check if the journal has changed
     last_journal_len: usize,
     /// The spec id of the EVM.
@@ -113,6 +115,7 @@ impl TracingInspector {
             last_journal_len,
             spec_id,
             record_step_end,
+            recorded_steps,
             // kept
             config,
             reusable_step_vecs,
@@ -135,6 +138,7 @@ impl TracingInspector {
         *log_count = 0;
         *last_journal_len = 0;
         *record_step_end = false;
+        *recorded_steps = 0;
     }
 
     /// Resets the inspector to it's initial state of [Self::new].
@@ -431,12 +435,14 @@ impl TracingInspector {
         // that not a known constant.
         let op = OpCode::new_or_unknown(interp.bytecode.opcode());
 
-        let record = self.config.should_record_opcode(op);
+        let record = self.config.should_record_opcode(op)
+            && self.config.step_limit.is_none_or(|limit| self.recorded_steps < limit.get());
         self.record_step_end = record;
         if !record {
             return;
         }
 
+        self.recorded_steps += 1;
         let trace_idx = self.last_trace_idx();
         let node = &mut self.traces.arena[trace_idx];
 
