@@ -1,6 +1,6 @@
 //! Geth opcode-frame construction, excluding execution and recording.
 
-use alloy_primitives::Bytes;
+use alloy_primitives::{Bytes, U256};
 use alloy_rpc_types_trace::geth::GethDefaultTracingOptions;
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use revm::{
@@ -8,7 +8,7 @@ use revm::{
     interpreter::InstructionResult,
 };
 use revm_inspectors::tracing::{
-    types::{CallTrace, CallTraceNode, CallTraceStep},
+    types::{CallTrace, CallTraceNode, CallTraceStep, StorageChange, StorageChangeReason},
     GethTraceBuilder,
 };
 use std::hint::black_box;
@@ -54,6 +54,16 @@ fn node(idx: usize, parent: Option<usize>, depth: usize, steps: usize) -> CallTr
 
 fn bench(c: &mut Criterion) {
     let flat = vec![node(0, None, 0, 20_000)];
+    let mut mixed = flat.clone();
+    for step in mixed[0].trace.steps.iter_mut().step_by(16) {
+        step.op = OpCode::new_or_unknown(opcode::SLOAD);
+        step.storage_change = Some(Box::new(StorageChange {
+            key: U256::ZERO,
+            value: U256::from(1),
+            had_value: None,
+            reason: StorageChangeReason::SLOAD,
+        }));
+    }
     let mut wide = vec![node(0, None, 0, 4_000)];
     for idx in 1..=2_000 {
         wide[0].children.push(idx);
@@ -67,7 +77,12 @@ fn bench(c: &mut Criterion) {
         node.trace.steps[64].op = OpCode::new_or_unknown(opcode::CALL);
     }
     let mut group = c.benchmark_group("geth_steps");
-    for (name, nodes) in [("flat_20000", flat), ("wide_2000x20", wide), ("deep_64x128", deep)] {
+    for (name, nodes) in [
+        ("flat_20000", flat),
+        ("mixed_sload_20000", mixed),
+        ("wide_2000x20", wide),
+        ("deep_64x128", deep),
+    ] {
         let builder = GethTraceBuilder::new(nodes);
         for disable_storage in [false, true] {
             group.bench_with_input(

@@ -142,3 +142,40 @@ fn opcode_trace_resumes_parents_after_nested_and_empty_calls() {
         .struct_logs
         .is_empty());
 }
+
+#[test]
+fn storage_snapshots_keep_empty_reads_and_custom_changes() {
+    let mut custom_change = test_step(2, opcode::SSTORE);
+    // Public trace nodes can carry a storage change on a different opcode.
+    custom_change.op = opcode::OpCode::new_or_unknown(opcode::ADD);
+    let builder = GethTraceBuilder::new(vec![CallTraceNode {
+        trace: CallTrace {
+            steps: vec![
+                test_step(0, opcode::PUSH0),
+                test_step(1, opcode::SLOAD),
+                custom_change,
+                test_step(3, opcode::SLOAD),
+            ],
+            ..Default::default()
+        },
+        ..Default::default()
+    }]);
+    for disable_storage in [false, true] {
+        let frame = builder.geth_traces(
+            0,
+            Bytes::new(),
+            GethDefaultTracingOptions {
+                disable_storage: Some(disable_storage),
+                ..Default::default()
+            },
+        );
+        assert_eq!(frame.struct_logs.len(), 4);
+        assert!(frame.struct_logs[0].storage.is_none());
+        assert_eq!(frame.struct_logs[1].storage, (!disable_storage).then(BTreeMap::new));
+        assert!(frame.struct_logs[2].storage.is_none());
+        assert_eq!(
+            frame.struct_logs[3].storage,
+            (!disable_storage).then(|| { BTreeMap::from([(B256::ZERO, U256::from(2).into())]) })
+        );
+    }
+}
