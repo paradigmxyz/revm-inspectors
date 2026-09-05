@@ -4,8 +4,8 @@ use crate::tracing::{
     config::TraceStyle,
     js::{
         bindings::{
-            CallFrame, Contract, FrameResult, JsEvmContext, PreStep, ReusableCallFrame,
-            ReusableEvmDb, ReusableFrameResult, ReusableStepLog, StepInfo,
+            CallFrame, Contract, FrameResult, JsEvmContext, OpcodeNames, PreStep,
+            ReusableCallFrame, ReusableEvmDb, ReusableFrameResult, ReusableStepLog, StepInfo,
         },
         builtins::{register_builtins, to_serde_value, PrecompileList},
     },
@@ -86,6 +86,8 @@ pub struct JsInspector {
     exit_fn: Option<JsObject>,
     /// Executed before each instruction is executed.
     step_fn: Option<JsObject>,
+    /// Opcode name strings shared by all step wrappers this inspector creates.
+    op_names: OpcodeNames,
     /// Reused step wrapper to avoid rebuilding the JS object graph per opcode.
     reusable_step_log: ReusableStepLog,
     /// Reused frame wrapper to avoid rebuilding the JS object graph per enter callback.
@@ -165,8 +167,9 @@ impl JsInspector {
         let TracerObject { obj, result_fn, fault_fn, enter_fn, exit_fn, step_fn } =
             TracerObject::evaluate(&script, &config, &mut ctx)?;
 
+        let op_names = OpcodeNames::new();
         let reusable_step_log =
-            ReusableStepLog::new(&mut ctx).map_err(JsInspectorError::EvalCode)?;
+            ReusableStepLog::new(&mut ctx, op_names.clone()).map_err(JsInspectorError::EvalCode)?;
         let reusable_call_frame =
             ReusableCallFrame::new(&mut ctx).map_err(JsInspectorError::EvalCode)?;
         let reusable_frame_result =
@@ -186,6 +189,7 @@ impl JsInspector {
             enter_fn,
             exit_fn,
             step_fn,
+            op_names,
             reusable_step_log,
             reusable_call_frame,
             reusable_frame_result,
@@ -220,8 +224,8 @@ impl JsInspector {
         // Callback objects are mutable JS objects: replacing their Rust state does not remove
         // user-defined properties or restore overwritten methods. Rebuild them once per
         // transaction, while retaining the parsed script and reusing wrappers within a transaction.
-        let reusable_step_log =
-            ReusableStepLog::new(&mut self.ctx).map_err(JsInspectorError::EvalCode)?;
+        let reusable_step_log = ReusableStepLog::new(&mut self.ctx, self.op_names.clone())
+            .map_err(JsInspectorError::EvalCode)?;
         let reusable_call_frame =
             ReusableCallFrame::new(&mut self.ctx).map_err(JsInspectorError::EvalCode)?;
         let reusable_frame_result =

@@ -126,8 +126,8 @@ pub(crate) struct ReusableStepLog {
 }
 
 impl ReusableStepLog {
-    pub(crate) fn new(ctx: &mut Context) -> JsResult<Self> {
-        let state = Shared::new(StepLogState::new());
+    pub(crate) fn new(ctx: &mut Context, op_names: OpcodeNames) -> JsResult<Self> {
+        let state = Shared::new(StepLogState::new(op_names));
         let object = JsObject::with_object_proto(ctx.intrinsics());
 
         object.set(js_string!("op"), build_step_op_object(state.clone(), ctx)?, false, ctx)?;
@@ -599,7 +599,7 @@ struct StepLogState {
 }
 
 impl StepLogState {
-    fn new() -> Self {
+    fn new(op_names: OpcodeNames) -> Self {
         Self {
             op: 0,
             pc: 0,
@@ -612,17 +612,20 @@ impl StepLogState {
             call_id: 0,
             stack: StackView::default(),
             memory: MemoryView::default(),
-            op_names: OpcodeNames::new(),
+            op_names,
         }
     }
 }
 
 /// JS strings of all opcode names, so `log.op.toString()` does not allocate.
-#[derive(Debug)]
-struct OpcodeNames(Vec<JsString>);
+///
+/// The table is shared by all step log objects an inspector creates, so rebuilding the objects on
+/// `fuse` does not rebuild the strings.
+#[derive(Clone, Debug)]
+pub(crate) struct OpcodeNames(Rc<[JsString]>);
 
 impl OpcodeNames {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self(
             (0..=u8::MAX)
                 .map(|op| match OpCode::new(op) {
@@ -1096,7 +1099,7 @@ mod tests {
         register_builtins(&mut ctx).unwrap();
 
         let memory = RefCell::new(Vec::new());
-        let reusable_step = ReusableStepLog::new(&mut ctx).unwrap();
+        let reusable_step = ReusableStepLog::new(&mut ctx, OpcodeNames::new()).unwrap();
         with_step(&reusable_step, 0, &[], &memory, &contract, || {
             let s = "({
                 caller: function(log) { return log.contract.getCaller(); },
@@ -1269,7 +1272,7 @@ mod tests {
         let stack = [U256::from(35000); 3];
         let memory = RefCell::new(Vec::new());
         let contract = Contract::default();
-        let reusable_step = ReusableStepLog::new(&mut context).unwrap();
+        let reusable_step = ReusableStepLog::new(&mut context, OpcodeNames::new()).unwrap();
         with_step(&reusable_step, 0, &stack, &memory, &contract, || {
             step_fn.call(&eval, &[reusable_step.value()], &mut context).unwrap();
         });
@@ -1342,7 +1345,7 @@ mod tests {
         let stack = [U256::from(35000); 3];
         let memory = RefCell::new(Vec::new());
         let contract = Contract::default();
-        let reusable_step = ReusableStepLog::new(&mut context).unwrap();
+        let reusable_step = ReusableStepLog::new(&mut context, OpcodeNames::new()).unwrap();
         with_step(&reusable_step, 85, &stack, &memory, &contract, || {
             step_fn.call(&eval, &[reusable_step.value()], &mut context).unwrap();
         });
@@ -1358,7 +1361,7 @@ mod tests {
 
         let mut ctx = Context::default();
         register_builtins(&mut ctx).unwrap();
-        let log = ReusableStepLog::new(&mut ctx).unwrap();
+        let log = ReusableStepLog::new(&mut ctx, OpcodeNames::new()).unwrap();
         let db = ReusableEvmDb::new(&mut ctx).unwrap();
         ctx.global_object().set(js_string!("savedLog"), log.value(), false, &mut ctx).unwrap();
         ctx.global_object().set(js_string!("savedDb"), db.value(), false, &mut ctx).unwrap();
