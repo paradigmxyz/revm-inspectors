@@ -28,6 +28,7 @@ use boa_engine::{
 use boa_gc::{empty_trace, Finalize, Trace};
 use core::{
     cell::{Ref, RefCell, RefMut},
+    marker::PhantomData,
     ops::Range,
 };
 use revm::{
@@ -116,8 +117,8 @@ fn type_error(message: String) -> JsError {
 ///
 /// The stack and memory are not copied per step. [`Self::record_pre_execution`] saves the parts an
 /// opcode can overwrite (its stack inputs and the memory range it writes) before it executes, and
-/// [`Self::enter`] combines them with the post-execution stack and memory into the pre-execution
-/// view that geth exposes to `step`.
+/// [`Self::with_scope`] combines them with the post-execution stack and memory into the
+/// pre-execution view that geth exposes to `step`.
 #[derive(Debug)]
 pub(crate) struct ReusableStepLog {
     state: Shared<StepLogState>,
@@ -193,20 +194,20 @@ impl ReusableStepLog {
     /// the pre-execution view recorded by [`Self::record_pre_execution`], and fills in the
     /// remaining step data.
     ///
-    /// The access is revoked again when the returned guard is dropped, which must happen before
-    /// the interpreter the values are borrowed from is used again.
-    pub(crate) fn enter<'a>(
+    /// Access is revoked before returning, including during unwinding. The guard stays internal
+    /// so callers cannot leak it, and the input borrows remain live throughout the callback.
+    pub(crate) fn with_scope<'a, R>(
         &'a self,
-        stack: &[U256],
-        memory: Ref<'_, [u8]>,
+        stack: &'a [U256],
+        memory: Ref<'a, [u8]>,
         info: StepInfo<'_>,
-    ) -> StepScope<'a> {
+        f: impl FnOnce() -> R,
+    ) -> R {
+        assert!(self.state.borrow().stack.post.is_none(), "step scope is already active");
         // SAFETY: boa requires 'static values, the guard removes the references from the shared
         // state when it is dropped and JS code only runs while the guard is alive.
         let stack: &'static [U256] =
             unsafe { core::mem::transmute::<&[U256], &'static [U256]>(stack) };
-        let memory: Ref<'static, [u8]> =
-            unsafe { core::mem::transmute::<Ref<'_, [u8]>, Ref<'static, [u8]>>(memory) };
         let memory_slice: &'static [u8] =
             unsafe { core::mem::transmute::<&[u8], &'static [u8]>(&memory) };
 
@@ -230,7 +231,8 @@ impl ReusableStepLog {
             }
         }
 
-        StepScope { state: &self.state, _memory: memory }
+        let _scope = StepScope { state: &self.state, _memory: memory };
+        f()
     }
 
     pub(crate) fn value(&self) -> JsValue {
@@ -255,7 +257,7 @@ pub(crate) struct PreStep<'a> {
     pub(crate) memory: &'a [u8],
 }
 
-/// Post-execution data of a step, see [`ReusableStepLog::enter`].
+/// Post-execution data of a step, see [`ReusableStepLog::with_scope`].
 #[derive(Debug)]
 pub(crate) struct StepInfo<'a> {
     /// Gas cost of step execution
@@ -281,9 +283,9 @@ pub(crate) struct StepInfo<'a> {
 /// Revokes the JS log object's access to the interpreter's stack and memory when dropped.
 #[derive(Debug)]
 #[must_use]
-pub(crate) struct StepScope<'a> {
+struct StepScope<'a> {
     state: &'a Shared<StepLogState>,
-    _memory: Ref<'static, [u8]>,
+    _memory: Ref<'a, [u8]>,
 }
 
 impl Drop for StepScope<'_> {
@@ -396,8 +398,8 @@ impl ReusableFrameResult {
 
 /// Reusable JS database object for step, fault and result callbacks.
 ///
-/// The object is built once, [`Self::enter`] points it at the state and database of the current
-/// transaction for the duration of a callback.
+/// The object is built once, [`Self::with_scope`] points it at the state and database of the
+/// current transaction for the duration of a callback.
 #[derive(Debug)]
 pub(crate) struct ReusableEvmDb {
     state: Shared<EvmDbState>,
@@ -447,9 +449,15 @@ impl ReusableEvmDb {
         Ok(Self { state, object })
     }
 
-    /// Gives the JS object access to the given state and database until the returned guard is
-    /// dropped.
-    pub(crate) fn enter<'a>(&'a self, state: &EvmState, db: &mut dyn ErasedDb) -> DbScope<'a> {
+    /// Gives the JS object access to state and database only while `f` runs. The internal guard
+    /// revokes access on return or unwind and cannot be leaked by the caller.
+    pub(crate) fn with_scope<'a, R>(
+        &'a self,
+        state: &'a EvmState,
+        db: &'a mut dyn ErasedDb,
+        f: impl FnOnce() -> R,
+    ) -> R {
+        assert!(self.state.borrow().db.is_none(), "database scope is already active");
         // SAFETY: boa requires 'static values, the guard removes the references from the shared
         // state when it is dropped and JS code only runs while the guard is alive.
         let state: &'static EvmState = unsafe { core::mem::transmute(state) };
@@ -462,7 +470,8 @@ impl ReusableEvmDb {
         shared.state = Some(state);
         shared.db = Some(db);
         drop(shared);
-        DbScope { state: &self.state }
+        let _scope = DbScope { state: &self.state, _borrow: PhantomData };
+        f()
     }
 
     pub(crate) fn value(&self) -> JsValue {
@@ -473,8 +482,9 @@ impl ReusableEvmDb {
 /// Revokes the JS database object's access to the state and database when dropped.
 #[derive(Debug)]
 #[must_use]
-pub(crate) struct DbScope<'a> {
+struct DbScope<'a> {
     state: &'a Shared<EvmDbState>,
+    _borrow: PhantomData<(&'a EvmState, &'a mut dyn ErasedDb)>,
 }
 
 impl Drop for DbScope<'_> {
@@ -1040,13 +1050,14 @@ mod tests {
     use revm::{database::CacheDB, database_interface::EmptyDB};
 
     /// Records and enters a step with the given pre- and post-execution stack.
-    fn enter_step<'a>(
+    fn with_step<'a, R>(
         log: &'a ReusableStepLog,
         op: u8,
-        stack: &[U256],
+        stack: &'a [U256],
         memory: &'a RefCell<Vec<u8>>,
         contract: &'a Contract,
-    ) -> StepScope<'a> {
+        f: impl FnOnce() -> R,
+    ) -> R {
         log.record_pre_execution(PreStep {
             pc: 0,
             op,
@@ -1055,7 +1066,7 @@ mod tests {
             stack,
             memory: &memory.borrow(),
         });
-        log.enter(
+        log.with_scope(
             stack,
             Ref::map(memory.borrow(), Vec::as_slice),
             StepInfo {
@@ -1069,6 +1080,7 @@ mod tests {
                 input: &contract.input,
                 call_id: 1,
             },
+            f,
         )
     }
 
@@ -1085,57 +1097,60 @@ mod tests {
 
         let memory = RefCell::new(Vec::new());
         let reusable_step = ReusableStepLog::new(&mut ctx).unwrap();
-        let _scope = enter_step(&reusable_step, 0, &[], &memory, &contract);
-
-        let s = "({
+        with_step(&reusable_step, 0, &[], &memory, &contract, || {
+            let s = "({
                 caller: function(log) { return log.contract.getCaller(); },
                 value: function(log) { return log.contract.getValue(); },
                 address: function(log) { return log.contract.getAddress(); },
                 input: function(log) { return log.contract.getInput(); }
         })";
 
-        let log_arg = reusable_step.value();
-        let eval_obj = ctx.eval(Source::from_bytes(s)).unwrap();
-        let call = eval_obj.as_object().unwrap().get(js_string!("caller"), &mut ctx).unwrap();
-        let res = call
-            .as_callable()
-            .unwrap()
-            .call(&JsValue::undefined(), core::slice::from_ref(&log_arg), &mut ctx)
-            .unwrap();
-        assert!(res.is_object());
-        let obj = res.as_object().unwrap();
-        let array_buf = JsUint8Array::from_object(obj.clone());
-        assert!(array_buf.is_ok());
+            let log_arg = reusable_step.value();
+            let eval_obj = ctx.eval(Source::from_bytes(s)).unwrap();
+            let call = eval_obj.as_object().unwrap().get(js_string!("caller"), &mut ctx).unwrap();
+            let res = call
+                .as_callable()
+                .unwrap()
+                .call(&JsValue::undefined(), core::slice::from_ref(&log_arg), &mut ctx)
+                .unwrap();
+            assert!(res.is_object());
+            let obj = res.as_object().unwrap();
+            let array_buf = JsUint8Array::from_object(obj.clone());
+            assert!(array_buf.is_ok());
 
-        let get_address =
-            eval_obj.as_object().unwrap().get(js_string!("address"), &mut ctx).unwrap();
-        let res = get_address
-            .as_callable()
-            .unwrap()
-            .call(&JsValue::undefined(), core::slice::from_ref(&log_arg), &mut ctx)
-            .unwrap();
-        assert!(res.is_object());
+            let get_address =
+                eval_obj.as_object().unwrap().get(js_string!("address"), &mut ctx).unwrap();
+            let res = get_address
+                .as_callable()
+                .unwrap()
+                .call(&JsValue::undefined(), core::slice::from_ref(&log_arg), &mut ctx)
+                .unwrap();
+            assert!(res.is_object());
 
-        let buf = bytes_from_value(res, &mut ctx).unwrap();
-        assert_eq!(buf, contract.contract.as_slice());
+            let buf = bytes_from_value(res, &mut ctx).unwrap();
+            assert_eq!(buf, contract.contract.as_slice());
 
-        let call = eval_obj.as_object().unwrap().get(js_string!("value"), &mut ctx).unwrap();
-        let res = call
-            .as_callable()
-            .unwrap()
-            .call(&JsValue::undefined(), core::slice::from_ref(&log_arg), &mut ctx)
-            .unwrap();
-        assert_eq!(
-            res.to_string(&mut ctx).unwrap().to_std_string().unwrap(),
-            contract.value.to_string()
-        );
+            let call = eval_obj.as_object().unwrap().get(js_string!("value"), &mut ctx).unwrap();
+            let res = call
+                .as_callable()
+                .unwrap()
+                .call(&JsValue::undefined(), core::slice::from_ref(&log_arg), &mut ctx)
+                .unwrap();
+            assert_eq!(
+                res.to_string(&mut ctx).unwrap().to_std_string().unwrap(),
+                contract.value.to_string()
+            );
 
-        let call = eval_obj.as_object().unwrap().get(js_string!("input"), &mut ctx).unwrap();
-        let res =
-            call.as_callable().unwrap().call(&JsValue::undefined(), &[log_arg], &mut ctx).unwrap();
+            let call = eval_obj.as_object().unwrap().get(js_string!("input"), &mut ctx).unwrap();
+            let res = call
+                .as_callable()
+                .unwrap()
+                .call(&JsValue::undefined(), &[log_arg], &mut ctx)
+                .unwrap();
 
-        let buf = bytes_from_value(res, &mut ctx).unwrap();
-        assert_eq!(buf, contract.input);
+            let buf = bytes_from_value(res, &mut ctx).unwrap();
+            assert_eq!(buf, contract.input);
+        });
     }
 
     #[test]
@@ -1160,33 +1175,30 @@ mod tests {
         let state = EvmState::default();
         let reusable_db = ReusableEvmDb::new(&mut context).unwrap();
         {
-            let guard = reusable_db.enter(&state, &mut db);
-            let addr = Address::default();
-            let addr = JsValue::from(js_string!(addr.to_string()));
-            let db = reusable_db.value();
-            let res = f.call(&result, &[db.clone(), addr.clone()], &mut context).unwrap();
-            assert!(!res.as_boolean().unwrap());
-
-            // drop the guard which revokes the db access
-            drop(guard);
-            let res = f.call(&result, &[db.clone(), addr.clone()], &mut context);
+            let addr = JsValue::from(js_string!(Address::default().to_string()));
+            let db_value = reusable_db.value();
+            reusable_db.with_scope(&state, &mut db, || {
+                let res = f.call(&result, &[db_value.clone(), addr.clone()], &mut context).unwrap();
+                assert!(!res.as_boolean().unwrap());
+            });
+            // Leaving the callback revokes access through retained JS objects.
+            let res = f.call(&result, &[db_value.clone(), addr.clone()], &mut context);
             assert!(res.is_err());
         }
         let addr = Address::default();
         db.insert_account_info(addr, Default::default());
 
         {
-            let guard = reusable_db.enter(&state, &mut db);
             let addr = JsValue::from(js_string!(addr.to_string()));
-            let db = reusable_db.value();
-            let res = f.call(&result, &[db.clone(), addr.clone()], &mut context).unwrap();
+            let db_value = reusable_db.value();
+            reusable_db.with_scope(&state, &mut db, || {
+                let res = f.call(&result, &[db_value.clone(), addr.clone()], &mut context).unwrap();
 
-            // account exists
-            assert!(res.as_boolean().unwrap());
-
-            // drop the guard which revokes the db access
-            drop(guard);
-            let res = f.call(&result, &[db.clone(), addr.clone()], &mut context);
+                // account exists
+                assert!(res.as_boolean().unwrap());
+            });
+            // Leaving the callback revokes access through retained JS objects.
+            let res = f.call(&result, &[db_value.clone(), addr.clone()], &mut context);
             assert!(res.is_err());
         }
     }
@@ -1216,20 +1228,21 @@ mod tests {
         let state = EvmState::default();
         {
             let reusable_db = ReusableEvmDb::new(&mut context).unwrap();
-            let guard = reusable_db.enter(&state, &mut db);
-            let _res =
-                setup_fn.call(&(obj.clone().into()), &[reusable_db.value()], &mut context).unwrap();
-            assert!(obj.get(js_string!("db"), &mut context).unwrap().is_object());
+            let addr = JsValue::from(js_string!(Address::default().to_string()));
+            reusable_db.with_scope(&state, &mut db, || {
+                let _res = setup_fn
+                    .call(&(obj.clone().into()), &[reusable_db.value()], &mut context)
+                    .unwrap();
+                assert!(obj.get(js_string!("db"), &mut context).unwrap().is_object());
 
-            let addr = Address::default();
-            let addr = JsValue::from(js_string!(addr.to_string()));
-            let res = result_fn
-                .call(&(obj.clone().into()), core::slice::from_ref(&addr), &mut context)
-                .unwrap();
-            assert!(!res.as_boolean().unwrap());
-
-            // drop the guard which revokes the db access
-            drop(guard);
+                let addr = Address::default();
+                let addr = JsValue::from(js_string!(addr.to_string()));
+                let res = result_fn
+                    .call(&(obj.clone().into()), core::slice::from_ref(&addr), &mut context)
+                    .unwrap();
+                assert!(!res.as_boolean().unwrap());
+            });
+            // Leaving the callback revokes access through retained JS objects.
             let res = result_fn.call(&(obj.clone().into()), &[addr], &mut context);
             assert!(res.is_err());
         }
@@ -1257,10 +1270,9 @@ mod tests {
         let memory = RefCell::new(Vec::new());
         let contract = Contract::default();
         let reusable_step = ReusableStepLog::new(&mut context).unwrap();
-        let scope = enter_step(&reusable_step, 0, &stack, &memory, &contract);
-
-        let _ = step_fn.call(&eval, &[reusable_step.value()], &mut context).unwrap();
-        drop(scope);
+        with_step(&reusable_step, 0, &stack, &memory, &contract, || {
+            step_fn.call(&eval, &[reusable_step.value()], &mut context).unwrap();
+        });
 
         let res = result_fn.call(&eval, &[], &mut context).unwrap();
         let val = json_stringify(res.clone(), &mut context).unwrap().to_std_string().unwrap();
@@ -1331,14 +1343,67 @@ mod tests {
         let memory = RefCell::new(Vec::new());
         let contract = Contract::default();
         let reusable_step = ReusableStepLog::new(&mut context).unwrap();
-        let scope = enter_step(&reusable_step, 85, &stack, &memory, &contract);
-
-        let _ = step_fn.call(&eval, &[reusable_step.value()], &mut context).unwrap();
-        drop(scope);
+        with_step(&reusable_step, 85, &stack, &memory, &contract, || {
+            step_fn.call(&eval, &[reusable_step.value()], &mut context).unwrap();
+        });
 
         let res = result_fn.call(&eval, &[], &mut context).unwrap();
         let val = json_stringify(res.clone(), &mut context).unwrap().to_std_string().unwrap();
         assert_eq!(val, r#"["0000000000000000000000000000000000000000:88b8;88b8"]"#);
+    }
+
+    #[test]
+    fn test_scopes_revoke_access_on_return_error_and_unwind() {
+        use std::panic::{catch_unwind, AssertUnwindSafe};
+
+        let mut ctx = Context::default();
+        register_builtins(&mut ctx).unwrap();
+        let log = ReusableStepLog::new(&mut ctx).unwrap();
+        let db = ReusableEvmDb::new(&mut ctx).unwrap();
+        ctx.global_object().set(js_string!("savedLog"), log.value(), false, &mut ctx).unwrap();
+        ctx.global_object().set(js_string!("savedDb"), db.value(), false, &mut ctx).unwrap();
+
+        for outcome in 0..3 {
+            let stack = vec![U256::from(42)];
+            let memory = RefCell::new(vec![7u8; 32]);
+            let contract = Contract::default();
+            let state = EvmState::default();
+            let mut database = CacheDB::new(EmptyDB::default());
+            let result = catch_unwind(AssertUnwindSafe(|| {
+                db.with_scope(&state, &mut database, || {
+                    with_step(&log, opcode::STOP, &stack, &memory, &contract, || {
+                        assert!(ctx.eval(Source::from_bytes(
+                            "savedLog.stack.peek(0) === 42n && savedLog.memory.getUint(0)[0] === 7 && savedDb.getBalance('00') === 0n"
+                        )).unwrap().as_boolean().unwrap());
+                        match outcome {
+                            0 => Ok(JsValue::undefined()),
+                            1 => ctx.eval(Source::from_bytes("throw new Error('callback failed')")),
+                            _ => panic!("native callback panicked"),
+                        }
+                    })
+                })
+            }));
+            match outcome {
+                0 => assert!(result.unwrap().is_ok()),
+                1 => assert!(result.unwrap().is_err()),
+                _ => assert!(result.is_err()),
+            }
+            assert!(memory.try_borrow_mut().is_ok());
+            drop((stack, memory, state, database));
+            // Retained JS objects must not access the now-dropped backing storage.
+            for expression in
+                ["savedLog.stack.peek(0)", "savedLog.memory.getUint(0)", "savedDb.getBalance('00')"]
+            {
+                assert!(ctx.eval(Source::from_bytes(expression)).is_err(), "{expression}");
+            }
+            assert!(ctx
+                .eval(Source::from_bytes(
+                    "savedLog.stack.length() === 0 && savedLog.memory.length() === 0"
+                ))
+                .unwrap()
+                .as_boolean()
+                .unwrap());
+        }
     }
 
     #[test]

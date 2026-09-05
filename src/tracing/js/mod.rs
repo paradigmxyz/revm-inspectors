@@ -350,12 +350,9 @@ impl JsInspector {
             error,
         };
         let ctx = ctx.into_js_object(&mut self.ctx)?;
-        let _db_scope = self.reusable_db.enter(&state, &mut db);
-        Ok(self.result_fn.call(
-            &self.this,
-            &[ctx.into(), self.reusable_db.value()],
-            &mut self.ctx,
-        )?)
+        Ok(self.reusable_db.with_scope(&state, &mut db, || {
+            self.result_fn.call(&self.this, &[ctx.into(), self.reusable_db.value()], &mut self.ctx)
+        })?)
     }
 
     fn try_enter(&mut self, frame: CallFrame) -> JsResult<()> {
@@ -494,17 +491,18 @@ where
         };
 
         let (db, state) = context.journal_mut().db_and_state_mut();
-        let res = {
-            let _db_scope = self.reusable_db.enter(state, db);
-            let _step_scope = self.reusable_step_log.enter(
+        let res = self.reusable_db.with_scope(state, db, || {
+            self.reusable_step_log.with_scope(
                 interp.stack.data(),
                 interp.memory.context_memory(),
                 info,
-            );
-            let args = [self.reusable_step_log.value(), self.reusable_db.value()];
-            let f = if is_revert { &self.fault_fn } else { step_fn };
-            f.call(&self.this, &args, &mut self.ctx)
-        };
+                || {
+                    let args = [self.reusable_step_log.value(), self.reusable_db.value()];
+                    let f = if is_revert { &self.fault_fn } else { step_fn };
+                    f.call(&self.this, &args, &mut self.ctx)
+                },
+            )
+        });
 
         // Only set revert if the opcode didn't already set an action (e.g. STOP/RETURN).
         // If the opcode completed successfully, we can't revert it after the fact.
