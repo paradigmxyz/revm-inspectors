@@ -20,7 +20,7 @@ use alloc::{
 };
 use alloy_primitives::{Address, Bytes, U256};
 pub use boa_engine::vm::RuntimeLimits;
-use boa_engine::{js_string, Context, JsError, JsObject, JsResult, JsValue, Source};
+use boa_engine::{js_string, Context, JsError, JsObject, JsResult, JsValue, Script, Source};
 use core::borrow::Borrow;
 use revm::{
     bytecode::OpCode,
@@ -81,13 +81,12 @@ struct PendingStep {
 /// A javascript inspector that will delegate inspector functions to javascript functions
 ///
 /// See also <https://geth.ethereum.org/docs/developers/evm-tracing/custom-tracer#custom-javascript-tracing>
-#[derive(Debug)]
 pub struct JsInspector {
     ctx: Context,
     /// The original javascript code used to create this inspector.
     code: String,
-    /// The javascript config provided to the inspector.
-    _js_config_value: JsValue,
+    /// The parsed tracer script, evaluated again by [`Self::fuse`] to get a fresh tracer object.
+    script: Script,
     /// The input config object.
     config: serde_json::Value,
     /// The evaluated object that contains the inspector functions.
@@ -132,6 +131,17 @@ pub struct JsInspector {
     prev_op: Option<OpCode>,
 }
 
+impl core::fmt::Debug for JsInspector {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("JsInspector")
+            .field("code", &self.code)
+            .field("config", &self.config)
+            .field("transaction_context", &self.transaction_context)
+            .field("call_stack", &self.call_stack)
+            .finish_non_exhaustive()
+    }
+}
+
 impl JsInspector {
     /// Creates a new inspector from a javascript code snipped that evaluates to an object with the
     /// expected fields and a config object.
@@ -171,51 +181,13 @@ impl JsInspector {
 
         register_builtins(&mut ctx)?;
 
-        // evaluate the code
+        // parse the code
         let wrapped = format!("({code})");
-        let obj =
-            ctx.eval(Source::from_bytes(wrapped.as_bytes())).map_err(JsInspectorError::EvalCode)?;
+        let script = Script::parse(Source::from_bytes(wrapped.as_bytes()), None, &mut ctx)
+            .map_err(JsInspectorError::EvalCode)?;
 
-        let obj = obj.as_object().ok_or(JsInspectorError::ExpectedJsObject)?;
-
-        // ensure all the fields are callables, if present
-
-        let result_fn = obj
-            .get(js_string!("result"), &mut ctx)?
-            .as_object()
-            .ok_or(JsInspectorError::ResultFunctionMissing)?;
-        if !result_fn.is_callable() {
-            return Err(JsInspectorError::ResultFunctionMissing);
-        }
-
-        let fault_fn = obj
-            .get(js_string!("fault"), &mut ctx)?
-            .as_object()
-            .ok_or(JsInspectorError::FaultFunctionMissing)?;
-        if !fault_fn.is_callable() {
-            return Err(JsInspectorError::FaultFunctionMissing);
-        }
-
-        let enter_fn =
-            obj.get(js_string!("enter"), &mut ctx)?.as_object().filter(|o| o.is_callable());
-        let exit_fn =
-            obj.get(js_string!("exit"), &mut ctx)?.as_object().filter(|o| o.is_callable());
-        let step_fn =
-            obj.get(js_string!("step"), &mut ctx)?.as_object().filter(|o| o.is_callable());
-
-        let _js_config_value =
-            JsValue::from_json(&config, &mut ctx).map_err(JsInspectorError::InvalidJsonConfig)?;
-
-        if let Some(setup_fn) = obj.get(js_string!("setup"), &mut ctx)?.as_object() {
-            if !setup_fn.is_callable() {
-                return Err(JsInspectorError::SetupFunctionNotCallable);
-            }
-
-            // call setup()
-            setup_fn
-                .call(&(obj.clone().into()), core::slice::from_ref(&_js_config_value), &mut ctx)
-                .map_err(JsInspectorError::SetupCallFailed)?;
-        }
+        let TracerObject { obj, result_fn, fault_fn, enter_fn, exit_fn, step_fn } =
+            TracerObject::evaluate(&script, &config, &mut ctx)?;
 
         let reusable_step_log =
             ReusableStepLog::new(&mut ctx).map_err(JsInspectorError::EvalCode)?;
@@ -228,7 +200,7 @@ impl JsInspector {
         Ok(Self {
             ctx,
             code,
-            _js_config_value,
+            script,
             config,
             obj,
             transaction_context,
@@ -257,6 +229,28 @@ impl JsInspector {
     /// Creates a fresh inspector from the same code and config, resetting all execution state.
     pub fn try_clone(&self) -> Result<Self, JsInspectorError> {
         Self::new(self.code.clone(), self.config.clone())
+    }
+
+    /// Resets the inspector to its initial state so it can be used for the next transaction.
+    ///
+    /// This evaluates the tracer script again in the existing JS context, which yields a fresh
+    /// tracer object (and invokes its `setup` function) without parsing the script again. Global
+    /// state the previous tracer object may have modified, e.g. prototypes, is kept.
+    pub fn fuse(&mut self) -> Result<(), JsInspectorError> {
+        let TracerObject { obj, result_fn, fault_fn, enter_fn, exit_fn, step_fn } =
+            TracerObject::evaluate(&self.script, &self.config, &mut self.ctx)?;
+        self.obj = obj;
+        self.result_fn = result_fn;
+        self.fault_fn = fault_fn;
+        self.enter_fn = enter_fn;
+        self.exit_fn = exit_fn;
+        self.step_fn = step_fn;
+        self.call_stack.clear();
+        self.precompiles_registered = false;
+        self.pending_step = None;
+        self.cached_memory = MemorySnapshot::default();
+        self.prev_op = None;
+        Ok(())
     }
 
     /// Returns the transaction context.
@@ -699,6 +693,66 @@ where
             let frame_result = FrameResult { gas_used: 0, output: Bytes::new(), error: None };
             let _ = self.try_exit(frame_result);
         }
+    }
+}
+
+/// The evaluated tracer object and its callback functions.
+struct TracerObject {
+    obj: JsObject,
+    result_fn: JsObject,
+    fault_fn: JsObject,
+    enter_fn: Option<JsObject>,
+    exit_fn: Option<JsObject>,
+    step_fn: Option<JsObject>,
+}
+
+impl TracerObject {
+    /// Evaluates the script to a fresh tracer object, validates its callbacks and invokes `setup`.
+    fn evaluate(
+        script: &Script,
+        config: &serde_json::Value,
+        ctx: &mut Context,
+    ) -> Result<Self, JsInspectorError> {
+        let obj = script.evaluate(ctx).map_err(JsInspectorError::EvalCode)?;
+        let obj = obj.as_object().ok_or(JsInspectorError::ExpectedJsObject)?;
+
+        // ensure all the fields are callables, if present
+
+        let result_fn = obj
+            .get(js_string!("result"), ctx)?
+            .as_object()
+            .ok_or(JsInspectorError::ResultFunctionMissing)?;
+        if !result_fn.is_callable() {
+            return Err(JsInspectorError::ResultFunctionMissing);
+        }
+
+        let fault_fn = obj
+            .get(js_string!("fault"), ctx)?
+            .as_object()
+            .ok_or(JsInspectorError::FaultFunctionMissing)?;
+        if !fault_fn.is_callable() {
+            return Err(JsInspectorError::FaultFunctionMissing);
+        }
+
+        let enter_fn = obj.get(js_string!("enter"), ctx)?.as_object().filter(|o| o.is_callable());
+        let exit_fn = obj.get(js_string!("exit"), ctx)?.as_object().filter(|o| o.is_callable());
+        let step_fn = obj.get(js_string!("step"), ctx)?.as_object().filter(|o| o.is_callable());
+
+        let js_config_value =
+            JsValue::from_json(config, ctx).map_err(JsInspectorError::InvalidJsonConfig)?;
+
+        if let Some(setup_fn) = obj.get(js_string!("setup"), ctx)?.as_object() {
+            if !setup_fn.is_callable() {
+                return Err(JsInspectorError::SetupFunctionNotCallable);
+            }
+
+            // call setup()
+            setup_fn
+                .call(&(obj.clone().into()), core::slice::from_ref(&js_config_value), ctx)
+                .map_err(JsInspectorError::SetupCallFailed)?;
+        }
+
+        Ok(Self { obj, result_fn, fault_fn, enter_fn, exit_fn, step_fn })
     }
 }
 
@@ -1249,6 +1303,52 @@ mod tests {
         }"#;
         let res = run_trace(code, Some(bytes!("0x5F5F52600100")), true);
         assert_eq!(res, json!([json!({}), json!({}), json!({"0": 0})]));
+    }
+
+    #[test]
+    fn test_fuse_resets_tracer() {
+        let code = r#"{
+            count: 0,
+            step: function() { this.count += 1; },
+            fault: function() {},
+            result: function() { return this.count; }
+        }"#;
+        let addr = Address::repeat_byte(0x01);
+        let mut db = CacheDB::new(EmptyDB::default());
+        db.insert_account_info(
+            Address::ZERO,
+            AccountInfo { balance: U256::from(1e18), ..Default::default() },
+        );
+        db.insert_account_info(
+            addr,
+            AccountInfo {
+                code: Some(Bytecode::new_legacy(hex!("6001600100").into())),
+                ..Default::default()
+            },
+        );
+
+        let insp = JsInspector::new(code.to_string(), serde_json::Value::Null).unwrap();
+        let mut evm = revm::Context::mainnet()
+            .modify_cfg_chained(|cfg| cfg.spec = SpecId::CANCUN)
+            .with_db(db)
+            .build_mainnet_with_inspector(insp);
+
+        for _ in 0..2 {
+            let res = evm
+                .inspect_tx(TxEnv {
+                    gas_price: 1024,
+                    gas_limit: 1_000_000,
+                    kind: TransactTo::Call(addr),
+                    ..Default::default()
+                })
+                .unwrap();
+            let (ctx, inspector) = evm.ctx_inspector();
+            let tx = ctx.tx().clone();
+            let block = ctx.block().clone();
+            let count = inspector.json_result(res, &tx, &block, ctx.db_mut()).unwrap();
+            assert_eq!(count.as_u64().unwrap(), 3);
+            inspector.fuse().unwrap();
+        }
     }
 
     #[test]
