@@ -1439,3 +1439,173 @@ fn test_geth_calltracer_logs_delegatecall() {
         "Log emitter must NOT be the implementation (bytecode) address"
     );
 }
+
+/// Execute real bytecode and compare capped capture with the complete execution.
+#[test]
+fn test_geth_opcode_limit() {
+    let account = address!("1000000000000000000000000000000000000001");
+    let child = address!("00000000000000000000000000000000000000ff");
+    for terminal in [opcode::RETURN, opcode::REVERT, opcode::INVALID] {
+        // Call a child, then return/revert with one byte (0x2a), or halt exceptionally.
+        let mut code = hex!("6000600060006000600060ff61fffff150602a60005360016000").to_vec();
+        code.push(terminal);
+        let run = |inspector: &mut TracingInspector, opts: GethDefaultTracingOptions| {
+            let context =
+                Context::mainnet().with_db(CacheDB::<EmptyDB>::default()).modify_db_chained(|db| {
+                    for (addr, code) in
+                        [(account, Bytes::from(code.clone())), (child, hex!("60015000").into())]
+                    {
+                        db.insert_account_info(
+                            addr,
+                            AccountInfo {
+                                code: Some(Bytecode::new_raw(code)),
+                                ..Default::default()
+                            },
+                        );
+                    }
+                });
+            let result = context
+                .build_mainnet()
+                .with_inspector(&mut *inspector)
+                .inspect_tx(TxEnv {
+                    kind: TxKind::Call(account),
+                    gas_limit: 200_000,
+                    ..Default::default()
+                })
+                .unwrap()
+                .result;
+            inspector.geth_builder().geth_traces(
+                result.tx_gas_used(),
+                result.output().cloned().unwrap_or_default(),
+                opts,
+            )
+        };
+        let mut unlimited = TracingInspector::new(TracingInspectorConfig::default_geth());
+        let full = run(&mut unlimited, GethDefaultTracingOptions::default());
+        assert!(full.struct_logs.len() > 12);
+        assert_eq!(full.struct_logs[8].depth, 2);
+        assert_eq!(full.struct_logs[11].depth, 1);
+        assert_eq!(full.failed, terminal != opcode::RETURN);
+        assert_eq!(
+            full.return_value,
+            if terminal == opcode::INVALID { Bytes::new() } else { hex!("2a").into() }
+        );
+        // Includes caps before CALL, on CALL, in the child, and after returning to the parent.
+        for limit in [None, Some(0), Some(2), Some(8), Some(9), Some(12), Some(u64::MAX)] {
+            let opts = GethDefaultTracingOptions { limit, ..Default::default() };
+            let expected_len = limit.filter(|n| *n != 0).map_or(full.struct_logs.len(), |n| {
+                full.struct_logs.len().min(usize::try_from(n).unwrap_or(usize::MAX))
+            });
+            let mut expected = full.clone();
+            expected.struct_logs.truncate(expected_len);
+            let mut inspector =
+                TracingInspector::new(TracingInspectorConfig::from_geth_config(&opts));
+            for _ in 0..2 {
+                let actual = run(&mut inspector, opts);
+                assert_eq!(actual, expected, "limit {limit:?}, terminal {terminal}");
+                assert_eq!(
+                    inspector.traces().nodes().iter().map(|n| n.trace.steps.len()).sum::<usize>(),
+                    expected_len
+                );
+                inspector.fuse();
+            }
+            // Builder options also apply to already collected unlimited traces.
+            assert_eq!(
+                unlimited.geth_builder().geth_traces(full.gas, full.return_value.clone(), opts),
+                expected
+            );
+        }
+    }
+}
+
+#[test]
+fn test_geth_opcode_limit_ignores_named_tracers() {
+    for tracer in
+        [GethDebugBuiltInTracerType::CallTracer, GethDebugBuiltInTracerType::Erc7562Tracer]
+    {
+        let opts = GethDebugTracingOptions {
+            tracer: Some(GethDebugTracerType::BuiltInTracer(tracer)),
+            config: GethDefaultTracingOptions { limit: Some(2), ..Default::default() },
+            ..Default::default()
+        };
+        let inspector = DebugInspector::new(opts).unwrap();
+        let config = match &inspector {
+            DebugInspector::CallTracer(inspector, _)
+            | DebugInspector::Erc7562Tracer(inspector, _) => inspector.config(),
+            _ => panic!("unexpected tracer"),
+        };
+        assert_eq!(config.step_limit, None);
+    }
+}
+
+/// Exercise JSON options, tracer dispatch, EVM execution, and serialized trace output together.
+#[test]
+fn test_geth_opcode_limit_end_to_end() {
+    use serde_json::{json, Value};
+
+    let account = address!("1000000000000000000000000000000000000001");
+    let child = address!("00000000000000000000000000000000000000ff");
+    for terminal in [opcode::RETURN, opcode::REVERT] {
+        let run = |options: Value| {
+            let options: GethDebugTracingOptions = serde_json::from_value(options).unwrap();
+            let mut inspector = DebugInspector::new(options).unwrap();
+            // Execute a child call, then write and return/revert with 0x2a after capture stops.
+            let mut code = hex!("6000600060006000600060ff61fffff150602a60005360016000").to_vec();
+            code.push(terminal);
+            let context =
+                Context::mainnet().with_db(CacheDB::<EmptyDB>::default()).modify_db_chained(|db| {
+                    for (addr, code) in
+                        [(account, Bytes::from(code)), (child, hex!("60015000").into())]
+                    {
+                        db.insert_account_info(
+                            addr,
+                            AccountInfo {
+                                code: Some(Bytecode::new_raw(code)),
+                                ..Default::default()
+                            },
+                        );
+                    }
+                });
+            let mut evm = context.build_mainnet().with_inspector(&mut inspector);
+            let result = evm
+                .inspect_tx(TxEnv {
+                    kind: TxKind::Call(account),
+                    gas_limit: 200_000,
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(result.result.is_success(), terminal == opcode::RETURN);
+            assert_eq!(result.result.output().unwrap(), &Bytes::from_static(&[0x2a]));
+
+            let (ctx, inspector) = evm.ctx_inspector();
+            let tx = ctx.tx().clone();
+            let block = ctx.block().clone();
+            let trace = inspector.get_result(None, &tx, &block, &result, ctx.db_mut()).unwrap();
+            (serde_json::to_value(trace).unwrap(), result.result.tx_gas_used())
+        };
+
+        let (full, gas_used) = run(json!({}));
+        assert_eq!(full["gas"], gas_used);
+        assert_eq!(full["failed"], terminal == opcode::REVERT);
+        assert_eq!(full["returnValue"], "0x2a");
+        let steps = full["structLogs"].as_array().unwrap();
+        assert!(steps.len() > 12);
+        assert_eq!(steps[8]["depth"], 2);
+        assert_eq!(steps[11]["depth"], 1);
+
+        // The cap must count steps across call frames, including a cap inside the child.
+        for limit in [2, 9, 12] {
+            let (limited, limited_gas) = run(json!({ "limit": limit }));
+            let mut expected = full.clone();
+            expected["structLogs"].as_array_mut().unwrap().truncate(limit);
+            assert_eq!(limited, expected);
+            assert_eq!(limited_gas, gas_used);
+        }
+        assert_eq!(run(json!({ "limit": 0 })).0, full);
+
+        // The same JSON option must not truncate named tracer output.
+        let calls = run(json!({ "tracer": "callTracer" })).0;
+        assert_eq!(calls["calls"].as_array().unwrap().len(), 1);
+        assert_eq!(run(json!({ "tracer": "callTracer", "limit": 2 })).0, calls);
+    }
+}
