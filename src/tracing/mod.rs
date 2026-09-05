@@ -80,8 +80,8 @@ pub struct TracingInspector {
     trace_stack: Vec<usize>,
     /// Tracks whether the next `step_end` should be recorded. Set in `start_step`.
     record_step_end: bool,
-    /// Tracks the return value of the last call
-    last_call_return_data: Option<Bytes>,
+    /// Number of logs recorded so far, used as the index of the next log.
+    log_count: usize,
     /// Tracks the journal len in the step, used in step_end to check if the journal has changed
     last_journal_len: usize,
     /// The spec id of the EVM.
@@ -109,7 +109,7 @@ impl TracingInspector {
         let Self {
             traces,
             trace_stack,
-            last_call_return_data,
+            log_count,
             last_journal_len,
             spec_id,
             record_step_end,
@@ -131,8 +131,8 @@ impl TracingInspector {
 
         traces.clear();
         trace_stack.clear();
-        last_call_return_data.take();
         spec_id.take();
+        *log_count = 0;
         *last_journal_len = 0;
         *record_step_end = false;
     }
@@ -277,11 +277,6 @@ impl TracingInspector {
         !self.trace_stack.is_empty()
     }
 
-    /// Returns how many logs we already recorded.
-    fn log_count(&self) -> usize {
-        self.traces.nodes().iter().map(|trace| trace.log_count()).sum()
-    }
-
     /// Returns true if this a call to a precompile contract.
     ///
     /// Returns true if the `to` address is a precompile contract and the value is zero.
@@ -366,8 +361,11 @@ impl TracingInspector {
         // find an empty steps vec or create a new one
         let steps = self.reusable_step_vecs.pop().unwrap_or_default();
 
+        // the currently active call is the parent of the new call
+        let parent = self.trace_stack.last().copied().unwrap_or_default();
+
         self.trace_stack.push(self.traces.push_trace(
-            0,
+            parent,
             push_kind,
             CallTrace {
                 depth: context.journal().depth(),
@@ -408,8 +406,6 @@ impl TracingInspector {
         trace.status = Some(result);
         trace.success = trace.status.is_some_and(|status| status.is_ok());
         trace.output = output.clone();
-
-        self.last_call_return_data = Some(output.clone());
 
         if let Some(address) = created_address {
             // A new contract was created via CREATE
@@ -643,7 +639,8 @@ where
     fn log(&mut self, _context: &mut CTX, log: Log) {
         if self.config.record_logs {
             // index starts at 0
-            let log_count = self.log_count();
+            let log_count = self.log_count;
+            self.log_count += 1;
             let trace = self.last_trace();
             trace.ordering.push(TraceMemberOrder::Log(trace.logs.len()));
             trace.logs.push(

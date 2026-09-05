@@ -53,14 +53,16 @@ impl CallTraceArena {
         self.nodes().iter().flat_map(|node| [node.trace.address, node.trace.caller].into_iter())
     }
 
-    /// Pushes a new trace into the arena, returning the trace ID
+    /// Pushes a new trace into the arena as a child of `parent`, returning the trace ID
     ///
     /// This appends a new trace to the arena, and also inserts a new entry in the node's parent
     /// node children set if `attach_to_parent` is `true`. E.g. if calls to precompiles should
     /// not be included in the call graph this should be called with [PushTraceKind::PushOnly].
+    ///
+    /// If the new trace is the root call (depth 0), it replaces the root node instead.
     pub(crate) fn push_trace(
         &mut self,
-        mut entry: usize,
+        parent: usize,
         kind: PushTraceKind,
         new_trace: CallTrace,
     ) -> usize {
@@ -70,14 +72,15 @@ impl CallTraceArena {
             return 0;
         }
 
-        // Otherwise, we need to find the parent node and add the new trace as a child.
-        while self.arena[entry].trace.depth != new_trace.depth - 1 {
-            entry = *self.arena[entry].children.last().expect("Disconnected trace");
-        }
+        debug_assert_eq!(
+            self.arena[parent].trace.depth + 1,
+            new_trace.depth,
+            "parent must be exactly one level above the new trace"
+        );
 
         let idx = self.arena.len();
         self.arena.push(CallTraceNode {
-            parent: Some(entry),
+            parent: Some(parent),
             trace: new_trace,
             idx,
             ..Default::default()
@@ -85,7 +88,7 @@ impl CallTraceArena {
 
         // Also track the child in the parent node.
         if kind.is_attach_to_parent() {
-            let parent = &mut self.arena[entry];
+            let parent = &mut self.arena[parent];
             let trace_location = parent.children.len();
             parent.ordering.push(TraceMemberOrder::Call(trace_location));
             parent.children.push(idx);
