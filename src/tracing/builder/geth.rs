@@ -81,12 +81,16 @@ impl<'a> GethTraceBuilder<'a> {
         let mut parents = Vec::new();
 
         loop {
+            if opts.limit.is_some_and(|limit| struct_logs.len() as u64 >= limit) {
+                break;
+            }
             let Some(CallTraceStepStackItem { trace_node, step, call_child_id }) = steps.next()
             else {
                 let Some(parent) = parents.pop() else { break };
                 steps = parent;
                 continue;
             };
+
             // We increment the depth by one because steps that are part of call at depth N should
             // have depth N + 1. For example, steps inside of a top-level call should
             // have depth 1.
@@ -160,7 +164,13 @@ impl<'a> GethTraceBuilder<'a> {
         let main_trace_node = &self.nodes[0];
         let main_trace = &main_trace_node.trace;
 
-        let mut struct_logs = Vec::with_capacity(self.trace_step_count());
+        let opts =
+            GethDefaultTracingOptions { limit: opts.limit.filter(|limit| *limit != 0), ..opts };
+        let capacity = opts.limit.map_or_else(
+            || self.trace_step_count(),
+            |limit| self.trace_step_count().min(usize::try_from(limit).unwrap_or(usize::MAX)),
+        );
+        let mut struct_logs = Vec::with_capacity(capacity);
         let mut storage = HashMap::default();
         self.fill_geth_trace(main_trace_node, &opts, &mut storage, &mut struct_logs);
 

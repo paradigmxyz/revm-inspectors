@@ -6,6 +6,7 @@ use alloy_rpc_types_trace::{
     },
     parity::TraceType,
 };
+use core::num::NonZeroU64;
 use revm::bytecode::opcode::OpCode;
 
 /// 256 bits each marking whether an opcode should be included into steps trace or not.
@@ -59,6 +60,9 @@ impl OpcodeFilter {
 pub struct TracingInspectorConfig {
     /// Whether to record every individual opcode level step.
     pub record_steps: bool,
+    /// Maximum number of opcode steps to capture across all calls in a transaction.
+    /// `None` means unlimited. Execution continues after capture stops.
+    pub step_limit: Option<NonZeroU64>,
     /// Whether to record individual memory snapshots.
     pub record_memory_snapshots: bool,
     /// Whether to record individual stack snapshots.
@@ -83,6 +87,7 @@ impl TracingInspectorConfig {
     pub const fn all() -> Self {
         Self {
             record_steps: true,
+            step_limit: None,
             record_memory_snapshots: true,
             record_stack_snapshots: StackSnapshotType::All,
             record_state_diff: true,
@@ -98,6 +103,7 @@ impl TracingInspectorConfig {
     pub const fn none() -> Self {
         Self {
             record_steps: false,
+            step_limit: None,
             record_memory_snapshots: false,
             record_stack_snapshots: StackSnapshotType::None,
             record_state_diff: false,
@@ -115,6 +121,7 @@ impl TracingInspectorConfig {
     pub const fn default_parity() -> Self {
         Self {
             record_steps: false,
+            step_limit: None,
             record_memory_snapshots: false,
             record_stack_snapshots: StackSnapshotType::None,
             record_state_diff: false,
@@ -155,6 +162,7 @@ impl TracingInspectorConfig {
     pub const fn default_geth() -> Self {
         Self {
             record_steps: true,
+            step_limit: None,
             record_memory_snapshots: false,
             record_stack_snapshots: StackSnapshotType::Full,
             record_state_diff: true,
@@ -188,6 +196,7 @@ impl TracingInspectorConfig {
     #[inline]
     pub fn from_geth_config(config: &GethDefaultTracingOptions) -> Self {
         Self {
+            step_limit: config.limit.and_then(NonZeroU64::new),
             record_memory_snapshots: config.enable_memory.unwrap_or_default(),
             record_stack_snapshots: if config.disable_stack.unwrap_or_default() {
                 StackSnapshotType::None
@@ -253,6 +262,18 @@ impl TracingInspectorConfig {
     /// Merge another config into this one.
     #[inline]
     pub fn merge(&mut self, other: Self) -> &mut Self {
+        // Capture enough steps for both consumers. A consumer that does not record steps
+        // must not affect the limit, while an unlimited step consumer takes precedence.
+        if other.record_steps {
+            self.step_limit = if self.record_steps {
+                match (self.step_limit, other.step_limit) {
+                    (Some(a), Some(b)) => Some(a.max(b)),
+                    _ => None,
+                }
+            } else {
+                other.step_limit
+            };
+        }
         self.record_steps |= other.record_steps;
         self.record_memory_snapshots |= other.record_memory_snapshots;
         self.record_stack_snapshots = other.record_stack_snapshots;
@@ -440,6 +461,34 @@ impl TraceStyle {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn merge_step_limits_preserves_each_consumers_capture() {
+        let limited = TracingInspectorConfig::from_geth_config(&GethDefaultTracingOptions {
+            limit: Some(2),
+            ..Default::default()
+        });
+        let larger = TracingInspectorConfig { step_limit: NonZeroU64::new(4), ..limited };
+        for (other, expected) in [
+            (TracingInspectorConfig::none(), NonZeroU64::new(2)),
+            (larger, NonZeroU64::new(4)),
+            (TracingInspectorConfig::default_geth(), None),
+            (
+                TracingInspectorConfig::from_geth_config(&GethDefaultTracingOptions {
+                    limit: Some(0),
+                    ..Default::default()
+                }),
+                None,
+            ),
+        ] {
+            let mut merged = limited;
+            merged.merge(other);
+            assert_eq!(merged.step_limit, expected);
+            let mut reversed = other;
+            reversed.merge(limited);
+            assert_eq!(reversed.step_limit, expected);
+        }
+    }
 
     #[test]
     fn test_parity_config() {
