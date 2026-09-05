@@ -1,10 +1,19 @@
 //! Accesslist tests
 
 use alloy_eip2930::{AccessList, AccessListItem};
-use alloy_primitives::{address, hex, Address, B256};
+use alloy_primitives::{address, hex, Address, B256, U256};
 use revm::{
-    bytecode::Bytecode, context::TxEnv, context_interface::TransactTo, database::CacheDB,
-    database_interface::EmptyDB, state::AccountInfo, Context, InspectEvm, MainBuilder, MainContext,
+    bytecode::Bytecode,
+    context::{transaction::TransactionType, TxEnv},
+    context_interface::{
+        transaction::{Authorization, RecoveredAuthority, RecoveredAuthorization},
+        TransactTo,
+    },
+    database::CacheDB,
+    database_interface::EmptyDB,
+    primitives::hardfork::SpecId,
+    state::AccountInfo,
+    Context, InspectEvm, MainBuilder, MainContext,
 };
 use revm_inspectors::access_list::AccessListInspector;
 
@@ -81,4 +90,63 @@ fn test_access_list_precompile() {
     let erecover = address!("0x0000000000000000000000000000000000000001");
     assert!(accesslist.excluded().contains(&erecover));
     assert!(accesslist.into_access_list().is_empty());
+}
+
+#[test]
+fn test_access_list_authorization_exclusions() {
+    const CHAIN_ID: u64 = 1;
+
+    let caller = address!("00000000000000000000000000000000000000a0");
+    let target = address!("00000000000000000000000000000000000000b0");
+    let current_chain = address!("00000000000000000000000000000000000000c0");
+    let zero_chain = address!("00000000000000000000000000000000000000d0");
+    let wrong_chain = address!("00000000000000000000000000000000000000e0");
+    let max_nonce = address!("00000000000000000000000000000000000000f0");
+
+    let authorization = |chain_id, nonce, authority| {
+        RecoveredAuthorization::new_unchecked(
+            Authorization { chain_id: U256::from(chain_id), address: Address::ZERO, nonce },
+            authority,
+        )
+    };
+    let authorizations = vec![
+        authorization(CHAIN_ID, 0, RecoveredAuthority::Valid(current_chain)),
+        authorization(0, 0, RecoveredAuthority::Valid(zero_chain)),
+        authorization(CHAIN_ID + 1, 0, RecoveredAuthority::Valid(wrong_chain)),
+        authorization(CHAIN_ID, u64::MAX, RecoveredAuthority::Valid(max_nonce)),
+        authorization(CHAIN_ID, 0, RecoveredAuthority::Invalid),
+    ];
+
+    let inspect = |authorizations: Vec<RecoveredAuthorization>| {
+        let context =
+            Context::mainnet().with_db(CacheDB::<EmptyDB>::default()).modify_cfg_chained(|cfg| {
+                cfg.chain_id = CHAIN_ID;
+                cfg.spec = SpecId::PRAGUE;
+            });
+        let mut inspector = AccessListInspector::default();
+        let mut evm = context.build_mainnet().with_inspector(&mut inspector);
+        let mut tx =
+            TxEnv::builder().caller(caller).gas_limit(1_000_000).kind(TransactTo::Call(target));
+        if !authorizations.is_empty() {
+            tx = tx
+                .tx_type(Some(TransactionType::Eip7702 as u8))
+                .authorization_list_recovered(authorizations);
+        }
+        let result = evm.inspect_tx(tx.build_fill()).unwrap();
+        assert!(result.result.is_success(), "{result:#?}");
+        inspector.excluded().clone()
+    };
+
+    let baseline = inspect(Vec::new());
+    let excluded = inspect(authorizations);
+
+    assert!(excluded.contains(&current_chain));
+    assert!(excluded.contains(&zero_chain));
+    assert!(!excluded.contains(&wrong_chain));
+    assert!(!excluded.contains(&max_nonce));
+
+    let mut expected = baseline;
+    expected.extend([current_chain, zero_chain]);
+    // The unrecoverable authorization has no authority and therefore adds nothing.
+    assert_eq!(excluded, expected);
 }
