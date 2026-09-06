@@ -405,7 +405,8 @@ impl TracingInspectorConfig {
     }
 }
 
-/// How much of the stack to record. Nothing, just the items pushed, or the full stack
+/// How much of the stack to record. Nothing, just the items pushed, the full stack, or only the
+/// top item
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum StackSnapshotType {
     /// Don't record stack snapshots
@@ -417,6 +418,8 @@ pub enum StackSnapshotType {
     Pushes,
     /// Record the full stack
     Full,
+    /// Record only the top item of the stack
+    Top,
 }
 
 impl StackSnapshotType {
@@ -436,6 +439,12 @@ impl StackSnapshotType {
     #[inline]
     pub const fn is_pushes(self) -> bool {
         matches!(self, Self::Pushes)
+    }
+
+    /// Returns true if this is the [StackSnapshotType::Top] variant
+    #[inline]
+    pub const fn is_top(self) -> bool {
+        matches!(self, Self::Top)
     }
 }
 
