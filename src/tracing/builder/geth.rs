@@ -104,8 +104,11 @@ impl<'a> GethTraceBuilder<'a> {
             // have depth 1.
             let mut log = step.convert_to_geth_struct_log(opts, trace_node.trace.depth as u64 + 1);
 
-            // Fill in memory and storage depending on the options
-            if opts.is_storage_enabled() {
+            // Only touch the storage cache when updating it or emitting a storage snapshot.
+            if opts.is_storage_enabled()
+                && (step.storage_change.is_some()
+                    || matches!(step.op.get(), opcode::SLOAD | opcode::SSTORE))
+            {
                 let contract_storage = storage.entry(trace_node.execution_address()).or_default();
                 if let Some(change) = &step.storage_change {
                     contract_storage.insert(change.key.into(), change.value.into());
