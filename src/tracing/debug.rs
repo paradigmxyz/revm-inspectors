@@ -203,9 +203,7 @@ impl DebugInspector {
                 *inspector = MuxInspector::try_from_config(config.clone())?;
             }
             #[cfg(feature = "js-tracer")]
-            Self::Js(inspector) => {
-                *inspector = inspector.try_clone()?.into();
-            }
+            Self::Js(inspector) => inspector.fuse()?,
         }
 
         Ok(())
