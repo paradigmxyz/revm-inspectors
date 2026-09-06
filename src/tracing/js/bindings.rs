@@ -10,6 +10,7 @@ use crate::tracing::{
     TransactionContext,
 };
 use alloc::{
+    boxed::Box,
     format,
     rc::Rc,
     string::{String, ToString},
@@ -27,7 +28,7 @@ use boa_engine::{
 };
 use boa_gc::{empty_trace, Finalize, Trace};
 use core::{
-    cell::{Ref, RefCell, RefMut},
+    cell::{OnceCell, Ref, RefCell, RefMut},
     marker::PhantomData,
     ops::Range,
 };
@@ -617,27 +618,29 @@ impl StepLogState {
     }
 }
 
-/// JS strings of all opcode names, so `log.op.toString()` does not allocate.
+/// Lazily initialized JS strings of all opcode names.
 ///
+/// The first `log.op.toString()` call initializes the table; subsequent calls do not allocate.
 /// The table is shared by all step log objects an inspector creates, so rebuilding the objects on
 /// `fuse` does not rebuild the strings.
 #[derive(Clone, Debug)]
-pub(crate) struct OpcodeNames(Rc<[JsString]>);
+pub(crate) struct OpcodeNames(Rc<OnceCell<Box<[JsString]>>>);
 
 impl OpcodeNames {
     pub(crate) fn new() -> Self {
-        Self(
+        Self(Rc::new(OnceCell::new()))
+    }
+
+    fn get(&self, op: u8) -> JsString {
+        let names = self.0.get_or_init(|| {
             (0..=u8::MAX)
                 .map(|op| match OpCode::new(op) {
                     Some(op) => JsString::from(op.as_str()),
                     None => JsString::from(format!("opcode {op:x} not defined").as_str()),
                 })
-                .collect(),
-        )
-    }
-
-    fn get(&self, op: u8) -> JsString {
-        self.0[op as usize].clone()
+                .collect()
+        });
+        names[op as usize].clone()
     }
 }
 
