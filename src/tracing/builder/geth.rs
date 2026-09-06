@@ -262,14 +262,14 @@ impl<'a> GethTraceBuilder<'a> {
         // this will roll up the child frames to their parent; this works because `child idx >
         // parent idx`
         loop {
-            let (idx, call) = call_frames.pop().expect("call frames not empty");
+            let (idx, mut call) = call_frames.pop().expect("call frames not empty");
+            // Children are appended in reverse call order because we walk the arena from the
+            // back, and the selfdestruct frame (if any) was pushed first. Reversing once per frame
+            // restores call order and moves the selfdestruct frame last.
+            call.calls.reverse();
             let node = &self.nodes[idx];
             if let Some(parent) = node.parent {
-                let parent_frame = &mut call_frames[parent];
-                // we need to ensure that calls are in order they are called: the last child node is
-                // the last call, but since we walk up the tree, we need to always
-                // insert at position 0
-                parent_frame.1.calls.insert(0, call);
+                call_frames[parent].1.calls.push(call);
             } else {
                 debug_assert!(call_frames.is_empty(), "only one root node has no parent");
                 return call;
@@ -463,9 +463,13 @@ impl<'a> GethTraceBuilder<'a> {
         }
 
         let include_logs = opts.with_log.unwrap_or_default();
-        let call_config = CallConfig { only_top_call: None, with_log: Some(include_logs) };
 
-        let mut top_call = Some(self.geth_call_traces(call_config, gas_used));
+        // only the root frame's own fields are needed, its children are assembled below
+        let mut top_call = {
+            let mut root = self.nodes[0].geth_empty_call_frame(include_logs);
+            root.gas_used = U256::from(gas_used);
+            Some(root)
+        };
 
         let mut frames: Vec<(usize, Erc7562Frame)> = Vec::with_capacity(self.nodes.len());
 
@@ -619,13 +623,13 @@ impl<'a> GethTraceBuilder<'a> {
             ));
         }
 
-        // Assemble tree
+        // Assemble tree, see `geth_call_traces_inner` for the ordering logic
         loop {
-            let (idx, frame) = frames.pop().expect("call frames not empty");
+            let (idx, mut frame) = frames.pop().expect("call frames not empty");
+            frame.calls.reverse();
             let node = &self.nodes[idx];
             if let Some(parent) = node.parent {
-                let parent_frame = &mut frames[parent];
-                parent_frame.1.calls.insert(0, frame);
+                frames[parent].1.calls.push(frame);
             } else {
                 debug_assert!(frames.is_empty(), "only one root node has no parent");
                 return frame;
