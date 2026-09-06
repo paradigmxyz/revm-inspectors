@@ -5,7 +5,7 @@ use revm::{
     context::JournalTr,
     context_interface::ContextTr,
     interpreter::{CallInputs, CallOutcome, CreateInputs, CreateOutcome, CreateScheme},
-    Database, Inspector,
+    Inspector,
 };
 
 /// Sender of ETH transfer log per `eth_simulateV1` spec.
@@ -24,6 +24,7 @@ pub const TRANSFER_EVENT_TOPIC: B256 =
 pub struct TransferInspector {
     internal_only: bool,
     transfers: Vec<TransferOperation>,
+    checkpoints: Vec<TransferCheckpoint>,
     /// If enabled, will insert ERC20-style transfer logs emitted by [TRANSFER_LOG_EMITTER] for
     /// each ETH transfer.
     ///
@@ -37,7 +38,7 @@ impl TransferInspector {
     /// If `internal_only` is set to `true`, only internal transfers are collected, in other words,
     /// the top level call is ignored.
     pub fn new(internal_only: bool) -> Self {
-        Self { internal_only, transfers: Vec::new(), insert_logs: false }
+        Self { internal_only, transfers: Vec::new(), checkpoints: Vec::new(), insert_logs: false }
     }
 
     /// Creates a new transfer inspector that only collects internal transfers.
@@ -66,7 +67,37 @@ impl TransferInspector {
         self.transfers.iter()
     }
 
-    fn on_transfer<DB: Database, JOURNAL: JournalTr<Database = DB>>(
+    fn begin_frame<JOURNAL: JournalTr>(&mut self, journaled_state: &JOURNAL) {
+        if self.insert_logs {
+            self.checkpoints.push(TransferCheckpoint {
+                transfers_len: self.transfers.len(),
+                logs_len: journaled_state.logs().len(),
+            });
+        }
+    }
+
+    fn commit_transfers(&mut self) {
+        if self.insert_logs {
+            self.checkpoints.pop();
+        }
+    }
+
+    fn rollback_transfers<JOURNAL: JournalTr>(&mut self, journaled_state: &mut JOURNAL) {
+        let Some(checkpoint) = self.checkpoints.pop() else {
+            return;
+        };
+
+        self.transfers.truncate(checkpoint.transfers_len);
+
+        let mut logs = journaled_state.take_logs();
+        logs.truncate(checkpoint.logs_len);
+        // `JournalTr` does not expose mutable logs, so preserve the prefix through its public API.
+        for log in logs {
+            journaled_state.log(log);
+        }
+    }
+
+    fn on_transfer<JOURNAL: JournalTr>(
         &mut self,
         from: Address,
         to: Address,
@@ -102,6 +133,8 @@ where
     CTX: ContextTr,
 {
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
+        self.begin_frame(context.journal_mut());
+
         if let Some(value) = inputs.transfer_value() {
             self.on_transfer(
                 inputs.transfer_from(),
@@ -115,7 +148,18 @@ where
         None
     }
 
+    fn call_end(&mut self, context: &mut CTX, _inputs: &CallInputs, outcome: &mut CallOutcome) {
+        if outcome.result.is_ok() {
+            self.commit_transfers();
+            return;
+        }
+
+        self.rollback_transfers(context.journal_mut());
+    }
+
     fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
+        self.begin_frame(context.journal_mut());
+
         let nonce = context.journal_mut().load_account(inputs.caller()).ok()?.data.info.nonce;
         let address = inputs.created_address(nonce);
 
@@ -128,6 +172,20 @@ where
         self.on_transfer(inputs.caller(), address, inputs.value(), kind, context.journal_mut());
 
         None
+    }
+
+    fn create_end(
+        &mut self,
+        context: &mut CTX,
+        _inputs: &CreateInputs,
+        outcome: &mut CreateOutcome,
+    ) {
+        if outcome.result.is_ok() {
+            self.commit_transfers();
+            return;
+        }
+
+        self.rollback_transfers(context.journal_mut());
     }
 
     fn selfdestruct(&mut self, contract: Address, target: Address, value: U256) {
@@ -164,4 +222,11 @@ pub enum TransferKind {
     Create2,
     /// A SELFDESTRUCT operation
     SelfDestruct,
+}
+
+/// Transfer/log lengths captured before the first transfer in a frame.
+#[derive(Debug, Default, Clone, Copy)]
+struct TransferCheckpoint {
+    transfers_len: usize,
+    logs_len: usize,
 }
