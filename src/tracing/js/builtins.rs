@@ -275,19 +275,13 @@ pub(crate) fn bytes_to_fb<const N: usize>(mut bytes: &[u8]) -> FixedBytes<N> {
 
 /// Converts a U256 to a Boa bigint value.
 pub(crate) fn to_bigint(value: U256) -> JsValue {
-    let limbs = value.as_limbs();
-    // Most values fit into a machine integer, for which `num-bigint` has cheap constructors.
-    // Larger values (e.g. addresses and hashes) are constructed from their big endian bytes,
-    // avoiding a decimal round trip through strings.
-    let big = if limbs[1] | limbs[2] | limbs[3] == 0 {
-        JsBigInt::from(limbs[0])
-    } else if limbs[2] | limbs[3] == 0 {
-        JsBigInt::from(((limbs[1] as u128) << 64) | limbs[0] as u128)
+    // Keep the cheap machine-integer constructors for common small values.
+    let big = if let Ok(value) = u64::try_from(value) {
+        JsBigInt::from(value)
+    } else if let Ok(value) = u128::try_from(value) {
+        JsBigInt::from(value)
     } else {
-        JsBigInt::from(num_bigint::BigInt::from_bytes_be(
-            num_bigint::Sign::Plus,
-            &value.to_be_bytes::<32>(),
-        ))
+        JsBigInt::from(num_bigint::BigInt::from(value))
     };
     big.into()
 }
@@ -497,7 +491,18 @@ mod tests {
         }
 
         // Values above 64 and 128 bits take different construction paths
-        for value in [U256::from(u128::MAX), U256::from(u128::MAX) + U256::from(1), U256::MAX] {
+        for value in [
+            U256::from(u64::MAX) + U256::from(1),
+            U256::from(u128::MAX),
+            U256::from(u128::MAX) + U256::from(1),
+            U256::from_limbs([
+                0x0123456789abcdef,
+                0xfedcba9876543210,
+                0x13579bdf2468ace0,
+                0xabcdef0123456789,
+            ]),
+            U256::MAX,
+        ] {
             let result = to_bigint(value);
             let result_str = result.to_string(&mut ctx).unwrap().to_std_string().unwrap();
             assert_eq!(result_str, value.to_string(), "BigInt conversion failed for {value}");
