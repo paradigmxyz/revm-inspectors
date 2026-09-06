@@ -62,52 +62,28 @@ impl ParityTraceBuilder {
 
     /// Returns the trace addresses of all call nodes in the set
     ///
-    /// Each entry in the returned vector represents the [Self::trace_address] of the corresponding
-    /// node in the nodes set.
-    ///
-    /// CAUTION: This also includes precompiles, which have an empty trace address.
-    fn trace_addresses(&self) -> Vec<Vec<usize>> {
-        let mut all_addresses = Vec::with_capacity(self.nodes.len());
-        for idx in 0..self.nodes.len() {
-            all_addresses.push(self.trace_address(idx));
-        }
-        all_addresses
-    }
-
-    /// Returns the `traceAddress` of the node in the arena
-    ///
     /// The `traceAddress` field of all returned traces, gives the exact location in the call trace
     /// [index in root, index in first CALL, index in second CALL, …].
     ///
-    /// # Panics
+    /// Each entry in the returned vector represents the trace address of the corresponding node in
+    /// the nodes set.
     ///
-    /// if the `idx` does not belong to a node
-    ///
-    /// Note: if the call node of `idx` is a precompile, the returned trace address will be empty.
-    fn trace_address(&self, idx: usize) -> Vec<usize> {
-        if idx == 0 {
-            // root call has empty traceAddress
-            return vec![];
+    /// CAUTION: This also includes precompiles, which have an empty trace address, as they are not
+    /// tracked as children of their parent.
+    fn trace_addresses(&self) -> Vec<Vec<usize>> {
+        let mut all_addresses = vec![Vec::new(); self.nodes.len()];
+        // Parents always precede their children in the arena, so a single forward pass can derive
+        // every child's address from its parent's.
+        for (idx, node) in self.nodes.iter().enumerate() {
+            for (call_idx, &child) in node.children.iter().enumerate() {
+                let parent_address = &all_addresses[idx];
+                let mut address = Vec::with_capacity(parent_address.len() + 1);
+                address.extend_from_slice(parent_address);
+                address.push(call_idx);
+                all_addresses[child] = address;
+            }
         }
-        let mut graph = vec![];
-        let mut node = &self.nodes[idx];
-        if node.is_precompile() {
-            return graph;
-        }
-        while let Some(parent) = node.parent {
-            // the index of the child call in the arena
-            let child_idx = node.idx;
-            node = &self.nodes[parent];
-            // find the index of the child call in the parent node
-            let call_idx = node
-                .children
-                .iter()
-                .position(|child| *child == child_idx)
-                .expect("non precompile child call exists in parent");
-            graph.push(call_idx);
-        }
-        graph.reverse();
-        graph
+        all_addresses
     }
 
     /// Returns an iterator over all nodes to trace
@@ -237,11 +213,12 @@ impl ParityTraceBuilder {
     /// tracked as metadata of the recorded nodes.
     fn transaction_traces(&self) -> Vec<TransactionTrace> {
         let mut traces = Vec::with_capacity(self.nodes.len());
+        let mut trace_addresses = self.trace_addresses();
         // Boolean marker to track if sorting for selfdestruct is needed
         let mut sorting_selfdestruct = false;
 
         for node in self.iter_traceable_nodes() {
-            let trace_address = self.trace_address(node.idx);
+            let trace_address = core::mem::take(&mut trace_addresses[node.idx]);
             let trace = node.parity_transaction_trace(trace_address);
             traces.push(trace);
 

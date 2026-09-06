@@ -3,7 +3,6 @@
 use crate::tracing::{config::TraceStyle, utils, utils::convert_memory};
 use alloc::{
     boxed::Box,
-    collections::VecDeque,
     format,
     string::{String, ToString},
     vec::Vec,
@@ -263,44 +262,16 @@ impl CallTraceNode {
         }
     }
 
-    /// Pushes all steps onto the stack in reverse order
-    /// so that the first step is on top of the stack
-    pub(crate) fn push_steps_on_stack<'a>(
-        &'a self,
-        stack: &mut VecDeque<CallTraceStepStackItem<'a>>,
-    ) {
-        let initial_len = stack.len();
-
-        // First, extend the stack with all steps in reverse order
-        stack.extend(self.trace.steps.iter().rev().map(|step| CallTraceStepStackItem {
-            trace_node: self,
-            step,
-            call_child_id: None,
-        }));
-
-        // Then, iterate over the inserted range in reverse to set call_child_id values
-        // Since we inserted in reverse order, we need to process from the end to maintain
-        // the correct child_id assignment order
-        let mut child_id = 0;
-        for i in (initial_len..stack.len()).rev() {
-            let item = &mut stack[i];
-
-            // If the opcode is a call, set the child trace id
-            if item.step.is_call_like_op() {
-                // The opcode of this step is a call but it's possible that this step resulted
-                // in a revert or out of gas error in which case there's no actual child call executed and recorded: <https://github.com/paradigmxyz/reth/issues/3915>
-                if let Some(call_id) = self.children.get(child_id).copied() {
-                    item.call_child_id = Some(call_id);
-                    child_id += 1;
-                }
-            }
-        }
-    }
-
-    /// Returns how many logs this trace already has.
-    #[inline]
-    pub(crate) fn log_count(&self) -> usize {
-        self.logs.len()
+    /// Iterates over steps in execution order, matching call opcodes to recorded children.
+    pub(crate) fn steps_with_children(&self) -> impl Iterator<Item = CallTraceStepStackItem<'_>> {
+        let mut children = self.children.iter();
+        self.trace.steps.iter().map(move |step| {
+            // A call opcode can fail before a child is recorded, e.g. due to out of gas:
+            // <https://github.com/paradigmxyz/reth/issues/3915>.
+            let call_child_id =
+                if step.is_call_like_op() { children.next().copied() } else { None };
+            CallTraceStepStackItem { trace_node: self, step, call_child_id }
+        })
     }
 
     /// Returns true if this is a call to a precompile
