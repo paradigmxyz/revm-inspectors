@@ -57,10 +57,6 @@ criterion = "0.8"
 snapbox = { version = "1.2", features = ["term-svg"] }
 
 [[bench]]
-name = "geth_steps"
-harness = false
-
-[[bench]]
 name = "js_tracer"
 path = "benches/js_tracer.rs"
 harness = false
