@@ -61,10 +61,6 @@ name = "js_tracer"
 path = "benches/js_tracer.rs"
 harness = false
 
-[[bench]]
-name = "geth_log_ancestry"
-harness = false
-
 [features]
 default = ["std"]
 std = [

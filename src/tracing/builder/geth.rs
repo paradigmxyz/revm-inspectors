@@ -26,6 +26,14 @@ use revm::{
     DatabaseRef,
 };
 
+/// A frame awaiting tree assembly, with visibility inherited by children in the forward pass.
+struct PendingCallFrame<T> {
+    /// Whether this call and its ancestors permit descendant logs. Independent of whether
+    /// the frame itself contains logs; root-frame logs retain their existing special handling.
+    logs_visible: bool,
+    frame: T,
+}
+
 /// A type for creating geth style traces
 #[derive(Clone, Debug)]
 pub struct GethTraceBuilder<'a> {
@@ -233,21 +241,27 @@ impl<'a> GethTraceBuilder<'a> {
         // traces are identified by their index in the arena
         // so we can populate the call frame tree by walking up the call tree
         let mut call_frames = Vec::with_capacity(self.nodes.len());
-        call_frames.push((include_logs && !main_trace_node.trace.is_error(), root_call_frame));
+        call_frames.push(PendingCallFrame {
+            logs_visible: include_logs && !main_trace_node.trace.is_error(),
+            frame: root_call_frame,
+        });
 
         for trace in self.nodes.iter().skip(1) {
             // Parents precede their children, so inherit log visibility without walking back
             // to the root for every call. Keep the flag alongside the frame we already allocate.
             let include_logs = include_logs
                 && !trace.trace.is_error()
-                && trace.parent.is_none_or(|parent| call_frames[parent].0);
-            call_frames.push((include_logs, trace.geth_empty_call_frame(include_logs)));
+                && trace.parent.is_none_or(|parent| call_frames[parent].logs_visible);
+            call_frames.push(PendingCallFrame {
+                logs_visible: include_logs,
+                frame: trace.geth_empty_call_frame(include_logs),
+            });
 
             // selfdestructs are not recorded as individual call traces but are derived from
             // the call trace and are added as additional `CallFrame` objects
             // becoming the first child of the derived call
             if let Some(selfdestruct) = trace.geth_selfdestruct_call_trace() {
-                call_frames.last_mut().expect("not empty").1.calls.push(selfdestruct);
+                call_frames.last_mut().expect("not empty").frame.calls.push(selfdestruct);
             }
         }
 
@@ -255,7 +269,8 @@ impl<'a> GethTraceBuilder<'a> {
         // this will roll up the child frames to their parent; this works because `child idx >
         // parent idx`
         loop {
-            let (_, mut call) = call_frames.pop().expect("call frames not empty");
+            let PendingCallFrame { frame: mut call, .. } =
+                call_frames.pop().expect("call frames not empty");
             let idx = call_frames.len();
             // Children are appended in reverse call order because we walk the arena from the
             // back, and the selfdestruct frame (if any) was pushed first. Reversing once per frame
@@ -263,7 +278,7 @@ impl<'a> GethTraceBuilder<'a> {
             call.calls.reverse();
             let node = &self.nodes[idx];
             if let Some(parent) = node.parent {
-                call_frames[parent].1.calls.push(call);
+                call_frames[parent].frame.calls.push(call);
             } else {
                 debug_assert!(call_frames.is_empty(), "only one root node has no parent");
                 return call;
@@ -447,7 +462,7 @@ impl<'a> GethTraceBuilder<'a> {
             Some(root)
         };
 
-        let mut frames: Vec<(bool, Erc7562Frame)> = Vec::with_capacity(self.nodes.len());
+        let mut frames: Vec<PendingCallFrame<Erc7562Frame>> = Vec::with_capacity(self.nodes.len());
 
         for (idx, node) in self.nodes.iter().enumerate() {
             let trace = &node.trace;
@@ -567,7 +582,7 @@ impl<'a> GethTraceBuilder<'a> {
 
             let include_logs = include_logs
                 && !trace.is_error()
-                && node.parent.is_none_or(|parent| frames[parent].0);
+                && node.parent.is_none_or(|parent| frames[parent].logs_visible);
             let call_frame = if idx == 0 {
                 top_call.take().unwrap()
             } else {
@@ -576,9 +591,9 @@ impl<'a> GethTraceBuilder<'a> {
 
             let call_frame_type = Self::convert_call_kind(node.kind());
 
-            frames.push((
-                include_logs,
-                Erc7562Frame {
+            frames.push(PendingCallFrame {
+                logs_visible: include_logs,
+                frame: Erc7562Frame {
                     call_frame_type,
                     from: call_frame.from,
                     gas: call_frame.gas.to(),
@@ -598,17 +613,17 @@ impl<'a> GethTraceBuilder<'a> {
                     keccak,
                     calls: vec![],
                 },
-            ));
+            });
         }
 
         // Assemble tree, see `geth_call_traces_inner` for the ordering logic
         loop {
-            let (_, mut frame) = frames.pop().expect("call frames not empty");
+            let PendingCallFrame { mut frame, .. } = frames.pop().expect("call frames not empty");
             let idx = frames.len();
             frame.calls.reverse();
             let node = &self.nodes[idx];
             if let Some(parent) = node.parent {
-                frames[parent].1.calls.push(frame);
+                frames[parent].frame.calls.push(frame);
             } else {
                 debug_assert!(frames.is_empty(), "only one root node has no parent");
                 return frame;
