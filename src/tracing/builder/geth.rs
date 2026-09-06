@@ -3,12 +3,7 @@ use crate::tracing::{
     types::{CallKind, CallTraceNode, CallTraceStepStackItem},
     utils::load_account_code,
 };
-use alloc::{
-    borrow::Cow,
-    collections::{BTreeMap, VecDeque},
-    format, vec,
-    vec::Vec,
-};
+use alloc::{borrow::Cow, collections::BTreeMap, format, vec, vec::Vec};
 use alloy_primitives::{
     map::{Entry, HashMap},
     Address, Bytes, B256, U256,
@@ -25,6 +20,9 @@ use revm::{
     state::{AccountInfo, EvmState},
     DatabaseRef,
 };
+
+#[cfg(test)]
+mod steps_tests;
 
 /// A frame awaiting tree assembly, with visibility inherited by children in the forward pass.
 struct PendingCallFrame<T> {
@@ -85,23 +83,21 @@ impl<'a> GethTraceBuilder<'a> {
         storage: &mut HashMap<Address, BTreeMap<B256, B256>>,
         struct_logs: &mut Vec<StructLog>,
     ) {
-        // A stack with all the steps of the trace and all its children's steps.
-        // This is used to process the steps in the order they appear in the transactions.
-        // Steps are grouped by their Call Trace Node, in order to process them all in the order
-        // they appear in the transaction, we need to process steps of call nodes when they appear.
-        // When we find a call step, we push all the steps of the child trace on the stack, so they
-        // are processed next. The very next step is the last item on the stack
-        let mut step_stack = VecDeque::with_capacity(main_trace_node.trace.steps.len());
+        // Suspend only the parent iterator when entering a child. Scratch space scales with
+        // call depth rather than step count, and a trace without subcalls needs no allocation.
+        let mut steps = main_trace_node.steps_with_children();
+        let mut parents = Vec::new();
 
-        main_trace_node.push_steps_on_stack(&mut step_stack);
-
-        // Iterate over the steps inside the given trace
-        while let Some(CallTraceStepStackItem { trace_node, step, call_child_id }) =
-            step_stack.pop_back()
-        {
+        loop {
             if opts.limit.is_some_and(|limit| struct_logs.len() as u64 >= limit) {
                 break;
             }
+            let Some(CallTraceStepStackItem { trace_node, step, call_child_id }) = steps.next()
+            else {
+                let Some(parent) = parents.pop() else { break };
+                steps = parent;
+                continue;
+            };
 
             // We increment the depth by one because steps that are part of call at depth N should
             // have depth N + 1. For example, steps inside of a top-level call should
@@ -127,11 +123,10 @@ impl<'a> GethTraceBuilder<'a> {
             // Add step to geth trace
             struct_logs.push(log);
 
-            // If the step is a call, we first push all the steps of the child trace on the stack,
-            // so they are processed next
+            // Visit the child immediately after its call opcode, then resume the parent.
             if let Some(call_child_id) = call_child_id {
-                let child_trace = &self.nodes[call_child_id];
-                child_trace.push_steps_on_stack(&mut step_stack);
+                parents.push(steps);
+                steps = self.nodes[call_child_id].steps_with_children();
             }
         }
     }
