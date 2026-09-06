@@ -50,6 +50,8 @@ serde_json = { version = "1.0", default-features = false, features = ["alloc"] }
 # js-tracer
 boa_engine = { version = "0.21", optional = true }
 boa_gc = { version = "0.21", optional = true }
+num-bigint = { version = "0.4", optional = true, default-features = false }
+ruint = { version = "1.18", optional = true, default-features = false, features = ["num-bigint"] }
 
 [dev-dependencies]
 alloy-hardforks = "0.4"
@@ -72,4 +74,4 @@ std = [
     "thiserror/std",
 ]
 serde = ["dep:serde", "revm/serde"]
-js-tracer = ["dep:boa_engine", "dep:boa_gc"]
+js-tracer = ["dep:boa_engine", "dep:boa_gc", "dep:num-bigint", "dep:ruint"]

@@ -1,11 +1,15 @@
 //! Builtin functions
 
-use alloc::{borrow::Cow, format, string::ToString, vec::Vec};
+use crate::tracing::types::CallKind;
+use alloc::{borrow::Cow, format, vec::Vec};
 use alloy_primitives::{hex, map::HashSet, Address, FixedBytes, B256, U256};
 use boa_engine::{
-    builtins::{array_buffer::ArrayBuffer, typed_array::TypedArray},
+    builtins::{
+        array_buffer::ArrayBuffer,
+        typed_array::{TypedArray, TypedArrayKind},
+    },
     js_string,
-    object::builtins::{JsArray, JsArrayBuffer, JsTypedArray, JsUint8Array},
+    object::builtins::{AlignedVec, JsArray, JsArrayBuffer, JsTypedArray, JsUint8Array},
     property::Attribute,
     Context, JsArgs, JsBigInt, JsError, JsNativeError, JsResult, JsString, JsValue, NativeFunction,
     Source,
@@ -120,6 +124,11 @@ pub(crate) fn bytes_from_value(val: JsValue, context: &mut Context) -> JsResult<
     if let Some(obj) = val.as_object() {
         if obj.is::<TypedArray>() {
             let array: JsTypedArray = JsTypedArray::from_object(obj)?;
+            if array.kind() == Some(TypedArrayKind::Uint8) {
+                if let Some(bytes) = uint8_array_bytes(&array, context)? {
+                    return Ok(bytes);
+                }
+            }
             let len = array.length(context)?;
             let mut buf = Vec::with_capacity(len);
             for i in 0..len {
@@ -157,6 +166,35 @@ pub(crate) fn bytes_from_value(val: JsValue, context: &mut Context) -> JsResult<
     ))
 }
 
+/// Copies the viewed bytes of a `Uint8Array` directly out of its buffer.
+///
+/// Returns `None` if the buffer is not a plain, attached `ArrayBuffer`, in which case the caller
+/// falls back to reading the elements one by one.
+fn uint8_array_bytes(array: &JsTypedArray, context: &mut Context) -> JsResult<Option<Vec<u8>>> {
+    let Some(buffer) = array.buffer(context)?.as_object() else {
+        return Ok(None);
+    };
+    let Ok(buffer) = JsArrayBuffer::from_object(buffer) else {
+        return Ok(None);
+    };
+    let offset = array.byte_offset(context)?;
+    let len = array.byte_length(context)?;
+    let Some(data) = buffer.data() else {
+        return Ok(None);
+    };
+    Ok(data.get(offset..offset + len).map(<[u8]>::to_vec))
+}
+
+/// Converts a buffer type value to an address, see [`bytes_from_value`] and [`bytes_to_address`].
+pub(crate) fn address_from_value(val: JsValue, context: &mut Context) -> JsResult<Address> {
+    Ok(bytes_to_address(&bytes_from_value(val, context)?))
+}
+
+/// Converts a buffer type value to a word, see [`bytes_from_value`] and [`bytes_to_b256`].
+pub(crate) fn b256_from_value(val: JsValue, context: &mut Context) -> JsResult<B256> {
+    Ok(bytes_to_b256(&bytes_from_value(val, context)?))
+}
+
 /// Create a new [JsUint8Array] array buffer from the address' bytes.
 pub(crate) fn address_to_uint8_array(
     addr: Address,
@@ -189,6 +227,28 @@ where
     to_uint8_array(bytes, context).map(Into::into)
 }
 
+/// Create a new [JsUint8Array] object that takes ownership of an already collected byte block.
+pub(crate) fn uint8_array_from_block(
+    bytes: AlignedVec<u8>,
+    context: &mut Context,
+) -> JsResult<JsValue> {
+    let buffer = JsArrayBuffer::from_byte_block(bytes, context)?;
+    JsUint8Array::from_array_buffer(buffer, context).map(Into::into)
+}
+
+/// Returns the JS string of the given call kind without allocating.
+pub(crate) fn call_kind_js_string(kind: CallKind) -> JsString {
+    match kind {
+        CallKind::Call => js_string!("CALL"),
+        CallKind::StaticCall => js_string!("STATICCALL"),
+        CallKind::CallCode => js_string!("CALLCODE"),
+        CallKind::DelegateCall => js_string!("DELEGATECALL"),
+        CallKind::AuthCall => js_string!("AUTHCALL"),
+        CallKind::Create => js_string!("CREATE"),
+        CallKind::Create2 => js_string!("CREATE2"),
+    }
+}
+
 /// Converts a slice of bytes to an address.
 ///
 /// See [`bytes_to_fb`] for more information.
@@ -214,12 +274,16 @@ pub(crate) fn bytes_to_fb<const N: usize>(mut bytes: &[u8]) -> FixedBytes<N> {
 }
 
 /// Converts a U256 to a Boa bigint value.
-pub(crate) fn to_bigint(value: U256) -> JsResult<JsValue> {
-    JsBigInt::from_string(&value.to_string()).map(Into::into).ok_or_else(|| {
-        JsError::from_native(
-            JsNativeError::error().with_message("failed to convert U256 to BigInt"),
-        )
-    })
+pub(crate) fn to_bigint(value: U256) -> JsValue {
+    // Keep the cheap machine-integer constructors for common small values.
+    let big = if let Ok(value) = u64::try_from(value) {
+        JsBigInt::from(value)
+    } else if let Ok(value) = u128::try_from(value) {
+        JsBigInt::from(value)
+    } else {
+        JsBigInt::from(num_bigint::BigInt::from(value))
+    };
+    big.into()
 }
 
 /// Compute the address of a contract created using CREATE2.
@@ -420,15 +484,33 @@ mod tests {
         ];
 
         for (value, expected) in test_cases {
-            let result = to_bigint(value).unwrap();
+            let result = to_bigint(value);
             assert!(result.is_bigint(), "Result should be a bigint for value {value}");
             let result_str = result.to_string(&mut ctx).unwrap().to_std_string().unwrap();
             assert_eq!(result_str, expected, "BigInt conversion failed for {value}");
         }
 
+        // Values above 64 and 128 bits take different construction paths
+        for value in [
+            U256::from(u64::MAX) + U256::from(1),
+            U256::from(u128::MAX),
+            U256::from(u128::MAX) + U256::from(1),
+            U256::from_limbs([
+                0x0123456789abcdef,
+                0xfedcba9876543210,
+                0x13579bdf2468ace0,
+                0xabcdef0123456789,
+            ]),
+            U256::MAX,
+        ] {
+            let result = to_bigint(value);
+            let result_str = result.to_string(&mut ctx).unwrap().to_std_string().unwrap();
+            assert_eq!(result_str, value.to_string(), "BigInt conversion failed for {value}");
+        }
+
         // Test that the result can be used in JavaScript operations
         let big_value = U256::from(999u64);
-        let bigint_result = to_bigint(big_value).unwrap();
+        let bigint_result = to_bigint(big_value);
 
         // Set it as a global variable
         ctx.global_object().set(js_string!("testBigInt"), bigint_result, false, &mut ctx).unwrap();
