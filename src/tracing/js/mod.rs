@@ -164,8 +164,8 @@ impl JsInspector {
         let script = Script::parse(Source::from_bytes(wrapped.as_bytes()), None, &mut ctx)
             .map_err(JsInspectorError::EvalCode)?;
 
-        let TracerObject { obj, result_fn, fault_fn, enter_fn, exit_fn, step_fn } =
-            TracerObject::evaluate(&script, &config, &mut ctx)?;
+        let JsTracerObject { obj, result_fn, fault_fn, enter_fn, exit_fn, step_fn } =
+            JsTracerObject::evaluate(&script, &config, &mut ctx)?;
 
         let op_names = OpcodeNames::new();
         let reusable_step_log =
@@ -219,8 +219,8 @@ impl JsInspector {
     /// state the previous tracer object may have modified, e.g. prototypes, is kept. Callback
     /// wrappers are recreated so their own properties do not carry over between transactions.
     pub fn fuse(&mut self) -> Result<(), JsInspectorError> {
-        let TracerObject { obj, result_fn, fault_fn, enter_fn, exit_fn, step_fn } =
-            TracerObject::evaluate(&self.script, &self.config, &mut self.ctx)?;
+        let JsTracerObject { obj, result_fn, fault_fn, enter_fn, exit_fn, step_fn } =
+            JsTracerObject::evaluate(&self.script, &self.config, &mut self.ctx)?;
         // Callback objects are mutable JS objects: replacing their Rust state does not remove
         // user-defined properties or restore overwritten methods. Rebuild them once per
         // transaction, while retaining the parsed script and reusing wrappers within a transaction.
@@ -636,7 +636,7 @@ where
 }
 
 /// The evaluated tracer object and its callback functions.
-struct TracerObject {
+struct JsTracerObject {
     obj: JsObject,
     result_fn: JsObject,
     fault_fn: JsObject,
@@ -645,7 +645,7 @@ struct TracerObject {
     step_fn: Option<JsObject>,
 }
 
-impl TracerObject {
+impl JsTracerObject {
     /// Evaluates the script to a fresh tracer object, validates its callbacks and invokes `setup`.
     fn evaluate(
         script: &Script,
