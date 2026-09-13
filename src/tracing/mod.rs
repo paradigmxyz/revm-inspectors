@@ -435,6 +435,13 @@ impl TracingInspector {
         // that not a known constant.
         let op = OpCode::new_or_unknown(interp.bytecode.opcode());
 
+        // CALL/CREATE results are inserted into the parent interpreter after step_end.
+        if let Some(step) = self.last_trace().trace.steps.last_mut() {
+            if step.is_call_like_op() && !step.is_error() && step.gas_remaining_after.is_none() {
+                Self::record_step_output(step, interp);
+            }
+        }
+
         let record = self.config.should_record_opcode(op)
             && self.config.step_limit.is_none_or(|limit| self.recorded_steps < limit.get());
         self.record_step_end = record;
@@ -499,6 +506,13 @@ impl TracingInspector {
             op,
             stack,
             memory,
+            memory_write_range: (self.config.record_memory_snapshots
+                && (self.config.record_stack_snapshots.is_all()
+                    || self.config.record_stack_snapshots.is_pushes()))
+            .then(|| memory_write_range(op.get(), interp.stack.data()))
+            .flatten(),
+            memory_delta: None,
+            gas_remaining_after: None,
             returndata,
             gas_remaining: interp.gas.remaining(),
             gas_refund_counter: interp.gas.refunded() as u64,
@@ -523,6 +537,22 @@ impl TracingInspector {
         });
 
         node.ordering.push(TraceMemberOrder::Step(step_idx));
+    }
+
+    fn record_step_output(step: &mut CallTraceStep, interp: &Interpreter) {
+        step.gas_remaining_after = Some(interp.gas.remaining());
+        if step.is_call_like_op() && step.push_stack.is_some() {
+            step.push_stack = Some(interp.stack.data().last().copied().into_iter().collect());
+        }
+        if let Some(range) = &step.memory_write_range {
+            step.memory_delta =
+                interp.memory.borrow().context_memory().get(range.clone()).map(|data| {
+                    alloy_rpc_types_trace::parity::MemoryDelta {
+                        off: range.start,
+                        data: Bytes::copy_from_slice(data),
+                    }
+                });
+        }
     }
 
     /// Fills the current trace with the output of a step.
@@ -567,6 +597,8 @@ impl TracingInspector {
                     .into(),
             );
         }
+
+        Self::record_step_output(step, interp);
 
         let journal = context.journal_ref().journal();
 
@@ -614,7 +646,10 @@ impl TracingInspector {
         }
 
         // set the status
-        step.status = interp.bytecode.action().as_ref().and_then(|i| i.instruction_result())
+        step.status = interp.bytecode.action().as_ref().and_then(|i| i.instruction_result());
+        if step.is_call_like_op() && !step.is_error() {
+            step.gas_remaining_after = None;
+        }
     }
 }
 
@@ -806,4 +841,22 @@ impl CallInputExt for CallInputs {
             CallInput::Bytes(bytes) => bytes.clone(),
         }
     }
+}
+
+fn memory_write_range(op: u8, stack: &[U256]) -> Option<core::ops::Range<usize>> {
+    let back = |index: usize| {
+        stack.get(stack.len().checked_sub(index + 1)?).and_then(|v| usize::try_from(*v).ok())
+    };
+    let (offset, size) = match op {
+        opcode::MSTORE => (back(0)?, 32),
+        opcode::MSTORE8 => (back(0)?, 1),
+        opcode::CALLDATACOPY | opcode::CODECOPY | opcode::RETURNDATACOPY | opcode::MCOPY => {
+            (back(0)?, back(2)?)
+        }
+        opcode::EXTCODECOPY => (back(1)?, back(3)?),
+        opcode::CALL | opcode::CALLCODE => (back(5)?, back(6)?),
+        opcode::DELEGATECALL | opcode::STATICCALL => (back(4)?, back(5)?),
+        _ => return None,
+    };
+    (size != 0).then_some(offset..offset.checked_add(size)?)
 }

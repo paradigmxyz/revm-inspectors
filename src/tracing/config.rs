@@ -187,6 +187,7 @@ impl TracingInspectorConfig {
             .set_steps(needs_vm_trace)
             .set_stack_snapshots(snap_type)
             .set_memory_snapshots(needs_vm_trace)
+            .set_state_diffs(needs_vm_trace)
     }
 
     /// Returns a config for geth style traces based on the given [GethDefaultTracingOptions].
@@ -503,15 +504,15 @@ mod tests {
         s.insert(TraceType::VmTrace);
         let config = TracingInspectorConfig::from_parity_config(&s);
         assert!(config.record_steps);
-        assert!(!config.record_state_diff);
+        assert!(config.record_state_diff);
 
         let mut s = HashSet::default();
         s.insert(TraceType::VmTrace);
         s.insert(TraceType::StateDiff);
         let config = TracingInspectorConfig::from_parity_config(&s);
         assert!(config.record_steps);
-        // not required for StateDiff
-        assert!(!config.record_state_diff);
+        // required for VmTrace
+        assert!(config.record_state_diff);
     }
 
     #[test]

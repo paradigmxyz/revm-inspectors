@@ -460,3 +460,159 @@ fn test_parity_delegatecall_selfdestruct() {
     assert_eq!(action2.address, delegate_addr);
     assert_eq!(action2.refund_address, deployer);
 }
+
+fn trace_vm_code(code: &[u8], child: &[u8]) -> alloy_rpc_types_trace::parity::VmTrace {
+    use revm::bytecode::Bytecode;
+    let target = Address::with_last_byte(0x42);
+    let child_address = Address::with_last_byte(0x43);
+    let mut db = CacheDB::<EmptyDB>::default();
+    for (address, code) in [(target, code), (child_address, child)] {
+        db.insert_account_info(
+            address,
+            AccountInfo::default().with_code(Bytecode::new_raw(code.to_vec().into())),
+        );
+    }
+    let config =
+        TracingInspectorConfig::from_parity_config(&HashSet::from_iter([TraceType::VmTrace]));
+    let mut evm =
+        Context::mainnet().with_db(db).build_mainnet_with_inspector(TracingInspector::new(config));
+    evm.inspect_tx(TxEnv {
+        gas_limit: 1_000_000,
+        kind: TransactTo::Call(target),
+        ..Default::default()
+    })
+    .unwrap();
+    evm.into_inspector().into_parity_builder().vm_trace()
+}
+
+#[test]
+fn vmtrace_memory_is_attached_to_the_writing_instruction() {
+    let trace = trace_vm_code(&hex!("60016000525f00"), &[]);
+    let mem = trace.ops[2].ex.as_ref().unwrap().mem.as_ref().unwrap();
+    assert_eq!(mem.off, 0);
+    assert_eq!(mem.data.as_ref(), U256::from(1).to_be_bytes::<32>());
+    assert!(trace.ops[3].ex.as_ref().unwrap().mem.is_none());
+}
+
+#[test]
+fn vmtrace_reports_remaining_gas_after_execution() {
+    let trace = trace_vm_code(&hex!("600160020100"), &[]);
+    for pair in trace.ops.windows(2) {
+        assert_eq!(
+            pair[0].ex.as_ref().unwrap().used - pair[1].cost,
+            pair[1].ex.as_ref().unwrap().used
+        );
+    }
+}
+
+#[test]
+fn vmtrace_records_storage_for_vm_only_requests() {
+    let trace = trace_vm_code(&hex!("602a5f5500"), &[]);
+    let store = trace.ops[2].ex.as_ref().unwrap().store.as_ref().unwrap();
+    assert_eq!(store.key, U256::ZERO);
+    assert_eq!(store.val, U256::from(42));
+}
+
+#[test]
+fn vmtrace_faults_have_no_execution_delta() {
+    for code in [&hex!("01")[..], &hex!("f1")[..], &hex!("fe")[..]] {
+        let trace = trace_vm_code(code, &[]);
+        assert!(trace.ops[0].ex.is_none(), "{trace:?}");
+    }
+}
+
+#[test]
+fn vmtrace_call_pushes_result_and_copies_return_memory() {
+    let trace = trace_vm_code(&hex!("602060205f5f5f604361fffff15f00"), &hex!("602a5f5260205ff3"));
+    let call = &trace.ops[7];
+    assert_eq!(call.ex.as_ref().unwrap().push.as_slice(), &[U256::from(1)]);
+    let mem = call.ex.as_ref().unwrap().mem.as_ref().unwrap();
+    assert_eq!(mem.off, 32);
+    assert_eq!(mem.data.as_ref(), U256::from(42).to_be_bytes::<32>());
+}
+
+#[test]
+fn vmtrace_stop_only_child_preserves_parent_and_creation_result() {
+    let trace = trace_vm_code(&hex!("60015f5ff05f00"), &[]);
+    assert_eq!(trace.ops.len(), 6);
+    let create = &trace.ops[3];
+    assert_eq!(
+        create.ex.as_ref().unwrap().push.as_slice(),
+        &[U256::from_be_slice(Address::with_last_byte(0x42).create(0).as_slice())]
+    );
+    assert!(create.sub.is_some());
+}
+
+#[test]
+fn vmtrace_nested_sibling_calls_keep_their_own_subtraces() {
+    // The first call has no descendants. The second one calls the same leaf.
+    let call = hex!("5f5f5f5f5f604361fffff1");
+    let mut root = call.to_vec();
+    root.extend(hex!("505f5f5f5f5f604461fffff100"));
+    let mut branch = hex!("5f5f5f5f5f604561fffff1").to_vec();
+    branch.push(0x00);
+    let mut db = CacheDB::<EmptyDB>::default();
+    for (last, code) in [
+        (0x42, root),
+        (0x43, hex!("60015000").to_vec()),
+        (0x44, branch),
+        (0x45, hex!("600260035000").to_vec()),
+    ] {
+        db.insert_account_info(
+            Address::with_last_byte(last),
+            AccountInfo::default().with_code(revm::bytecode::Bytecode::new_raw(code.into())),
+        );
+    }
+    let mut evm = Context::mainnet().with_db(db).build_mainnet_with_inspector(
+        TracingInspector::new(TracingInspectorConfig::parity_vm_trace()),
+    );
+    evm.inspect_tx(TxEnv {
+        gas_limit: 1_000_000,
+        kind: TransactTo::Call(Address::with_last_byte(0x42)),
+        ..Default::default()
+    })
+    .unwrap();
+    let trace = evm.into_inspector().into_parity_builder().vm_trace();
+    assert_eq!(trace.ops[7].sub.as_ref().unwrap().ops.len(), 3);
+    assert_eq!(trace.ops[16].sub.as_ref().unwrap().ops.len(), 9);
+    assert_eq!(trace.ops[16].sub.as_ref().unwrap().ops[7].sub.as_ref().unwrap().ops.len(), 4);
+}
+
+#[test]
+fn vmtrace_precompile_does_not_steal_the_next_calls_subtrace() {
+    let trace =
+        trace_vm_code(&hex!("5f5f5f5f5f600461fffff1505f5f5f5f5f604361fffff100"), &hex!("60015000"));
+    assert!(trace.ops[7].sub.is_none());
+    assert_eq!(trace.ops[16].sub.as_ref().unwrap().ops.len(), 3);
+    assert_eq!(trace.ops[7].ex.as_ref().unwrap().push, vec![U256::from(1)]);
+}
+
+#[test]
+fn vmtrace_memory_copy_and_terminal_writes() {
+    for (code, offset, expected) in [
+        (&hex!("63aabbccdd5f526004601c601d5e00")[..], 29, hex!("aabbccdd").to_vec()),
+        (&hex!("60aa600153")[..], 1, vec![0xaa]),
+    ] {
+        let trace = trace_vm_code(code, &[]);
+        let mem = trace
+            .ops
+            .iter()
+            .rev()
+            .find_map(|op| op.ex.as_ref().and_then(|ex| ex.mem.as_ref()))
+            .unwrap();
+        assert_eq!(mem.off, offset);
+        assert_eq!(mem.data.as_ref(), expected);
+    }
+}
+
+#[test]
+fn vmtrace_failed_child_pushes_zero_and_parent_resumes() {
+    for child in [&hex!("5f5ffd")[..], &hex!("fe")[..]] {
+        let trace = trace_vm_code(&hex!("5f5f5f5f5f604361fffff15f00"), child);
+        assert_eq!(trace.ops[7].ex.as_ref().unwrap().push, vec![U256::ZERO]);
+        assert_eq!(
+            trace.ops[7].ex.as_ref().unwrap().used - trace.ops[8].cost,
+            trace.ops[8].ex.as_ref().unwrap().used
+        );
+    }
+}

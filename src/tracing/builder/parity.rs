@@ -1,6 +1,6 @@
 use super::walker::CallTraceNodeWalkerBF;
 use crate::tracing::{
-    types::{CallTraceNode, CallTraceStep},
+    types::{CallTraceNode, CallTraceStep, TraceMemberOrder},
     utils::load_account_code,
     TracingInspectorConfig,
 };
@@ -299,7 +299,7 @@ impl ParityTraceBuilder {
         let mut child_idx: usize = 0;
 
         // finds the deepest nested calls of each call frame and fills them up bottom to top
-        let instructions = 'outer: loop {
+        let instructions = loop {
             match current.children.get(child_idx) {
                 Some(child) => {
                     child_idx_stack.push(child_idx + 1);
@@ -309,19 +309,34 @@ impl ParityTraceBuilder {
                 }
                 None => {
                     let mut instructions = Vec::with_capacity(current.trace.steps.len());
+                    // Completed descendants belong to this frame; earlier siblings remain queued.
+                    let mut children =
+                        sub_stack.split_off(sub_stack.len() - current.children.len());
 
-                    for step in &current.trace.steps {
-                        let maybe_sub_call = if step.is_call_like_op() {
-                            sub_stack.pop_front().flatten()
-                        } else {
-                            None
-                        };
+                    let mut call_steps = current
+                        .ordering
+                        .windows(2)
+                        .filter_map(|pair| match pair {
+                            [TraceMemberOrder::Step(step), TraceMemberOrder::Call(child)] => {
+                                Some((*step, *child))
+                            }
+                            _ => None,
+                        })
+                        .peekable();
+                    for (step_idx, step) in current.trace.steps.iter().enumerate() {
+                        let maybe_sub_call =
+                            if call_steps.peek().is_some_and(|(idx, _)| *idx == step_idx) {
+                                let (_, child) = call_steps.next().unwrap();
+                                children.get_mut(child).and_then(Option::take)
+                            } else {
+                                None
+                            };
 
                         if step.is_stop() && instructions.is_empty() && self.is_last_step_stop_op()
                         {
                             // This is a special case where there's a single STOP which is
                             // "optimised away", transfers for example
-                            break 'outer instructions;
+                            break;
                         }
 
                         instructions.push(self.make_instruction(step, maybe_sub_call));
@@ -359,13 +374,12 @@ impl ParityTraceBuilder {
             val: storage_change.value,
         });
 
-        let maybe_memory = step
-            .memory
-            .as_ref()
-            .map(|memory| MemoryDelta { off: memory.len(), data: memory.as_bytes().clone() });
+        let maybe_memory = step.memory_delta.clone();
 
-        let maybe_execution = Some(VmExecutedOperation {
-            used: step.gas_remaining,
+        let maybe_execution = (!step.is_error()).then(|| VmExecutedOperation {
+            used: step
+                .gas_remaining_after
+                .unwrap_or_else(|| step.gas_remaining.saturating_sub(step.gas_cost)),
             push: step.push_stack.clone().unwrap_or_default().into(),
             mem: maybe_memory,
             store: maybe_storage,

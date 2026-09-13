@@ -646,6 +646,15 @@ pub struct CallTraceStep {
     ///
     /// This will be `None` only if memory capture is disabled.
     pub memory: Option<RecordedMemory>,
+    /// Memory range written by this instruction, captured before execution.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub memory_write_range: Option<core::ops::Range<usize>>,
+    /// Memory written after execution, for Parity VM traces.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub memory_delta: Option<alloy_rpc_types_trace::parity::MemoryDelta>,
+    /// Remaining gas after execution, including gas returned by child calls.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub gas_remaining_after: Option<u64>,
     /// Returndata before step execution
     pub returndata: Bytes,
     /// Remaining gas before step execution
