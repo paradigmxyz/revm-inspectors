@@ -104,7 +104,7 @@ pub struct CallTrace {
     pub steps: Vec<CallTraceStep>,
     /// The deltas recorded for [`Self::steps`], in step order.
     ///
-    /// Only steps that write memory or make a call have an entry, and only if
+    /// Only steps that write memory, make a call or gain gas have an entry, and only if
     /// [`record_step_deltas`] is enabled.
     ///
     /// [`record_step_deltas`]: crate::tracing::TracingInspectorConfig::record_step_deltas
@@ -765,8 +765,8 @@ impl CallTraceStep {
 
 /// The deltas a [`CallTraceStep`] produced, as reported by parity's `vmTrace`.
 ///
-/// Recorded in [`CallTrace::step_deltas`] for the steps that write memory or make a call, when
-/// [`record_step_deltas`] is enabled.
+/// Recorded in [`CallTrace::step_deltas`] for the steps that write memory, make a call or gain gas,
+/// when [`record_step_deltas`] is enabled.
 ///
 /// [`record_step_deltas`]: crate::tracing::TracingInspectorConfig::record_step_deltas
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -776,8 +776,7 @@ pub struct StepDelta {
     pub step: usize,
     /// The memory written by the step, if any.
     pub memory: Option<MemoryDelta>,
-    /// The remaining gas after a call-like step resumed, including the gas returned by the child
-    /// call.
+    /// The remaining gas after a call-like step resumed or an instruction gained gas.
     ///
     /// For all other steps the remaining gas after execution is `gas_remaining - gas_cost`.
     pub gas_remaining_after: Option<u64>,
@@ -790,7 +789,7 @@ pub struct StepDelta {
 impl StepDelta {
     /// Records the bytes the step wrote to `memory`, if a write range was captured.
     pub(crate) fn record_memory_write(&mut self, memory: &[u8]) {
-        if let Some(range) = self.write_range.take() {
+        if let Some(range) = self.write_range.take().filter(|range| !range.is_empty()) {
             self.memory = memory
                 .get(range.clone())
                 .map(|data| MemoryDelta { off: range.start, data: Bytes::copy_from_slice(data) });

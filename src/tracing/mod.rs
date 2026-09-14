@@ -563,6 +563,10 @@ impl TracingInspector {
         if step.push_stack.is_some() {
             step.push_stack = Some(interp.stack.data().last().copied().into_iter().collect());
         }
+        // CALL only overwrites the returned bytes; the rest of its output buffer is unchanged.
+        if let Some(range) = &mut delta.write_range {
+            range.end = range.start + range.len().min(interp.return_data.buffer().len());
+        }
         delta.record_memory_write(&interp.memory.borrow().context_memory());
     }
 
@@ -661,9 +665,19 @@ impl TracingInspector {
         // Call-like steps write memory only once the parent frame resumes, see
         // `finish_call_step`.
         if self.config.record_step_deltas && !step.is_error() && !step.is_call_like_op() {
+            // Gas credits, such as EIP-8037 storage restoration, cannot be recovered from the
+            // saturated unsigned gas cost.
+            let gas_remaining_after =
+                (interp.gas.remaining() > step.gas_remaining).then_some(interp.gas.remaining());
+            if gas_remaining_after.is_some()
+                && node.trace.step_deltas.last().is_none_or(|delta| delta.step != step_idx)
+            {
+                node.trace.step_deltas.push(StepDelta { step: step_idx, ..Default::default() });
+            }
             if let Some(delta) =
                 node.trace.step_deltas.last_mut().filter(|delta| delta.step == step_idx)
             {
+                delta.gas_remaining_after = gas_remaining_after;
                 delta.record_memory_write(&interp.memory.borrow().context_memory());
             }
         }

@@ -80,8 +80,8 @@ pub struct TracingInspectorConfig {
     pub record_logs: bool,
     /// Whether to record immediate bytes for opcodes.
     pub record_immediate_bytes: bool,
-    /// Whether to record the deltas of each step: the memory it writes and, for call-like
-    /// opcodes, the remaining gas once the child call returned.
+    /// Whether to record the deltas of each step: the memory it writes and the remaining gas
+    /// after returning from a call or gaining gas.
     ///
     /// Required for parity `vmTrace`.
     pub record_step_deltas: bool,
