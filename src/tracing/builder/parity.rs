@@ -12,7 +12,7 @@ use core::iter::Peekable;
 use revm::{
     context_interface::result::{ExecutionResult, HaltReasonTr, ResultAndState},
     primitives::{hardfork::SpecId, KECCAK_EMPTY},
-    state::Account,
+    state::{Account, EvmState},
     DatabaseRef,
 };
 
@@ -146,14 +146,30 @@ impl ParityTraceBuilder {
     /// Note: this is considered a convenience method that takes the state map of
     /// [ResultAndState] after inspecting a transaction
     /// with the [TracingInspector](crate::tracing::TracingInspector).
+    ///
+    /// Use [Self::into_trace_results_with_state_parts] when the result and state are borrowed
+    /// separately.
     pub fn into_trace_results_with_state<DB: DatabaseRef>(
         self,
         res: &ResultAndState<impl HaltReasonTr>,
         trace_types: &HashSet<TraceType>,
         db: DB,
     ) -> Result<TraceResults, DB::Error> {
-        let ResultAndState { ref result, ref state } = res;
+        self.into_trace_results_with_state_parts(&res.result, &res.state, trace_types, db)
+    }
 
+    /// Consumes the inspector and returns traces from a separately borrowed execution result and
+    /// state, without cloning the state into a result container.
+    ///
+    /// Populates state diffs and VM bytecode only when requested by `trace_types`. The database
+    /// must represent the state before the transaction's changes are committed.
+    pub fn into_trace_results_with_state_parts<DB: DatabaseRef>(
+        self,
+        result: &ExecutionResult<impl HaltReasonTr>,
+        state: &EvmState,
+        trace_types: &HashSet<TraceType>,
+        db: DB,
+    ) -> Result<TraceResults, DB::Error> {
         let breadth_first_addresses = if trace_types.contains(&TraceType::VmTrace) {
             CallTraceNodeWalkerBF::new(&self.nodes)
                 .map(|node| node.trace.address)
