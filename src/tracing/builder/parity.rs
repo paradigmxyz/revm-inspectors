@@ -1,6 +1,6 @@
 use super::walker::CallTraceNodeWalkerBF;
 use crate::tracing::{
-    types::{CallTraceNode, CallTraceStep},
+    types::{CallTraceNode, CallTraceStep, StepDelta, TraceMemberOrder},
     utils::load_account_code,
     TracingInspectorConfig,
 };
@@ -285,18 +285,6 @@ impl ParityTraceBuilder {
         self.into_transaction_traces_iter().collect()
     }
 
-    /// Returns the last recorded step
-    #[inline]
-    fn last_step(&self) -> Option<&CallTraceStep> {
-        self.nodes.last().and_then(|node| node.trace.steps.last())
-    }
-
-    /// Returns true if the last recorded step is a STOP
-    #[inline]
-    fn is_last_step_stop_op(&self) -> bool {
-        self.last_step().map(|step| step.is_stop()).unwrap_or(false)
-    }
-
     /// Creates a VM trace by walking over `CallTraceNode`s
     ///
     /// does not have the code fields filled in
@@ -309,13 +297,13 @@ impl ParityTraceBuilder {
     /// Iteratively creates a VM trace by traversing the recorded nodes in the arena
     fn make_vm_trace(&self, start: &CallTraceNode) -> VmTrace {
         let mut child_idx_stack = Vec::with_capacity(self.nodes.len());
-        let mut sub_stack = VecDeque::with_capacity(self.nodes.len());
+        let mut sub_stack = Vec::with_capacity(self.nodes.len());
 
         let mut current = start;
         let mut child_idx: usize = 0;
 
         // finds the deepest nested calls of each call frame and fills them up bottom to top
-        let instructions = 'outer: loop {
+        let instructions = loop {
             match current.children.get(child_idx) {
                 Some(child) => {
                     child_idx_stack.push(child_idx + 1);
@@ -325,27 +313,39 @@ impl ParityTraceBuilder {
                 }
                 None => {
                     let mut instructions = Vec::with_capacity(current.trace.steps.len());
+                    // The subtraces of this frame's children are the last entries on the stack,
+                    // in call order; those of earlier siblings stay queued for their parents.
+                    let mut children =
+                        sub_stack.split_off(sub_stack.len() - current.children.len());
 
-                    for step in &current.trace.steps {
+                    // A child is recorded right after the step that called it, so a call step
+                    // without a following child, like an excluded precompile call, has no
+                    // subtrace.
+                    let mut ordering = current.ordering.iter().peekable();
+                    let mut deltas = current.trace.step_deltas.iter().peekable();
+                    while let Some(member) = ordering.next() {
+                        let TraceMemberOrder::Step(step_idx) = *member else { continue };
+                        let step = &current.trace.steps[step_idx];
+                        let delta = deltas.next_if(|delta| delta.step == step_idx);
                         let maybe_sub_call = if step.is_call_like_op() {
-                            sub_stack.pop_front().flatten()
+                            ordering
+                                .next_if(|next| matches!(next, TraceMemberOrder::Call(_)))
+                                .and_then(|next| match next {
+                                    TraceMemberOrder::Call(child) => {
+                                        children.get_mut(*child).and_then(Option::take)
+                                    }
+                                    _ => None,
+                                })
                         } else {
                             None
                         };
 
-                        if step.is_stop() && instructions.is_empty() && self.is_last_step_stop_op()
-                        {
-                            // This is a special case where there's a single STOP which is
-                            // "optimised away", transfers for example
-                            break 'outer instructions;
-                        }
-
-                        instructions.push(self.make_instruction(step, maybe_sub_call));
+                        instructions.push(self.make_instruction(step, delta, maybe_sub_call));
                     }
 
                     match current.parent {
                         Some(parent) => {
-                            sub_stack.push_back(Some(VmTrace {
+                            sub_stack.push(Some(VmTrace {
                                 code: Default::default(),
                                 ops: instructions,
                             }));
@@ -368,6 +368,7 @@ impl ParityTraceBuilder {
     fn make_instruction(
         &self,
         step: &CallTraceStep,
+        delta: Option<&StepDelta>,
         maybe_sub_call: Option<VmTrace>,
     ) -> VmInstruction {
         let maybe_storage = step.storage_change.as_ref().map(|storage_change| StorageDelta {
@@ -375,15 +376,14 @@ impl ParityTraceBuilder {
             val: storage_change.value,
         });
 
-        let maybe_memory = step
-            .memory
-            .as_ref()
-            .map(|memory| MemoryDelta { off: memory.len(), data: memory.as_bytes().clone() });
-
-        let maybe_execution = Some(VmExecutedOperation {
-            used: step.gas_remaining,
+        // A halted step has no effects to report, while a `REVERT` executes like any other step.
+        let halted = step.status.is_some_and(|status| status.is_halt());
+        let maybe_execution = (!halted).then(|| VmExecutedOperation {
+            used: delta
+                .and_then(|delta| delta.gas_remaining_after)
+                .unwrap_or_else(|| step.gas_remaining.saturating_sub(step.gas_cost)),
             push: step.push_stack.clone().unwrap_or_default().into(),
-            mem: maybe_memory,
+            mem: delta.and_then(|delta| delta.memory.clone()),
             store: maybe_storage,
         });
 
