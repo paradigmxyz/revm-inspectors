@@ -1609,3 +1609,79 @@ fn test_geth_opcode_limit_end_to_end() {
         assert_eq!(run(json!({ "tracer": "callTracer", "limit": 2 })).0, calls);
     }
 }
+
+/// The buffers recorded for a step are stored next to the steps, so they must line up with them,
+/// including across call frames.
+#[test]
+fn test_step_buffers_line_up_with_steps() {
+    let account = address!("1000000000000000000000000000000000000001");
+    let child = address!("00000000000000000000000000000000000000ff");
+    // STATICCALL the child, copying its 32 byte return value into memory, then PUSH1 POP STOP.
+    let code = hex!("602060006000600060ff61fffffa5060015000");
+    // MSTORE(0, 0x2a) RETURN(0, 32)
+    let child_code = hex!("602a60005260206000f3");
+
+    let run = |config| {
+        let context =
+            Context::mainnet().with_db(CacheDB::<EmptyDB>::default()).modify_db_chained(|db| {
+                for (addr, code) in [(account, Bytes::from(code)), (child, Bytes::from(child_code))]
+                {
+                    db.insert_account_info(
+                        addr,
+                        AccountInfo { code: Some(Bytecode::new_raw(code)), ..Default::default() },
+                    );
+                }
+            });
+        let mut inspector = TracingInspector::new(config);
+        let result = context
+            .build_mainnet()
+            .with_inspector(&mut inspector)
+            .inspect_tx(TxEnv {
+                kind: TxKind::Call(account),
+                gas_limit: 200_000,
+                ..Default::default()
+            })
+            .unwrap()
+            .result;
+        assert!(result.is_success());
+        (inspector, result)
+    };
+
+    // Without any buffer capture the steps carry no buffers at all.
+    let (inspector, _) = run(TracingInspectorConfig::default_geth());
+    for node in inspector.traces().nodes() {
+        assert!(node.trace.step_buffers.is_empty());
+        assert!(!node.trace.steps.is_empty());
+    }
+
+    let (inspector, result) = run(TracingInspectorConfig::all());
+    for node in inspector.traces().nodes() {
+        assert_eq!(node.trace.steps.len(), node.trace.step_buffers.len());
+    }
+
+    let frame = inspector.geth_builder().geth_traces(
+        result.tx_gas_used(),
+        result.output().cloned().unwrap_or_default(),
+        GethDefaultTracingOptions::default().with_enable_memory(true).with_enable_return_data(true),
+    );
+    let word = "0x000000000000000000000000000000000000000000000000000000000000002a";
+    let call = frame.struct_logs.iter().position(|log| log.op == "STATICCALL").unwrap();
+    assert_eq!(frame.struct_logs[call].return_data, Some(Bytes::new()));
+    assert_eq!(frame.struct_logs[call].memory, Some(vec![]));
+
+    // The child's steps follow the call opcode, the parent resumes with the return data and the
+    // memory the call wrote it to.
+    let child_step = &frame.struct_logs[call + 1];
+    assert_eq!(child_step.depth, 2);
+    assert_eq!(child_step.return_data, Some(Bytes::new()));
+
+    let resumed =
+        frame.struct_logs[call + 1..].iter().find(|log| log.depth == 1).expect("parent resumes");
+    assert_eq!(
+        resumed.return_data,
+        Some(Bytes::from_static(&hex!(
+            "000000000000000000000000000000000000000000000000000000000000002a"
+        )))
+    );
+    assert_eq!(resumed.memory, Some(vec![word.to_string()]));
+}

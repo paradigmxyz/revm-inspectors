@@ -3,8 +3,8 @@ use crate::{
     tracing::{
         arena::PushTraceKind,
         types::{
-            CallKind, CallTraceNode, RecordedMemory, StorageChange, StorageChangeReason,
-            TraceMemberOrder,
+            CallKind, CallTraceNode, RecordedMemory, StepBuffers, StorageChange,
+            StorageChangeReason, TraceMemberOrder,
         },
         utils::gas_used,
     },
@@ -86,6 +86,9 @@ pub struct TracingInspector {
     recorded_steps: u64,
     /// Tracks the journal len in the step, used in step_end to check if the journal has changed
     last_journal_len: usize,
+    /// Tracks the state gas spent in the step, used in step_end to compute the step's state gas
+    /// cost.
+    last_state_gas_spent: i64,
     /// The spec id of the EVM.
     ///
     /// This is filled during execution.
@@ -113,6 +116,7 @@ impl TracingInspector {
             trace_stack,
             log_count,
             last_journal_len,
+            last_state_gas_spent,
             spec_id,
             record_step_end,
             recorded_steps,
@@ -137,6 +141,7 @@ impl TracingInspector {
         spec_id.take();
         *log_count = 0;
         *last_journal_len = 0;
+        *last_state_gas_spent = 0;
         *record_step_end = false;
         *recorded_steps = 0;
     }
@@ -446,21 +451,43 @@ impl TracingInspector {
         let trace_idx = self.last_trace_idx();
         let node = &mut self.traces.arena[trace_idx];
 
-        // Reuse the memory from the previous step if:
-        // - there is not opcode filter -- in this case we cannot rely on the order of steps
-        // - it exists and has not modified memory
-        let memory = self.config.record_memory_snapshots.then(|| {
-            if self.config.record_opcodes_filter.is_none() {
-                if let Some(prev) = node.trace.steps.last() {
-                    if !prev.op.modifies_memory() {
-                        if let Some(memory) = &prev.memory {
-                            return memory.clone();
+        if self.config.records_step_buffers() {
+            // Reuse the memory from the previous step if:
+            // - there is not opcode filter -- in this case we cannot rely on the order of steps
+            // - it exists and has not modified memory
+            let memory = self.config.record_memory_snapshots.then(|| {
+                if self.config.record_opcodes_filter.is_none() {
+                    if let Some((prev, buffers)) =
+                        node.trace.steps.last().zip(node.trace.step_buffers.last())
+                    {
+                        if !prev.op.modifies_memory() {
+                            if let Some(memory) = &buffers.memory {
+                                return memory.clone();
+                            }
                         }
                     }
                 }
+                RecordedMemory::new(&interp.memory.borrow().context_memory())
+            });
+
+            let returndata = if self.config.record_returndata_snapshots {
+                interp.return_data.buffer().clone()
+            } else {
+                Bytes::new()
+            };
+
+            let mut immediate_bytes = None;
+            if self.config.record_immediate_bytes {
+                let size = immediate_size(&interp.bytecode);
+                if size != 0 {
+                    immediate_bytes = Some(Bytes::copy_from_slice(
+                        &interp.bytecode.read_slice(size as usize + 1)[1..],
+                    ));
+                }
             }
-            RecordedMemory::new(&interp.memory.borrow().context_memory())
-        });
+
+            node.trace.step_buffers.push(StepBuffers { memory, returndata, immediate_bytes });
+        }
 
         let stack = if self.config.record_stack_snapshots.is_all()
             || self.config.record_stack_snapshots.is_full()
@@ -469,11 +496,6 @@ impl TracingInspector {
         } else {
             None
         };
-        let returndata = if self.config.record_returndata_snapshots {
-            interp.return_data.buffer().clone()
-        } else {
-            Bytes::new()
-        };
 
         let gas_used = gas_used(
             interp.runtime_flag.spec_id(),
@@ -481,36 +503,25 @@ impl TracingInspector {
             interp.gas.refunded() as u64,
         );
 
-        let mut immediate_bytes = None;
-        if self.config.record_immediate_bytes {
-            let size = immediate_size(&interp.bytecode);
-            if size != 0 {
-                immediate_bytes = Some(Bytes::copy_from_slice(
-                    &interp.bytecode.read_slice(size as usize + 1)[1..],
-                ));
-            }
+        if self.config.record_state_diff {
+            self.last_journal_len = context.journal_ref().journal().len();
         }
-
-        self.last_journal_len = context.journal_ref().journal().len();
+        self.last_state_gas_spent = interp.gas.state_gas_spent();
 
         let step_idx = node.trace.steps.len();
         node.trace.steps.push(CallTraceStep {
             pc: interp.bytecode.pc(),
             op,
             stack,
-            memory,
-            returndata,
             gas_remaining: interp.gas.remaining(),
             gas_refund_counter: interp.gas.refunded() as u64,
             gas_used,
-            immediate_bytes,
             state_gas_cost: None,
             state_gas_reservoir: SpecId::is_enabled_in(
                 interp.runtime_flag.spec_id(),
                 SpecId::AMSTERDAM,
             )
             .then_some(interp.gas.reservoir()),
-            state_gas_spent: interp.gas.state_gas_spent(),
 
             // These fields will be populated in `step_end`.
             push_stack: None,
@@ -568,10 +579,11 @@ impl TracingInspector {
             );
         }
 
-        let journal = context.journal_ref().journal();
-
         // If journal has not changed, there is no state change to be recorded.
-        if self.config.record_state_diff && journal.len() != self.last_journal_len {
+        if self.config.record_state_diff
+            && context.journal_ref().journal().len() != self.last_journal_len
+        {
+            let journal = context.journal_ref().journal();
             let op = step.op.get();
 
             step.storage_change = if matches!(op, opcode::SLOAD | opcode::SSTORE) {
@@ -608,7 +620,8 @@ impl TracingInspector {
         // step the remaining gas here, at the end of the step.
         // TODO: Figure out why this can overflow. https://github.com/paradigmxyz/revm-inspectors/pull/38
         step.gas_cost = step.gas_remaining.saturating_sub(interp.gas.remaining());
-        let state_gas_delta = interp.gas.state_gas_spent().saturating_sub(step.state_gas_spent);
+        let state_gas_delta =
+            interp.gas.state_gas_spent().saturating_sub(self.last_state_gas_spent);
         if step.state_gas_reservoir.is_some() && state_gas_delta != 0 {
             step.state_gas_cost = Some(state_gas_delta);
         }

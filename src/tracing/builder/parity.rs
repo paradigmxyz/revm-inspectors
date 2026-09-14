@@ -1,6 +1,6 @@
 use super::walker::CallTraceNodeWalkerBF;
 use crate::tracing::{
-    types::{CallTraceNode, CallTraceStep},
+    types::{CallTraceNode, CallTraceStep, StepBuffers},
     utils::load_account_code,
     TracingInspectorConfig,
 };
@@ -310,7 +310,7 @@ impl ParityTraceBuilder {
                 None => {
                     let mut instructions = Vec::with_capacity(current.trace.steps.len());
 
-                    for step in &current.trace.steps {
+                    for (idx, step) in current.trace.steps.iter().enumerate() {
                         let maybe_sub_call = if step.is_call_like_op() {
                             sub_stack.pop_front().flatten()
                         } else {
@@ -324,7 +324,11 @@ impl ParityTraceBuilder {
                             break 'outer instructions;
                         }
 
-                        instructions.push(self.make_instruction(step, maybe_sub_call));
+                        instructions.push(self.make_instruction(
+                            step,
+                            current.trace.buffers_at(idx),
+                            maybe_sub_call,
+                        ));
                     }
 
                     match current.parent {
@@ -352,6 +356,7 @@ impl ParityTraceBuilder {
     fn make_instruction(
         &self,
         step: &CallTraceStep,
+        buffers: Option<&StepBuffers>,
         maybe_sub_call: Option<VmTrace>,
     ) -> VmInstruction {
         let maybe_storage = step.storage_change.as_ref().map(|storage_change| StorageDelta {
@@ -359,9 +364,8 @@ impl ParityTraceBuilder {
             val: storage_change.value,
         });
 
-        let maybe_memory = step
-            .memory
-            .as_ref()
+        let maybe_memory = buffers
+            .and_then(|buffers| buffers.memory.as_ref())
             .map(|memory| MemoryDelta { off: memory.len(), data: memory.as_bytes().clone() });
 
         let maybe_execution = Some(VmExecutedOperation {

@@ -92,7 +92,8 @@ impl<'a> GethTraceBuilder<'a> {
             if opts.limit.is_some_and(|limit| struct_logs.len() as u64 >= limit) {
                 break;
             }
-            let Some(CallTraceStepStackItem { trace_node, step, call_child_id }) = steps.next()
+            let Some(CallTraceStepStackItem { trace_node, step, buffers, call_child_id }) =
+                steps.next()
             else {
                 let Some(parent) = parents.pop() else { break };
                 steps = parent;
@@ -102,7 +103,8 @@ impl<'a> GethTraceBuilder<'a> {
             // We increment the depth by one because steps that are part of call at depth N should
             // have depth N + 1. For example, steps inside of a top-level call should
             // have depth 1.
-            let mut log = step.convert_to_geth_struct_log(opts, trace_node.trace.depth as u64 + 1);
+            let mut log =
+                step.convert_to_geth_struct_log(opts, trace_node.trace.depth as u64 + 1, buffers);
 
             // Only touch the storage cache when updating it or emitting a storage snapshot.
             if opts.is_storage_enabled()
@@ -120,7 +122,8 @@ impl<'a> GethTraceBuilder<'a> {
             }
 
             if opts.is_return_data_enabled() {
-                log.return_data = Some(step.returndata.clone());
+                log.return_data =
+                    Some(buffers.map(|buffers| buffers.returndata.clone()).unwrap_or_default());
             }
 
             // Add step to geth trace
@@ -482,7 +485,7 @@ impl<'a> GethTraceBuilder<'a> {
             let mut keccak = Vec::new();
             let mut out_of_gas = false;
 
-            for step in &trace.steps {
+            for (step_idx, step) in trace.steps.iter().enumerate() {
                 let op = step.op.get();
 
                 // Skip if opcode is ignored
@@ -568,7 +571,10 @@ impl<'a> GethTraceBuilder<'a> {
 
                 // KECCAK preimages from returndata
                 if op == opcode::KECCAK256 && !out_of_gas {
-                    if let (Some(stack), Some(memory)) = (&step.stack, &step.memory) {
+                    if let (Some(stack), Some(memory)) = (
+                        &step.stack,
+                        trace.buffers_at(step_idx).and_then(|buffers| buffers.memory.as_ref()),
+                    ) {
                         if stack.len() >= 2 {
                             let offset = stack[stack.len() - 1];
                             let len = stack[stack.len() - 2];
