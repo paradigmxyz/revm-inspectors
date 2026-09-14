@@ -402,3 +402,55 @@ fn test_fallback_short_calldata() {
         "Short calldata call should NOT show 'receive' in trace, got:\n{trace_output}"
     );
 }
+
+/// A log whose event name is known but whose data could not be decoded (for example non-ABI
+/// data emitted via inline assembly, see https://github.com/foundry-rs/foundry/issues/10451) must
+/// still show the event name AND the raw topics and data, not an empty `Name()`.
+#[test]
+fn test_named_but_undecoded_log_keeps_name_and_raw_data() {
+    use alloy_primitives::LogData;
+    use revm_inspectors::tracing::types::{CallLog, DecodedCallLog, TraceMemberOrder};
+
+    // Run a trivial call to obtain a trace node to attach the log to.
+    let initcode = bytes!("6001600c60003960016000f300"); // deploy STOP
+    let mut evm = Context::mainnet()
+        .with_db(CacheDB::new(EmptyDB::default()))
+        .build_mainnet_with_inspector(TracingInspector::new(TracingInspectorConfig::all()));
+    let address = inspect_deploy_contract(&mut evm, initcode, Address::default(), SpecId::CANCUN)
+        .created_address()
+        .unwrap();
+
+    evm.set_inspector(TracingInspector::new(TracingInspectorConfig::all()));
+    evm.inspect_tx_commit(
+        TxEnv::builder()
+            .data(bytes!("ab"))
+            .kind(TransactTo::Call(address))
+            .gas_priority_fee(None)
+            .nonce(1)
+            .build_fill(),
+    )
+    .unwrap();
+
+    // Simulate a decoder that matched topic0 to a known event but could not decode its data.
+    let topic = b256!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+    let tracer = evm.inspector();
+    let node = tracer.traces_mut().nodes_mut().first_mut().expect("one trace node");
+    let log_index = node.logs.len();
+    node.logs.push(CallLog {
+        address: Address::default(),
+        raw_log: LogData::new_unchecked(vec![topic], bytes!("deadbeef")),
+        decoded: Some(Box::new(DecodedCallLog {
+            name: Some("Exchange".to_string()),
+            params: None,
+        })),
+        position: 0,
+        index: 0,
+    });
+    node.ordering.push(TraceMemberOrder::Log(log_index));
+
+    let out = write_traces(tracer);
+    assert!(out.contains("emit Exchange"), "event name must be shown, got:\n{out}");
+    assert!(out.contains("topic 0"), "raw topic must be shown, got:\n{out}");
+    assert!(out.contains("deadbeef"), "raw data must be shown, got:\n{out}");
+    assert!(!out.contains("Exchange()"), "must not render empty parens, got:\n{out}");
+}
