@@ -497,13 +497,6 @@ impl TracingInspector {
 
         self.last_journal_len = context.journal_ref().journal().len();
 
-        if self.config.record_step_deltas {
-            node.trace.step_deltas.push(StepDelta {
-                write_range: memory_write_range(op.get(), interp.stack.data()),
-                ..Default::default()
-            });
-        }
-
         let step_idx = node.trace.steps.len();
         node.trace.steps.push(CallTraceStep {
             pc: interp.bytecode.pc(),
@@ -534,6 +527,17 @@ impl TracingInspector {
         });
 
         node.ordering.push(TraceMemberOrder::Step(step_idx));
+
+        if self.config.record_step_deltas {
+            let write_range = memory_write_range(op.get(), interp.stack.data());
+            if write_range.is_some() || node.trace.steps[step_idx].is_call_like_op() {
+                node.trace.step_deltas.push(StepDelta {
+                    step: step_idx,
+                    write_range,
+                    ..Default::default()
+                });
+            }
+        }
     }
 
     /// Completes the delta of the last step if it is a call-like step whose frame returned.
@@ -543,10 +547,15 @@ impl TracingInspector {
     /// resumes, so this runs at the start of its next step.
     fn finish_call_step(&mut self, interp: &Interpreter) {
         let trace = &mut self.last_trace().trace;
+        let step_idx = trace.steps.len().wrapping_sub(1);
         let Some((step, delta)) = trace.steps.last_mut().zip(trace.step_deltas.last_mut()) else {
             return;
         };
-        if !step.is_call_like_op() || step.is_error() || delta.gas_remaining_after.is_some() {
+        if delta.step != step_idx
+            || !step.is_call_like_op()
+            || step.is_error()
+            || delta.gas_remaining_after.is_some()
+        {
             return;
         }
 
@@ -574,7 +583,8 @@ impl TracingInspector {
 
         let trace_idx = self.last_trace_idx();
         let node = &mut self.traces.arena[trace_idx];
-        let step = node.trace.steps.last_mut().unwrap();
+        let step_idx = node.trace.steps.len() - 1;
+        let step = &mut node.trace.steps[step_idx];
 
         // See comments in `start_step`.
         debug_assert!(
@@ -651,7 +661,9 @@ impl TracingInspector {
         // Call-like steps write memory only once the parent frame resumes, see
         // `finish_call_step`.
         if self.config.record_step_deltas && !step.is_error() && !step.is_call_like_op() {
-            if let Some(delta) = node.trace.step_deltas.last_mut() {
+            if let Some(delta) =
+                node.trace.step_deltas.last_mut().filter(|delta| delta.step == step_idx)
+            {
                 delta.record_memory_write(&interp.memory.borrow().context_memory());
             }
         }

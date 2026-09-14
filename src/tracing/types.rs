@@ -102,10 +102,10 @@ pub struct CallTrace {
     pub status: Option<InstructionResult>,
     /// Opcode-level execution steps.
     pub steps: Vec<CallTraceStep>,
-    /// The deltas recorded for [`Self::steps`].
+    /// The deltas recorded for [`Self::steps`], in step order.
     ///
-    /// This is either empty, if [`record_step_deltas`] is disabled, or has exactly one entry per
-    /// step.
+    /// Only steps that write memory or make a call have an entry, and only if
+    /// [`record_step_deltas`] is enabled.
     ///
     /// [`record_step_deltas`]: crate::tracing::TracingInspectorConfig::record_step_deltas
     #[cfg_attr(feature = "serde", serde(default))]
@@ -765,13 +765,15 @@ impl CallTraceStep {
 
 /// The deltas a [`CallTraceStep`] produced, as reported by parity's `vmTrace`.
 ///
-/// Recorded in [`CallTrace::step_deltas`], parallel to [`CallTrace::steps`], when
+/// Recorded in [`CallTrace::step_deltas`] for the steps that write memory or make a call, when
 /// [`record_step_deltas`] is enabled.
 ///
 /// [`record_step_deltas`]: crate::tracing::TracingInspectorConfig::record_step_deltas
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct StepDelta {
+    /// The index of the step in [`CallTrace::steps`].
+    pub step: usize,
     /// The memory written by the step, if any.
     pub memory: Option<MemoryDelta>,
     /// The remaining gas after a call-like step resumed, including the gas returned by the child

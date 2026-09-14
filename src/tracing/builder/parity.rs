@@ -306,9 +306,11 @@ impl ParityTraceBuilder {
                     // without a following child, like an excluded precompile call, has no
                     // subtrace.
                     let mut ordering = current.ordering.iter().peekable();
+                    let mut deltas = current.trace.step_deltas.iter().peekable();
                     while let Some(member) = ordering.next() {
                         let TraceMemberOrder::Step(step_idx) = *member else { continue };
                         let step = &current.trace.steps[step_idx];
+                        let delta = deltas.next_if(|delta| delta.step == step_idx);
                         let maybe_sub_call = if step.is_call_like_op() {
                             ordering
                                 .next_if(|next| matches!(next, TraceMemberOrder::Call(_)))
@@ -322,11 +324,7 @@ impl ParityTraceBuilder {
                             None
                         };
 
-                        instructions.push(self.make_instruction(
-                            step,
-                            current.trace.step_deltas.get(step_idx),
-                            maybe_sub_call,
-                        ));
+                        instructions.push(self.make_instruction(step, delta, maybe_sub_call));
                     }
 
                     match current.parent {
