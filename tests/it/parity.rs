@@ -522,6 +522,17 @@ fn vmtrace_faults_have_no_execution_delta() {
 }
 
 #[test]
+fn vmtrace_revert_keeps_its_execution_record() {
+    let trace = trace_vm_code(&hex!("5f5ffd"), &[]);
+    let revert = &trace.ops[2];
+    assert_eq!(revert.op.as_deref(), Some("REVERT"));
+    let ex = revert.ex.as_ref().unwrap();
+    assert_eq!(ex.used, trace.ops[1].ex.as_ref().unwrap().used - revert.cost);
+    assert!(ex.push.is_empty());
+    assert!(ex.mem.is_none());
+}
+
+#[test]
 fn vmtrace_call_pushes_result_and_copies_return_memory() {
     let trace = trace_vm_code(&hex!("602060205f5f5f604361fffff15f00"), &hex!("602a5f5260205ff3"));
     let call = &trace.ops[7];

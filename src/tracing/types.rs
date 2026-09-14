@@ -13,9 +13,10 @@ use alloy_rpc_types_trace::{
     geth::{CallFrame, CallLogFrame, GethDefaultTracingOptions, StructLog},
     parity::{
         Action, ActionType, CallAction, CallOutput, CallType, CreateAction, CreateOutput,
-        CreationMethod, SelfdestructAction, TraceOutput, TransactionTrace,
+        CreationMethod, MemoryDelta, SelfdestructAction, TraceOutput, TransactionTrace,
     },
 };
+use core::ops::Range;
 use revm::{
     bytecode::opcode::{self, OpCode},
     interpreter::{CallScheme, CreateScheme, InstructionResult},
@@ -101,6 +102,14 @@ pub struct CallTrace {
     pub status: Option<InstructionResult>,
     /// Opcode-level execution steps.
     pub steps: Vec<CallTraceStep>,
+    /// The deltas recorded for [`Self::steps`].
+    ///
+    /// This is either empty, if [`record_step_deltas`] is disabled, or has exactly one entry per
+    /// step.
+    ///
+    /// [`record_step_deltas`]: crate::tracing::TracingInspectorConfig::record_step_deltas
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub step_deltas: Vec<StepDelta>,
     /// Optional complementary decoded call data.
     pub decoded: Option<Box<DecodedCallTrace>>,
 }
@@ -646,15 +655,6 @@ pub struct CallTraceStep {
     ///
     /// This will be `None` only if memory capture is disabled.
     pub memory: Option<RecordedMemory>,
-    /// Memory range written by this instruction, captured before execution.
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub memory_write_range: Option<core::ops::Range<usize>>,
-    /// Memory written after execution, for Parity VM traces.
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub memory_delta: Option<alloy_rpc_types_trace::parity::MemoryDelta>,
-    /// Remaining gas after execution, including gas returned by child calls.
-    #[cfg_attr(feature = "serde", serde(default))]
-    pub gas_remaining_after: Option<u64>,
     /// Returndata before step execution
     pub returndata: Bytes,
     /// Remaining gas before step execution
@@ -727,12 +727,6 @@ impl CallTraceStep {
         }
     }
 
-    /// Returns true if the step is a STOP opcode
-    #[inline]
-    pub(crate) const fn is_stop(&self) -> bool {
-        matches!(self.op.get(), opcode::STOP)
-    }
-
     /// Returns true if the step is a call operation, any of
     /// CALL, CALLCODE, DELEGATECALL, STATICCALL, CREATE, CREATE2
     #[inline]
@@ -766,6 +760,39 @@ impl CallTraceStep {
     /// Returns `DecodedTraceStep` from `CallTraceStep`.
     pub fn decoded_mut(&mut self) -> &mut DecodedTraceStep {
         self.decoded.get_or_insert_with(|| Box::new(DecodedTraceStep::Line(String::new())))
+    }
+}
+
+/// The deltas a [`CallTraceStep`] produced, as reported by parity's `vmTrace`.
+///
+/// Recorded in [`CallTrace::step_deltas`], parallel to [`CallTrace::steps`], when
+/// [`record_step_deltas`] is enabled.
+///
+/// [`record_step_deltas`]: crate::tracing::TracingInspectorConfig::record_step_deltas
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct StepDelta {
+    /// The memory written by the step, if any.
+    pub memory: Option<MemoryDelta>,
+    /// The remaining gas after a call-like step resumed, including the gas returned by the child
+    /// call.
+    ///
+    /// For all other steps the remaining gas after execution is `gas_remaining - gas_cost`.
+    pub gas_remaining_after: Option<u64>,
+    /// The memory range the step writes, captured before execution and consumed once the write
+    /// is recorded.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub(crate) write_range: Option<Range<usize>>,
+}
+
+impl StepDelta {
+    /// Records the bytes the step wrote to `memory`, if a write range was captured.
+    pub(crate) fn record_memory_write(&mut self, memory: &[u8]) {
+        if let Some(range) = self.write_range.take() {
+            self.memory = memory
+                .get(range.clone())
+                .map(|data| MemoryDelta { off: range.start, data: Bytes::copy_from_slice(data) });
+        }
     }
 }
 
