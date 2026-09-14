@@ -1,8 +1,9 @@
-//! End-to-end opcode logger benchmarks for a call-heavy contract.
+//! Opcode logger benchmarks for a call-heavy contract.
 //!
-//! Split in two halves so that regressions can be attributed:
 //! * `record` measures the inspector hooks, i.e. building the `CallTraceStep` vectors.
 //! * `build` measures turning already recorded steps into geth `StructLog`s.
+//! * `reuse` measures recording consecutive transactions with the same inspector, including
+//!   resetting it with `TracingInspector::fuse`.
 
 use alloy_primitives::{Address, Bytes, U256};
 use alloy_rpc_types_trace::geth::GethDefaultTracingOptions;
@@ -156,6 +157,22 @@ fn struct_logger_benches(c: &mut Criterion) {
                         .with_spec_id(SpecId::PRAGUE)
                         .geth_traces(gas_used, output.clone(), opts),
                 )
+            });
+        });
+    }
+
+    for (name, opts) in configs {
+        let config = TracingInspectorConfig::from_geth_config(&opts);
+        let mut evm = Context::mainnet()
+            .modify_cfg_chained(|cfg| cfg.spec = SpecId::PRAGUE)
+            .with_db(db.clone())
+            .build_mainnet_with_inspector(TracingInspector::new(config));
+        group.bench_function(format!("reuse/{name}"), |b| {
+            b.iter(|| {
+                let result = evm.inspect_tx(tx_env()).expect("transaction should execute");
+                assert!(result.result.is_success());
+                black_box(evm.inspector.traces());
+                evm.inspector.fuse();
             });
         });
     }

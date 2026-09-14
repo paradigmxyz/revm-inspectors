@@ -45,6 +45,10 @@ pub struct DecodedCallTrace {
 }
 
 /// A trace of a call with optional decoded data.
+///
+/// With the `serde` feature, byte buffers are serialized in [`Self::step_buffers`]. Traces
+/// serialized with inline step buffers must migrate those snapshots into this field before
+/// deserialization.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CallTrace {
@@ -104,8 +108,9 @@ pub struct CallTrace {
     pub steps: Vec<CallTraceStep>,
     /// The byte buffers captured for [`Self::steps`].
     ///
-    /// This is either empty, if none of the buffer captures is enabled, or has exactly one entry
-    /// per step, see [`StepBuffers`].
+    /// This is either empty, if no step captured buffers, or has exactly one entry per step.
+    /// Steps recorded while buffer capture was disabled have a default entry.
+    #[cfg_attr(feature = "serde", serde(default))]
     pub step_buffers: Vec<StepBuffers>,
     /// The deltas recorded for [`Self::steps`], in step order.
     ///

@@ -93,10 +93,10 @@ pub struct TracingInspector {
     ///
     /// This is filled during execution.
     spec_id: Option<SpecId>,
-    /// Pool of reusable _empty_ step vectors to reduce allocations.
+    /// Pool of reusable _empty_ step and buffer vectors to reduce allocations.
     ///
-    /// All `Vec<CallTraceStep>` are always empty but may have capacity.
-    reusable_step_vecs: Vec<Vec<CallTraceStep>>,
+    /// Both vectors are always empty but may have capacity.
+    reusable_step_vecs: Vec<(Vec<CallTraceStep>, Vec<StepBuffers>)>,
 }
 
 impl TracingInspector {
@@ -132,7 +132,9 @@ impl TracingInspector {
                 let mut steps = mem::take(&mut node.trace.steps);
                 // ensure steps are cleared
                 steps.clear();
-                reusable_step_vecs.push(steps);
+                let mut buffers = mem::take(&mut node.trace.step_buffers);
+                buffers.clear();
+                reusable_step_vecs.push((steps, buffers));
             }
         }
 
@@ -368,7 +370,7 @@ impl TracingInspector {
         };
 
         // find an empty steps vec or create a new one
-        let steps = self.reusable_step_vecs.pop().unwrap_or_default();
+        let (steps, step_buffers) = self.reusable_step_vecs.pop().unwrap_or_default();
 
         // the currently active call is the parent of the new call
         let parent = self.trace_stack.last().copied().unwrap_or_default();
@@ -387,6 +389,7 @@ impl TracingInspector {
                 maybe_precompile,
                 gas_limit,
                 steps,
+                step_buffers,
                 ..Default::default()
             },
         ));
@@ -456,6 +459,12 @@ impl TracingInspector {
         let node = &mut self.traces.arena[trace_idx];
 
         if self.config.records_step_buffers() {
+            // Capture can be enabled after this frame has already recorded steps. Backfill
+            // those entries before looking up the previous step's memory.
+            if node.trace.step_buffers.len() != node.trace.steps.len() {
+                node.trace.step_buffers.resize_with(node.trace.steps.len(), StepBuffers::default);
+            }
+
             // Reuse the memory from the previous step if:
             // - there is not opcode filter -- in this case we cannot rely on the order of steps
             // - it exists and has not modified memory
@@ -491,6 +500,10 @@ impl TracingInspector {
             }
 
             node.trace.step_buffers.push(StepBuffers { memory, returndata, immediate_bytes });
+        } else if !node.trace.step_buffers.is_empty() {
+            // Once a frame has captured buffers, keep their indices aligned even if capture
+            // is disabled for subsequent steps.
+            node.trace.step_buffers.push(StepBuffers::default());
         }
 
         let stack = if self.config.record_stack_snapshots.is_all()
