@@ -703,3 +703,6 @@ fn vmtrace_failed_child_pushes_zero_and_parent_resumes() {
         );
     }
 }
+
+#[path = "parity/state_diff_selfdestruct.rs"]
+mod state_diff_selfdestruct;

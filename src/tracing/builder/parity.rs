@@ -509,16 +509,31 @@ where
     DB: DatabaseRef,
 {
     for (addr, changed_acc) in account_diffs.into_iter() {
-        // if the account was selfdestructed and created during the transaction, we can ignore it
-        if changed_acc.is_selfdestructed() && changed_acc.is_created() {
+        let addr = *addr;
+        let db_acc = db.basic_ref(addr)?;
+
+        // An account created and destroyed in this transaction has no net change unless it
+        // already existed, for example with a prefunded balance.
+        if changed_acc.is_selfdestructed() && db_acc.is_none() {
             continue;
         }
 
-        let addr = *addr;
+        let db_acc = db_acc.unwrap_or_default();
         let entry = state_diff.entry(addr).or_default();
 
-        // we need to fetch the account from the db
-        let db_acc = db.basic_ref(addr)?.unwrap_or_default();
+        // Revm only sets this flag for actual deletions under the active fork rules.
+        if changed_acc.is_selfdestructed() {
+            entry.balance = Delta::Removed(db_acc.balance);
+            entry.nonce = Delta::Removed(U64::from(db_acc.nonce));
+            entry.code = Delta::Removed(load_account_code(&db, &db_acc).unwrap_or_default());
+            // The state map contains accessed slots only; DatabaseRef cannot enumerate storage.
+            for (key, slot) in &changed_acc.storage {
+                if !slot.original_value.is_zero() {
+                    entry.storage.insert((*key).into(), Delta::Removed(slot.original_value.into()));
+                }
+            }
+            continue;
+        }
 
         // we check if this account was created during the transaction
         // where the smart contract was not touched before being created (no balance)
