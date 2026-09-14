@@ -92,6 +92,13 @@ pub struct CallTrace {
     pub data: Bytes,
     /// The return data, or the runtime bytecode of the created contract.
     pub output: Bytes,
+    /// The bytecode executed by this frame, including initcode and resolved delegation code.
+    ///
+    /// Populated when
+    /// [`TracingInspectorConfig::record_bytecode`](crate::tracing::TracingInspectorConfig::record_bytecode)
+    /// is enabled.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub bytecode: Bytes,
     /// The total gas cost of the call.
     pub gas_used: u64,
     /// The gas limit of the call.
