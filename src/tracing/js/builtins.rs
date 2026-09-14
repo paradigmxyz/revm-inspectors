@@ -2,7 +2,7 @@
 
 use crate::tracing::types::CallKind;
 use alloc::{borrow::Cow, format, vec::Vec};
-use alloy_primitives::{hex, map::HashSet, Address, FixedBytes, B256, U256};
+use alloy_primitives::{hex, map::HashSet, Address, FixedBytes, B256};
 use boa_engine::{
     builtins::{
         array_buffer::ArrayBuffer,
@@ -16,6 +16,7 @@ use boa_engine::{
 };
 use boa_gc::{empty_trace, Finalize, Trace};
 use core::borrow::Borrow;
+use ruint::aliases::U256;
 
 /// Converts the given `JsValue` to a `serde_json::Value`.
 ///

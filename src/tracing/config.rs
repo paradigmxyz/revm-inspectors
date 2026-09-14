@@ -80,6 +80,11 @@ pub struct TracingInspectorConfig {
     pub record_logs: bool,
     /// Whether to record immediate bytes for opcodes.
     pub record_immediate_bytes: bool,
+    /// Whether to record the deltas of each step: the memory it writes and the remaining gas
+    /// after returning from a call or gaining gas.
+    ///
+    /// Required for parity `vmTrace`.
+    pub record_step_deltas: bool,
 }
 
 impl TracingInspectorConfig {
@@ -96,6 +101,7 @@ impl TracingInspectorConfig {
             exclude_precompile_calls: false,
             record_logs: true,
             record_immediate_bytes: true,
+            record_step_deltas: true,
         }
     }
 
@@ -112,6 +118,7 @@ impl TracingInspectorConfig {
             record_logs: false,
             record_opcodes_filter: None,
             record_immediate_bytes: false,
+            record_step_deltas: false,
         }
     }
 
@@ -130,6 +137,7 @@ impl TracingInspectorConfig {
             record_logs: false,
             record_opcodes_filter: None,
             record_immediate_bytes: false,
+            record_step_deltas: false,
         }
     }
 
@@ -148,7 +156,7 @@ impl TracingInspectorConfig {
         Self::default_parity()
             .set_steps(true)
             .set_stack_snapshots(StackSnapshotType::Pushes)
-            .set_memory_snapshots(true)
+            .set_step_deltas(true)
             // also need statediffs for recording altered storage in `VmExecutedOperation.store`
             .set_state_diffs(true)
     }
@@ -171,6 +179,7 @@ impl TracingInspectorConfig {
             record_logs: false,
             record_opcodes_filter: None,
             record_immediate_bytes: false,
+            record_step_deltas: false,
         }
     }
 
@@ -186,7 +195,8 @@ impl TracingInspectorConfig {
         Self::default_parity()
             .set_steps(needs_vm_trace)
             .set_stack_snapshots(snap_type)
-            .set_memory_snapshots(needs_vm_trace)
+            .set_step_deltas(needs_vm_trace)
+            .set_state_diffs(needs_vm_trace)
     }
 
     /// Returns a config for geth style traces based on the given [GethDefaultTracingOptions].
@@ -283,6 +293,7 @@ impl TracingInspectorConfig {
         self.record_logs |= other.record_logs;
         self.record_opcodes_filter = self.record_opcodes_filter.or(other.record_opcodes_filter);
         self.record_immediate_bytes |= other.record_immediate_bytes;
+        self.record_step_deltas |= other.record_step_deltas;
         self
     }
 
@@ -353,6 +364,13 @@ impl TracingInspectorConfig {
         self
     }
 
+    /// Configure whether the tracer should record step deltas, see
+    /// [`Self::record_step_deltas`].
+    pub const fn set_step_deltas(mut self, record_step_deltas: bool) -> Self {
+        self.record_step_deltas = record_step_deltas;
+        self
+    }
+
     /// Sets state diff recording to true.
     ///
     /// Also enables steps recording since state diff recording requires steps recording.
@@ -414,7 +432,8 @@ impl TracingInspectorConfig {
     }
 }
 
-/// How much of the stack to record. Nothing, just the items pushed, or the full stack
+/// How much of the stack to record. Nothing, just the items pushed, the full stack, or only the
+/// top item
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum StackSnapshotType {
     /// Don't record stack snapshots
@@ -426,6 +445,8 @@ pub enum StackSnapshotType {
     Pushes,
     /// Record the full stack
     Full,
+    /// Record only the top item of the stack
+    Top,
 }
 
 impl StackSnapshotType {
@@ -445,6 +466,12 @@ impl StackSnapshotType {
     #[inline]
     pub const fn is_pushes(self) -> bool {
         matches!(self, Self::Pushes)
+    }
+
+    /// Returns true if this is the [StackSnapshotType::Top] variant
+    #[inline]
+    pub const fn is_top(self) -> bool {
+        matches!(self, Self::Top)
     }
 }
 
@@ -507,20 +534,24 @@ mod tests {
         // not required
         assert!(!config.record_steps);
         assert!(!config.record_state_diff);
+        assert!(!config.record_step_deltas);
 
         let mut s = HashSet::default();
         s.insert(TraceType::VmTrace);
         let config = TracingInspectorConfig::from_parity_config(&s);
         assert!(config.record_steps);
-        assert!(!config.record_state_diff);
+        assert!(config.record_state_diff);
+        assert!(config.record_step_deltas);
+        // the deltas replace full memory snapshots
+        assert!(!config.record_memory_snapshots);
 
         let mut s = HashSet::default();
         s.insert(TraceType::VmTrace);
         s.insert(TraceType::StateDiff);
         let config = TracingInspectorConfig::from_parity_config(&s);
         assert!(config.record_steps);
-        // not required for StateDiff
-        assert!(!config.record_state_diff);
+        // required for VmTrace
+        assert!(config.record_state_diff);
     }
 
     #[test]

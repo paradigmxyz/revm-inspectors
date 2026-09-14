@@ -13,9 +13,10 @@ use alloy_rpc_types_trace::{
     geth::{CallFrame, CallLogFrame, GethDefaultTracingOptions, StructLog},
     parity::{
         Action, ActionType, CallAction, CallOutput, CallType, CreateAction, CreateOutput,
-        CreationMethod, SelfdestructAction, TraceOutput, TransactionTrace,
+        CreationMethod, MemoryDelta, SelfdestructAction, TraceOutput, TransactionTrace,
     },
 };
+use core::ops::Range;
 use revm::{
     bytecode::opcode::{self, OpCode},
     interpreter::{CallScheme, CreateScheme, InstructionResult},
@@ -106,6 +107,14 @@ pub struct CallTrace {
     /// This is either empty, if none of the buffer captures is enabled, or has exactly one entry
     /// per step, see [`StepBuffers`].
     pub step_buffers: Vec<StepBuffers>,
+    /// The deltas recorded for [`Self::steps`], in step order.
+    ///
+    /// Only steps that write memory, make a call or gain gas have an entry, and only if
+    /// [`record_step_deltas`] is enabled.
+    ///
+    /// [`record_step_deltas`]: crate::tracing::TracingInspectorConfig::record_step_deltas
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub step_deltas: Vec<StepDelta>,
     /// Optional complementary decoded call data.
     pub decoded: Option<Box<DecodedCallTrace>>,
 }
@@ -724,12 +733,6 @@ impl CallTraceStep {
         }
     }
 
-    /// Returns true if the step is a STOP opcode
-    #[inline]
-    pub(crate) const fn is_stop(&self) -> bool {
-        matches!(self.op.get(), opcode::STOP)
-    }
-
     /// Returns true if the step is a call operation, any of
     /// CALL, CALLCODE, DELEGATECALL, STATICCALL, CREATE, CREATE2
     #[inline]
@@ -786,6 +789,40 @@ pub struct StepBuffers {
     pub returndata: Bytes,
     /// Immediate bytes of the step, if the opcode has any.
     pub immediate_bytes: Option<Bytes>,
+}
+
+/// The deltas a [`CallTraceStep`] produced, as reported by parity's `vmTrace`.
+///
+/// Recorded in [`CallTrace::step_deltas`] for the steps that write memory, make a call or gain gas,
+/// when [`record_step_deltas`] is enabled.
+///
+/// [`record_step_deltas`]: crate::tracing::TracingInspectorConfig::record_step_deltas
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct StepDelta {
+    /// The index of the step in [`CallTrace::steps`].
+    pub step: usize,
+    /// The memory written by the step, if any.
+    pub memory: Option<MemoryDelta>,
+    /// The remaining gas after a call-like step resumed or an instruction gained gas.
+    ///
+    /// For all other steps the remaining gas after execution is `gas_remaining - gas_cost`.
+    pub gas_remaining_after: Option<u64>,
+    /// The memory range the step writes, captured before execution and consumed once the write
+    /// is recorded.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    pub(crate) write_range: Option<Range<usize>>,
+}
+
+impl StepDelta {
+    /// Records the bytes the step wrote to `memory`, if a write range was captured.
+    pub(crate) fn record_memory_write(&mut self, memory: &[u8]) {
+        if let Some(range) = self.write_range.take().filter(|range| !range.is_empty()) {
+            self.memory = memory
+                .get(range.clone())
+                .map(|data| MemoryDelta { off: range.start, data: Bytes::copy_from_slice(data) });
+        }
+    }
 }
 
 /// Represents the source of a storage change - e.g., whether it came

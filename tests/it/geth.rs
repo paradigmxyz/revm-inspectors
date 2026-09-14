@@ -1684,4 +1684,11 @@ fn test_step_buffers_line_up_with_steps() {
         )))
     );
     assert_eq!(resumed.memory, Some(vec![word.to_string()]));
+
+    // Capturing full snapshots alongside VM deltas must preserve the VM trace.
+    let (vm_only, _) = run(TracingInspectorConfig::parity_vm_trace());
+    assert_eq!(
+        inspector.into_parity_builder().vm_trace(),
+        vm_only.into_parity_builder().vm_trace(),
+    );
 }

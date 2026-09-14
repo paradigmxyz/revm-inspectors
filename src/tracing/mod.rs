@@ -3,14 +3,14 @@ use crate::{
     tracing::{
         arena::PushTraceKind,
         types::{
-            CallKind, CallTraceNode, RecordedMemory, StepBuffers, StorageChange,
+            CallKind, CallTraceNode, RecordedMemory, StepBuffers, StepDelta, StorageChange,
             StorageChangeReason, TraceMemberOrder,
         },
         utils::gas_used,
     },
 };
 use alloc::{boxed::Box, vec::Vec};
-use core::{borrow::Borrow, mem};
+use core::{borrow::Borrow, mem, ops::Range};
 use revm::{
     bytecode::opcode::{self, OpCode},
     context::{JournalTr, LocalContextTr},
@@ -440,6 +440,10 @@ impl TracingInspector {
         // that not a known constant.
         let op = OpCode::new_or_unknown(interp.bytecode.opcode());
 
+        if self.config.record_step_deltas {
+            self.finish_call_step(interp);
+        }
+
         let record = self.config.should_record_opcode(op)
             && self.config.step_limit.is_none_or(|limit| self.recorded_steps < limit.get());
         self.record_step_end = record;
@@ -493,6 +497,9 @@ impl TracingInspector {
             || self.config.record_stack_snapshots.is_full()
         {
             Some(interp.stack.data().as_slice().into())
+        } else if self.config.record_stack_snapshots.is_top() {
+            let top = interp.stack.data().last().map(core::slice::from_ref).unwrap_or_default();
+            Some(top.into())
         } else {
             None
         };
@@ -534,6 +541,47 @@ impl TracingInspector {
         });
 
         node.ordering.push(TraceMemberOrder::Step(step_idx));
+
+        if self.config.record_step_deltas {
+            let write_range = memory_write_range(op.get(), interp.stack.data());
+            if write_range.is_some() || node.trace.steps[step_idx].is_call_like_op() {
+                node.trace.step_deltas.push(StepDelta {
+                    step: step_idx,
+                    write_range,
+                    ..Default::default()
+                });
+            }
+        }
+    }
+
+    /// Completes the delta of the last step if it is a call-like step whose frame returned.
+    ///
+    /// The result of a CALL or CREATE is pushed to the stack, the returned data copied into
+    /// memory and the unused gas returned only after `step_end`, once the parent interpreter
+    /// resumes, so this runs at the start of its next step.
+    fn finish_call_step(&mut self, interp: &Interpreter) {
+        let trace = &mut self.last_trace().trace;
+        let step_idx = trace.steps.len().wrapping_sub(1);
+        let Some((step, delta)) = trace.steps.last_mut().zip(trace.step_deltas.last_mut()) else {
+            return;
+        };
+        if delta.step != step_idx
+            || !step.is_call_like_op()
+            || step.is_error()
+            || delta.gas_remaining_after.is_some()
+        {
+            return;
+        }
+
+        delta.gas_remaining_after = Some(interp.gas.remaining());
+        if step.push_stack.is_some() {
+            step.push_stack = Some(interp.stack.data().last().copied().into_iter().collect());
+        }
+        // CALL only overwrites the returned bytes; the rest of its output buffer is unchanged.
+        if let Some(range) = &mut delta.write_range {
+            range.end = range.start + range.len().min(interp.return_data.buffer().len());
+        }
+        delta.record_memory_write(&interp.memory.borrow().context_memory());
     }
 
     /// Fills the current trace with the output of a step.
@@ -553,7 +601,8 @@ impl TracingInspector {
 
         let trace_idx = self.last_trace_idx();
         let node = &mut self.traces.arena[trace_idx];
-        let step = node.trace.steps.last_mut().unwrap();
+        let step_idx = node.trace.steps.len() - 1;
+        let step = &mut node.trace.steps[step_idx];
 
         // See comments in `start_step`.
         debug_assert!(
@@ -627,7 +676,27 @@ impl TracingInspector {
         }
 
         // set the status
-        step.status = interp.bytecode.action().as_ref().and_then(|i| i.instruction_result())
+        step.status = interp.bytecode.action().as_ref().and_then(|i| i.instruction_result());
+
+        // Call-like steps write memory only once the parent frame resumes, see
+        // `finish_call_step`.
+        if self.config.record_step_deltas && !step.is_error() && !step.is_call_like_op() {
+            // Gas credits, such as EIP-8037 storage restoration, cannot be recovered from the
+            // saturated unsigned gas cost.
+            let gas_remaining_after =
+                (interp.gas.remaining() > step.gas_remaining).then_some(interp.gas.remaining());
+            if gas_remaining_after.is_some()
+                && node.trace.step_deltas.last().is_none_or(|delta| delta.step != step_idx)
+            {
+                node.trace.step_deltas.push(StepDelta { step: step_idx, ..Default::default() });
+            }
+            if let Some(delta) =
+                node.trace.step_deltas.last_mut().filter(|delta| delta.step == step_idx)
+            {
+                delta.gas_remaining_after = gas_remaining_after;
+                delta.record_memory_write(&interp.memory.borrow().context_memory());
+            }
+        }
     }
 }
 
@@ -819,4 +888,25 @@ impl CallInputExt for CallInputs {
             CallInput::Bytes(bytes) => bytes.clone(),
         }
     }
+}
+
+/// Returns the memory range the opcode writes, derived from its inputs on the stack.
+///
+/// Only writes are tracked: instructions that merely expand memory, like `MLOAD`, yield `None`.
+fn memory_write_range(op: u8, stack: &[U256]) -> Option<Range<usize>> {
+    let back = |index: usize| {
+        stack.get(stack.len().checked_sub(index + 1)?).and_then(|v| usize::try_from(*v).ok())
+    };
+    let (offset, size) = match op {
+        opcode::MSTORE => (back(0)?, 32),
+        opcode::MSTORE8 => (back(0)?, 1),
+        opcode::CALLDATACOPY | opcode::CODECOPY | opcode::RETURNDATACOPY | opcode::MCOPY => {
+            (back(0)?, back(2)?)
+        }
+        opcode::EXTCODECOPY => (back(1)?, back(3)?),
+        opcode::CALL | opcode::CALLCODE => (back(5)?, back(6)?),
+        opcode::DELEGATECALL | opcode::STATICCALL => (back(4)?, back(5)?),
+        _ => return None,
+    };
+    (size != 0).then_some(offset..offset.checked_add(size)?)
 }
