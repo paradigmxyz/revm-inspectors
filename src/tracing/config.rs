@@ -60,6 +60,8 @@ impl OpcodeFilter {
 pub struct TracingInspectorConfig {
     /// Whether to record every individual opcode level step.
     pub record_steps: bool,
+    /// Whether to record the bytecode executed by each frame, required for parity `vmTrace`.
+    pub record_bytecode: bool,
     /// Maximum number of opcode steps to capture across all calls in a transaction.
     /// `None` means unlimited. Execution continues after capture stops.
     pub step_limit: Option<NonZeroU64>,
@@ -92,6 +94,7 @@ impl TracingInspectorConfig {
     pub const fn all() -> Self {
         Self {
             record_steps: true,
+            record_bytecode: true,
             step_limit: None,
             record_memory_snapshots: true,
             record_stack_snapshots: StackSnapshotType::All,
@@ -109,6 +112,7 @@ impl TracingInspectorConfig {
     pub const fn none() -> Self {
         Self {
             record_steps: false,
+            record_bytecode: false,
             step_limit: None,
             record_memory_snapshots: false,
             record_stack_snapshots: StackSnapshotType::None,
@@ -128,6 +132,7 @@ impl TracingInspectorConfig {
     pub const fn default_parity() -> Self {
         Self {
             record_steps: false,
+            record_bytecode: false,
             step_limit: None,
             record_memory_snapshots: false,
             record_stack_snapshots: StackSnapshotType::None,
@@ -155,6 +160,7 @@ impl TracingInspectorConfig {
     pub const fn parity_vm_trace() -> Self {
         Self::default_parity()
             .set_steps(true)
+            .set_bytecode(true)
             .set_stack_snapshots(StackSnapshotType::Pushes)
             .set_step_deltas(true)
             // also need statediffs for recording altered storage in `VmExecutedOperation.store`
@@ -170,6 +176,7 @@ impl TracingInspectorConfig {
     pub const fn default_geth() -> Self {
         Self {
             record_steps: true,
+            record_bytecode: false,
             step_limit: None,
             record_memory_snapshots: false,
             record_stack_snapshots: StackSnapshotType::Full,
@@ -194,6 +201,7 @@ impl TracingInspectorConfig {
             if needs_vm_trace { StackSnapshotType::Pushes } else { StackSnapshotType::None };
         Self::default_parity()
             .set_steps(needs_vm_trace)
+            .set_bytecode(needs_vm_trace)
             .set_stack_snapshots(snap_type)
             .set_step_deltas(needs_vm_trace)
             .set_state_diffs(needs_vm_trace)
@@ -285,6 +293,7 @@ impl TracingInspectorConfig {
             };
         }
         self.record_steps |= other.record_steps;
+        self.record_bytecode |= other.record_bytecode;
         self.record_memory_snapshots |= other.record_memory_snapshots;
         self.record_stack_snapshots = other.record_stack_snapshots;
         self.record_state_diff |= other.record_state_diff;
@@ -361,6 +370,12 @@ impl TracingInspectorConfig {
     /// Configure whether the tracer should record state diffs
     pub const fn set_state_diffs(mut self, record_state_diff: bool) -> Self {
         self.record_state_diff = record_state_diff;
+        self
+    }
+
+    /// Configure whether the tracer should record the bytecode executed by each frame.
+    pub const fn set_bytecode(mut self, record_bytecode: bool) -> Self {
+        self.record_bytecode = record_bytecode;
         self
     }
 

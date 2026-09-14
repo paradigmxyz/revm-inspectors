@@ -695,6 +695,9 @@ where
         if self.spec_id.is_none() {
             self.spec_id = Some(interp.runtime_flag.spec_id());
         }
+        if self.config.record_bytecode {
+            self.last_trace().trace.bytecode = interp.bytecode.original_bytes();
+        }
     }
 
     #[inline]

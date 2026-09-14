@@ -703,3 +703,6 @@ fn vmtrace_failed_child_pushes_zero_and_parent_resumes() {
         );
     }
 }
+
+#[path = "parity/vm_bytecode.rs"]
+mod vm_bytecode;
