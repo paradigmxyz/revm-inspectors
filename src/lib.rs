@@ -18,10 +18,6 @@
 
 extern crate alloc;
 
-// Enables the bigint conversions used by the JS tracer's U256 values.
-#[cfg(feature = "js-tracer")]
-use ruint as _;
-
 /// An inspector implementation for an EIP2930 Accesslist
 pub mod access_list;
 

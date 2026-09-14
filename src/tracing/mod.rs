@@ -684,27 +684,6 @@ impl TracingInspector {
     }
 }
 
-/// Returns the memory range the opcode writes, derived from its inputs on the stack.
-///
-/// Only writes are tracked: instructions that merely expand memory, like `MLOAD`, yield `None`.
-fn memory_write_range(op: u8, stack: &[U256]) -> Option<Range<usize>> {
-    let back = |index: usize| {
-        stack.get(stack.len().checked_sub(index + 1)?).and_then(|v| usize::try_from(*v).ok())
-    };
-    let (offset, size) = match op {
-        opcode::MSTORE => (back(0)?, 32),
-        opcode::MSTORE8 => (back(0)?, 1),
-        opcode::CALLDATACOPY | opcode::CODECOPY | opcode::RETURNDATACOPY | opcode::MCOPY => {
-            (back(0)?, back(2)?)
-        }
-        opcode::EXTCODECOPY => (back(1)?, back(3)?),
-        opcode::CALL | opcode::CALLCODE => (back(5)?, back(6)?),
-        opcode::DELEGATECALL | opcode::STATICCALL => (back(4)?, back(5)?),
-        _ => return None,
-    };
-    (size != 0).then_some(offset..offset.checked_add(size)?)
-}
-
 impl<CTX> Inspector<CTX> for TracingInspector
 where
     CTX: ContextTr<Journal: JournalExt>,
@@ -893,4 +872,25 @@ impl CallInputExt for CallInputs {
             CallInput::Bytes(bytes) => bytes.clone(),
         }
     }
+}
+
+/// Returns the memory range the opcode writes, derived from its inputs on the stack.
+///
+/// Only writes are tracked: instructions that merely expand memory, like `MLOAD`, yield `None`.
+fn memory_write_range(op: u8, stack: &[U256]) -> Option<Range<usize>> {
+    let back = |index: usize| {
+        stack.get(stack.len().checked_sub(index + 1)?).and_then(|v| usize::try_from(*v).ok())
+    };
+    let (offset, size) = match op {
+        opcode::MSTORE => (back(0)?, 32),
+        opcode::MSTORE8 => (back(0)?, 1),
+        opcode::CALLDATACOPY | opcode::CODECOPY | opcode::RETURNDATACOPY | opcode::MCOPY => {
+            (back(0)?, back(2)?)
+        }
+        opcode::EXTCODECOPY => (back(1)?, back(3)?),
+        opcode::CALL | opcode::CALLCODE => (back(5)?, back(6)?),
+        opcode::DELEGATECALL | opcode::STATICCALL => (back(4)?, back(5)?),
+        _ => return None,
+    };
+    (size != 0).then_some(offset..offset.checked_add(size)?)
 }
