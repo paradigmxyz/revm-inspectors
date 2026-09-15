@@ -63,6 +63,11 @@ name = "js_tracer"
 path = "benches/js_tracer.rs"
 harness = false
 
+[[bench]]
+name = "struct_logger"
+path = "benches/struct_logger.rs"
+harness = false
+
 [features]
 default = ["std"]
 std = [
