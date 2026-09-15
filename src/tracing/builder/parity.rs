@@ -538,9 +538,8 @@ where
                 entry.storage.insert((*key).into(), Delta::Added(slot.present_value.into()));
             }
         } else {
-            // we check if this account was created during the transaction
-            // where the smart contract was touched before being created (has balance)
-            if changed_acc.is_created() {
+            // EIP-7702 can change code without creating the account, even if execution reverts.
+            if db_acc.code_hash != changed_acc.info.code_hash {
                 let original_account_code = load_account_code(&db, &db_acc).unwrap_or_default();
                 let present_account_code =
                     load_account_code(&db, &changed_acc.info).unwrap_or_default();
