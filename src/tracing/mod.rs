@@ -696,7 +696,7 @@ where
             self.spec_id = Some(interp.runtime_flag.spec_id());
         }
         if self.config.record_bytecode {
-            self.last_trace().trace.bytecode = interp.bytecode.original_bytes();
+            self.last_trace().trace.bytecode = Some(interp.bytecode.original_bytes());
         }
     }
 
