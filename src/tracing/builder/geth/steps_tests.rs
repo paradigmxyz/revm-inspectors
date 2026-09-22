@@ -1,5 +1,7 @@
 use super::*;
-use crate::tracing::types::{CallTrace, CallTraceStep, StorageChange, StorageChangeReason};
+use crate::tracing::types::{
+    CallTrace, CallTraceStep, StepBuffers, StorageChange, StorageChangeReason,
+};
 use revm::interpreter::InstructionResult;
 
 fn test_step(pc: usize, op: u8) -> CallTraceStep {
@@ -8,15 +10,12 @@ fn test_step(pc: usize, op: u8) -> CallTraceStep {
         op: opcode::OpCode::new_or_unknown(op),
         stack: Some(vec![U256::from(pc)].into_boxed_slice()),
         push_stack: None,
-        memory: None,
-        returndata: Bytes::from(vec![pc as u8]),
         gas_remaining: 1000 - pc as u64,
         gas_refund_counter: 0,
         gas_used: pc as u64,
         gas_cost: 1,
         state_gas_cost: None,
         state_gas_reservoir: None,
-        state_gas_spent: 0,
         storage_change: (op == opcode::SSTORE).then(|| {
             alloc::boxed::Box::new(StorageChange {
                 key: U256::ZERO,
@@ -26,9 +25,12 @@ fn test_step(pc: usize, op: u8) -> CallTraceStep {
             })
         }),
         status: (op == opcode::REVERT).then_some(InstructionResult::Revert),
-        immediate_bytes: None,
         decoded: None,
     }
+}
+
+fn test_step_buffers(pc: usize) -> StepBuffers {
+    StepBuffers { memory: None, returndata: Bytes::from(vec![pc as u8]), immediate_bytes: None }
 }
 
 #[test]
@@ -77,6 +79,9 @@ fn opcode_trace_resumes_parents_after_nested_and_empty_calls() {
                         .iter()
                         .enumerate()
                         .map(|(pc, &op)| test_step(idx * 10 + pc, op))
+                        .collect(),
+                    step_buffers: (0..ops.len())
+                        .map(|pc| test_step_buffers(idx * 10 + pc))
                         .collect(),
                     ..Default::default()
                 },

@@ -45,6 +45,10 @@ pub struct DecodedCallTrace {
 }
 
 /// A trace of a call with optional decoded data.
+///
+/// With the `serde` feature, byte buffers are serialized in [`Self::step_buffers`]. Traces
+/// serialized with inline step buffers must migrate those snapshots into this field before
+/// deserialization.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CallTrace {
@@ -109,6 +113,12 @@ pub struct CallTrace {
     pub status: Option<InstructionResult>,
     /// Opcode-level execution steps.
     pub steps: Vec<CallTraceStep>,
+    /// The byte buffers captured for [`Self::steps`].
+    ///
+    /// This is either empty, if no step captured buffers, or has exactly one entry per step.
+    /// Steps recorded while buffer capture was disabled have a default entry.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub step_buffers: Vec<StepBuffers>,
     /// The deltas recorded for [`Self::steps`], in step order.
     ///
     /// Only steps that write memory, make a call or gain gas have an entry, and only if
@@ -156,6 +166,12 @@ impl CallTrace {
     /// Returns the error message if it is an erroneous result.
     pub(crate) fn as_error_msg(&self, kind: TraceStyle) -> Option<String> {
         self.status.and_then(|status| utils::fmt_error_msg(status, kind))
+    }
+
+    /// Returns the byte buffers captured for the step at the given index, if any.
+    #[inline]
+    pub fn buffers_at(&self, step_idx: usize) -> Option<&StepBuffers> {
+        self.step_buffers.get(step_idx)
     }
 
     /// Gets the decoded call trace.
@@ -281,12 +297,13 @@ impl CallTraceNode {
     /// Iterates over steps in execution order, matching call opcodes to recorded children.
     pub(crate) fn steps_with_children(&self) -> impl Iterator<Item = CallTraceStepStackItem<'_>> {
         let mut children = self.children.iter();
-        self.trace.steps.iter().map(move |step| {
+        self.trace.steps.iter().enumerate().map(move |(idx, step)| {
             // A call opcode can fail before a child is recorded, e.g. due to out of gas:
             // <https://github.com/paradigmxyz/reth/issues/3915>.
             let call_child_id =
                 if step.is_call_like_op() { children.next().copied() } else { None };
-            CallTraceStepStackItem { trace_node: self, step, call_child_id }
+            let buffers = self.trace.buffers_at(idx);
+            CallTraceStepStackItem { trace_node: self, step, buffers, call_child_id }
         })
     }
 
@@ -603,6 +620,8 @@ pub(crate) struct CallTraceStepStackItem<'a> {
     pub(crate) trace_node: &'a CallTraceNode,
     /// The step that this stack item represents
     pub(crate) step: &'a CallTraceStep,
+    /// The byte buffers captured for this step, if any
+    pub(crate) buffers: Option<&'a StepBuffers>,
     /// The index of the child call in the CallArena if this step's opcode is a call
     pub(crate) call_child_id: Option<usize>,
 }
@@ -658,12 +677,6 @@ pub struct CallTraceStep {
     pub stack: Option<Box<[U256]>>,
     /// The new stack items placed by this step if any
     pub push_stack: Option<Box<[U256]>>,
-    /// Memory before step execution.
-    ///
-    /// This will be `None` only if memory capture is disabled.
-    pub memory: Option<RecordedMemory>,
-    /// Returndata before step execution
-    pub returndata: Bytes,
     /// Remaining gas before step execution
     pub gas_remaining: u64,
     /// Gas refund counter before step execution
@@ -677,17 +690,12 @@ pub struct CallTraceStep {
     pub state_gas_cost: Option<i64>,
     /// State-gas reservoir before this step.
     pub state_gas_reservoir: Option<u64>,
-    /// State-gas spent before this step, used to calculate `state_gas_cost`.
-    #[cfg_attr(feature = "serde", serde(skip))]
-    pub state_gas_spent: i64,
     /// Change of the contract state after step execution (effect of the SLOAD/SSTORE instructions)
     pub storage_change: Option<Box<StorageChange>>,
     /// Final status of the step
     ///
     /// This is set after the step was executed.
     pub status: Option<InstructionResult>,
-    /// Immediate bytes of the step
-    pub immediate_bytes: Option<Bytes>,
     /// Optional complementary decoded step data.
     pub decoded: Option<Box<DecodedTraceStep>>,
 }
@@ -700,6 +708,7 @@ impl CallTraceStep {
         &self,
         opts: &GethDefaultTracingOptions,
         depth: u64,
+        buffers: Option<&StepBuffers>,
     ) -> StructLog {
         #[allow(clippy::needless_update)]
         StructLog {
@@ -718,7 +727,9 @@ impl CallTraceStep {
                 None
             },
             memory: if opts.is_memory_enabled() {
-                self.memory.as_ref().map(RecordedMemory::memory_chunks)
+                buffers
+                    .and_then(|buffers| buffers.memory.as_ref())
+                    .map(RecordedMemory::memory_chunks)
             } else {
                 None
             },
@@ -768,6 +779,28 @@ impl CallTraceStep {
     pub fn decoded_mut(&mut self) -> &mut DecodedTraceStep {
         self.decoded.get_or_insert_with(|| Box::new(DecodedTraceStep::Line(String::new())))
     }
+}
+
+/// The byte buffers captured for a [`CallTraceStep`].
+///
+/// All three captures are opt-in ([`record_memory_snapshots`], [`record_returndata_snapshots`],
+/// [`record_immediate_bytes`]) and are stored in [`CallTrace::step_buffers`], parallel to
+/// [`CallTrace::steps`], so that steps stay small when they are disabled.
+///
+/// [`record_memory_snapshots`]: crate::tracing::TracingInspectorConfig::record_memory_snapshots
+/// [`record_returndata_snapshots`]: crate::tracing::TracingInspectorConfig::record_returndata_snapshots
+/// [`record_immediate_bytes`]: crate::tracing::TracingInspectorConfig::record_immediate_bytes
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct StepBuffers {
+    /// Memory before step execution.
+    ///
+    /// This is `None` only if memory capture is disabled.
+    pub memory: Option<RecordedMemory>,
+    /// Returndata before step execution.
+    pub returndata: Bytes,
+    /// Immediate bytes of the step, if the opcode has any.
+    pub immediate_bytes: Option<Bytes>,
 }
 
 /// The deltas a [`CallTraceStep`] produced, as reported by parity's `vmTrace`.

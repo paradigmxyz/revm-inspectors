@@ -436,6 +436,15 @@ impl TracingInspectorConfig {
     pub fn should_record_opcode(&self, op: OpCode) -> bool {
         self.record_opcodes_filter.as_ref().is_none_or(|filter| filter.is_enabled(op))
     }
+
+    /// Returns whether any of the captures stored in
+    /// [`StepBuffers`](crate::tracing::types::StepBuffers) is enabled.
+    #[inline]
+    pub const fn records_step_buffers(&self) -> bool {
+        self.record_memory_snapshots
+            || self.record_returndata_snapshots
+            || self.record_immediate_bytes
+    }
 }
 
 /// How much of the stack to record. Nothing, just the items pushed, the full stack, or only the
