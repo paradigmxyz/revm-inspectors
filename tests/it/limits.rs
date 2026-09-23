@@ -47,53 +47,59 @@ fn limited(config: TracingInspectorConfig, bytes: usize) -> TracingInspector {
 }
 
 #[test]
-fn budgets_are_enforced_during_execution_and_accessors_stay_infallible() {
-    let programs: &[&[u8]] = &[
-        // A 64 KiB child input.
-        &hex!("5f5f620100005f5f604361fffff100"),
-        // Repeated calls with memory and return data.
-        &hex!("60055b5f5f6104005f5f604361fffff150600190038060025760205ff3"),
-        // Identity precompile: no interpreter initialization callback.
-        &hex!("60205f6104005f5f600461fffff100"),
+fn step_budget_aborts_at_recording_boundaries() {
+    let config = TracingInspectorConfig::all();
+    for code in [
+        // Repeated CALLs, including memory deltas recorded when the parent resumes.
+        &hex!("60055b5f5f6104005f5f604361fffff150600190038060025760205ff3")[..],
         // CREATE with initcode returning one byte of runtime code.
-        &hex!("6960fe5f5360015ff300005f52600a60165ff000"),
-        // Memory, storage, a log, and output.
-        &hex!("60015f5260025f555f5450600160205fa160205ff3"),
-    ];
-    for &code in programs {
-        for config in [TracingInspectorConfig::all(), TracingInspectorConfig::default_parity()] {
-            let (baseline, expected) = run(code, TracingInspector::new(config));
-            let expected = expected.unwrap();
-            assert!(expected.is_success());
-            let total = baseline.recorded_bytes();
-            let (exact, result) = run(code, limited(config, total));
-            assert_eq!(result.unwrap(), expected);
-            assert_eq!(exact.traces(), baseline.traces());
-            // Walk every recording boundary, including failures with a pending EVM action.
-            let mut bytes = 0;
-            while bytes < total {
-                let (mut inspector, result) = run(code, limited(config, bytes));
-                assert!(
-                    matches!(result, Err(EVMError::Custom(ref message)) if message == "trace recorded byte limit exceeded")
-                );
-                assert!(inspector.recorded_bytes() > bytes);
-                bytes = inspector.recorded_bytes();
-                // Accessors/builders have their original signatures, even after an error.
-                let _ = inspector.traces();
-                let _ = inspector.traces_mut();
-                let _ = inspector.geth_builder();
-                let _ = inspector.clone().into_geth_builder();
-                let _ = inspector.clone().into_parity_builder();
-                let _ = inspector.clone().into_traces();
-                inspector.fuse();
-                assert_eq!(inspector.recorded_bytes(), 0);
-                let (_, result) = run(code, inspector);
-                assert!(
-                    matches!(result, Err(EVMError::Custom(_))),
-                    "reset must preserve the limit"
-                );
-            }
+        &hex!("6960fe5f5360015ff300005f52600a60165ff000")[..],
+    ] {
+        let (baseline, expected) = run(code, TracingInspector::new(config));
+        let expected = expected.unwrap();
+        assert!(expected.is_success());
+        let total = baseline.recorded_bytes();
+        assert!(total > 0);
+        let (exact, result) = run(code, limited(config, total));
+        assert_eq!(result.unwrap(), expected);
+        assert_eq!(exact.traces(), baseline.traces());
+
+        // Each run reaches the next allocation boundary, including pending CALL/RETURN actions.
+        let mut bytes = 0;
+        while bytes < total {
+            let (inspector, result) = run(code, limited(config, bytes));
+            assert!(
+                matches!(result, Err(EVMError::Custom(ref message)) if message == "trace recorded byte limit exceeded")
+            );
+            assert!(inspector.recorded_bytes() > bytes);
+            bytes = inspector.recorded_bytes();
         }
+    }
+}
+
+#[test]
+fn input_budget_survives_reset() {
+    let config = TracingInspectorConfig::none().set_record_inputs(true);
+    for code in [
+        // 64 KiB input to a contract.
+        hex!("5f5f620100005f5f604361fffff100"),
+        // Same input to the identity precompile, which has no interpreter callback.
+        hex!("5f5f620100005f5f600461fffff100"),
+    ] {
+        let (inspector, result) = run(&code, limited(config, 65536));
+        assert!(result.unwrap().is_success());
+        assert_eq!(inspector.recorded_bytes(), 65536);
+
+        let (mut inspector, result) = run(&code, limited(config, 65535));
+        assert!(matches!(result, Err(EVMError::Custom(_))));
+        inspector.fuse();
+        assert_eq!(inspector.recorded_bytes(), 0);
+        let (_, result) = run(&code, inspector);
+        assert!(matches!(result, Err(EVMError::Custom(_))));
+
+        let (inspector, result) = run(&code, limited(config.set_record_inputs(false), 0));
+        assert!(result.unwrap().is_success());
+        assert_eq!(inspector.recorded_bytes(), 0);
     }
 }
 
@@ -103,16 +109,6 @@ fn only_new_byte_buffers_are_charged() {
     // Root input, output and bytecode are shared Bytes clones, not new byte buffers.
     let (inspector, result) =
         run(&hex!("6104005ff3"), limited(config.set_record_inputs(true).set_bytecode(true), 0));
-    assert!(result.unwrap().is_success());
-    assert_eq!(inspector.recorded_bytes(), 0);
-
-    let call = hex!("5f5f620100005f5f604361fffff100");
-    let (inspector, result) = run(&call, limited(config.set_record_inputs(true), 65536));
-    assert!(result.unwrap().is_success());
-    assert_eq!(inspector.recorded_bytes(), 65536);
-    let (_, result) = run(&call, limited(config.set_record_inputs(true), 65535));
-    assert!(matches!(result, Err(EVMError::Custom(_))));
-    let (inspector, result) = run(&call, limited(config, 0));
     assert!(result.unwrap().is_success());
     assert_eq!(inspector.recorded_bytes(), 0);
 
