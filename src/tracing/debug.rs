@@ -1,6 +1,5 @@
 use crate::tracing::{
-    FourByteInspector, MuxInspector, TraceError, TraceLimits, TracingInspector,
-    TracingInspectorConfig, TransactionContext,
+    FourByteInspector, MuxInspector, TracingInspector, TracingInspectorConfig, TransactionContext,
 };
 #[cfg(feature = "js-tracer")]
 use alloc::boxed::Box;
@@ -187,36 +186,6 @@ impl DebugInspector {
         Ok(this)
     }
 
-    /// Applies a recording budget to the native tracing inspector.
-    ///
-    /// JS and four-byte tracers cannot enforce this budget and reject finite limits.
-    pub fn with_limits(self, limits: TraceLimits) -> Result<Self, TraceError> {
-        Ok(match self {
-            Self::CallTracer(inspector, config) => {
-                Self::CallTracer(inspector.with_limits(limits), config)
-            }
-            Self::PreStateTracer(inspector, config) => {
-                Self::PreStateTracer(inspector.with_limits(limits), config)
-            }
-            Self::FlatCallTracer(inspector) => Self::FlatCallTracer(inspector.with_limits(limits)),
-            Self::Erc7562Tracer(inspector, config) => {
-                Self::Erc7562Tracer(inspector.with_limits(limits), config)
-            }
-            Self::Default(inspector, config) => {
-                Self::Default(inspector.with_limits(limits), config)
-            }
-            Self::Mux(inspector, config) => Self::Mux(inspector.with_limits(limits)?, config),
-            Self::FourByte(_) if limits.max_recorded_bytes.is_some() => {
-                return Err(TraceError::UnsupportedTracer)
-            }
-            #[cfg(feature = "js-tracer")]
-            Self::Js(_) if limits.max_recorded_bytes.is_some() => {
-                return Err(TraceError::UnsupportedTracer)
-            }
-            other => other,
-        })
-    }
-
     /// Prepares inspector for executing the next transaction. This will remove any state from
     /// previous transactions.
     pub fn fuse(&mut self) -> Result<(), DebugInspectorError> {
@@ -230,7 +199,9 @@ impl DebugInspector {
             | Self::Erc7562Tracer(inspector, _)
             | Self::Default(inspector, _) => inspector.fuse(),
             Self::Noop(_) | Self::StateGasTracer(_) => {}
-            Self::Mux(inspector, _) => inspector.fuse(),
+            Self::Mux(inspector, config) => {
+                *inspector = MuxInspector::try_from_config(config.clone())?;
+            }
             #[cfg(feature = "js-tracer")]
             Self::Js(inspector) => inspector.fuse()?,
         }
@@ -263,14 +234,14 @@ impl DebugInspector {
                 inspector.set_transaction_gas_limit(tx_env.gas_limit());
                 inspector.set_transaction_caller(tx_env.caller());
                 inspector
-                    .geth_builder()?
+                    .geth_builder()
                     .geth_call_traces_with_result_gas(*config, *res.result.gas())
                     .into()
             }
             Self::PreStateTracer(inspector, config) => {
                 inspector.set_transaction_gas_limit(tx_env.gas_limit());
                 inspector
-                    .geth_builder()?
+                    .geth_builder()
                     .geth_prestate_traces(res, config, db)
                     .map_err(DebugInspectorError::Database)?
                     .into()
@@ -283,14 +254,16 @@ impl DebugInspector {
                 gas_refund: res.result.gas().final_refunded(),
             }
             .into(),
-            Self::Mux(inspector, _) => inspector.try_into_mux_frame(res, db, tx_info)?.into(),
+            Self::Mux(inspector, _) => inspector
+                .try_into_mux_frame(res, db, tx_info)
+                .map_err(DebugInspectorError::Database)?
+                .into(),
             Self::FlatCallTracer(inspector) => {
-                inspector.check_limits()?;
                 inspector.set_transaction_gas_limit(tx_env.gas_limit());
                 inspector.set_transaction_caller(tx_env.caller());
                 inspector
                     .clone()
-                    .into_parity_builder()?
+                    .into_parity_builder()
                     .into_localized_transaction_traces(tx_info)
                     .into()
             }
@@ -298,7 +271,7 @@ impl DebugInspector {
                 inspector.set_transaction_gas_limit(tx_env.gas_limit());
                 inspector.set_transaction_caller(tx_env.caller());
                 inspector
-                    .geth_builder()?
+                    .geth_builder()
                     .geth_erc7562_traces(config.clone(), res.result.tx_gas_used(), db)
                     .into()
             }
@@ -306,7 +279,7 @@ impl DebugInspector {
                 inspector.set_transaction_gas_limit(tx_env.gas_limit());
                 inspector.set_transaction_caller(tx_env.caller());
                 inspector
-                    .geth_builder()?
+                    .geth_builder()
                     .geth_traces_with_result_gas(
                         *res.result.gas(),
                         res.result.output().unwrap_or_default().clone(),
@@ -417,9 +390,6 @@ where
 /// Error type for [DebugInspector]
 #[derive(Debug, Error)]
 pub enum DebugInspectorError<DBError = core::convert::Infallible> {
-    /// Trace recording exceeded its resource limits.
-    #[error(transparent)]
-    Trace(#[from] TraceError),
     /// Invalid tracer configuration
     #[error("invalid tracer config")]
     InvalidTracerConfig,
@@ -431,7 +401,7 @@ pub enum DebugInspectorError<DBError = core::convert::Infallible> {
     JsTracerNotEnabled,
     /// Error from MuxInspector
     #[error(transparent)]
-    MuxInspector(#[from] crate::tracing::MuxError<DBError>),
+    MuxInspector(#[from] crate::tracing::MuxError),
     /// Error from JS inspector
     #[cfg(feature = "js-tracer")]
     #[error(transparent)]

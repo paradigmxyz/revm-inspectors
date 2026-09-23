@@ -18,8 +18,8 @@ use revm::{
     inspector::JournalExt,
     interpreter::{
         interpreter_types::{Immediates, Jumps, LoopControl, ReturnData, RuntimeFlag},
-        CallInput, CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, Interpreter,
-        InterpreterResult,
+        CallInput, CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, Gas,
+        InstructionResult, Interpreter, InterpreterResult,
     },
     primitives::{hardfork::SpecId, Address, Bytes, Log, B256, U256},
     Inspector, JournalEntry,
@@ -39,7 +39,7 @@ pub use config::{OpcodeFilter, StackSnapshotType, TracingInspectorConfig};
 
 mod limits;
 use limits::TraceBudget;
-pub use limits::{TraceError, TraceLimits};
+pub use limits::TraceLimits;
 
 mod fourbyte;
 pub use fourbyte::FourByteInspector;
@@ -78,7 +78,7 @@ pub use debug::{DebugInspector, DebugInspectorError};
 pub struct TracingInspector {
     /// Configures what and how the inspector records traces.
     config: TracingInspectorConfig,
-    /// Recording budget and any sticky limit error.
+    /// Internal budget for recorded trace data.
     budget: TraceBudget,
     /// Records all call traces
     traces: CallTraceArena,
@@ -108,38 +108,16 @@ impl TracingInspector {
         Self { config, ..Default::default() }
     }
 
-    /// Applies recording limits without resetting usage or an existing failure.
-    ///
-    /// Configure this before execution. Exceeding the budget stops recording, not execution;
-    /// trace accessors and builders then return [`TraceError::LimitExceeded`].
-    ///
-    /// ```
-    /// use revm_inspectors::tracing::{TraceLimits, TracingInspector, TracingInspectorConfig};
-    /// let inspector = TracingInspector::new(TracingInspectorConfig::default_parity())
-    ///     .with_limits(TraceLimits::default().set_max_recorded_bytes(Some(32 * 1024 * 1024)));
-    /// // Execute with the inspector, then propagate failure before building a response:
-    /// let builder = inspector.into_geth_builder()?;
-    /// # Ok::<(), revm_inspectors::tracing::TraceError>(())
-    /// ```
+    /// Configures the internal recording budget. Exceeding it aborts inspection through
+    /// revm's execution error channel before retaining the over-budget data.
     pub fn with_limits(mut self, limits: TraceLimits) -> Self {
         self.budget.limits = limits;
-        self.budget.record(0);
         self
-    }
-
-    /// Returns the recording limits, preserved by [`Self::fuse`].
-    pub const fn limits(&self) -> TraceLimits {
-        self.budget.limits
     }
 
     /// Returns the cumulative recording charge since the last reset.
     pub const fn recorded_bytes(&self) -> usize {
         self.budget.recorded
-    }
-
-    /// Reports whether recording failed. The first error persists until [`Self::fuse`].
-    pub fn check_limits(&self) -> Result<(), TraceError> {
-        self.budget.check()
     }
 
     /// Resets the inspector to its initial state of [Self::new].
@@ -208,36 +186,31 @@ impl TracingInspector {
         self.config = f(self.config);
     }
 
-    /// Gets the recorded call traces, or the recording limit error.
-    pub fn traces(&self) -> Result<&CallTraceArena, TraceError> {
-        self.check_limits()?;
-        Ok(&self.traces)
+    /// Gets a reference to the recorded call traces.
+    pub const fn traces(&self) -> &CallTraceArena {
+        &self.traces
     }
 
     #[doc(hidden)]
     #[deprecated = "use `traces` instead"]
-    pub fn get_traces(&self) -> Result<&CallTraceArena, TraceError> {
-        self.traces()
+    pub const fn get_traces(&self) -> &CallTraceArena {
+        &self.traces
     }
 
-    /// Gets mutable recorded traces, or the recording limit error.
-    ///
-    /// Changes made by the caller are not included in the recording budget.
-    pub fn traces_mut(&mut self) -> Result<&mut CallTraceArena, TraceError> {
-        self.check_limits()?;
-        Ok(&mut self.traces)
+    /// Gets a mutable reference to the recorded call traces.
+    pub fn traces_mut(&mut self) -> &mut CallTraceArena {
+        &mut self.traces
     }
 
     #[doc(hidden)]
     #[deprecated = "use `traces_mut` instead"]
-    pub fn get_traces_mut(&mut self) -> Result<&mut CallTraceArena, TraceError> {
-        self.traces_mut()
+    pub fn get_traces_mut(&mut self) -> &mut CallTraceArena {
+        &mut self.traces
     }
 
-    /// Consumes the inspector and returns recorded call traces, or the recording limit error.
-    pub fn into_traces(self) -> Result<CallTraceArena, TraceError> {
-        self.check_limits()?;
-        Ok(self.traces)
+    /// Consumes the inspector and returns the recorded call traces.
+    pub fn into_traces(self) -> CallTraceArena {
+        self.traces
     }
 
     /// Manually set the gas used of the root trace.
@@ -292,37 +265,34 @@ impl TracingInspector {
         }
     }
 
-    /// Consumes the inspector and returns a [ParityTraceBuilder], or the recording limit error.
+    /// Consumes the Inspector and returns a [ParityTraceBuilder].
     #[inline]
-    pub fn into_parity_builder(self) -> Result<ParityTraceBuilder, TraceError> {
-        self.check_limits()?;
-        Ok(ParityTraceBuilder::new(self.traces.arena, self.spec_id, self.config))
+    pub fn into_parity_builder(self) -> ParityTraceBuilder {
+        ParityTraceBuilder::new(self.traces.arena, self.spec_id, self.config)
     }
 
-    /// Consumes the inspector and returns a [GethTraceBuilder], or the recording limit error.
+    /// Consumes the Inspector and returns a [GethTraceBuilder].
     #[inline]
-    pub fn into_geth_builder(self) -> Result<GethTraceBuilder<'static>, TraceError> {
-        self.check_limits()?;
+    pub fn into_geth_builder(self) -> GethTraceBuilder<'static> {
         let builder = GethTraceBuilder::new(self.traces.arena);
-        Ok(match self.spec_id {
+        match self.spec_id {
             Some(spec_id) => builder.with_spec_id(spec_id),
             None => builder,
-        })
+        }
     }
 
-    /// Returns a [GethTraceBuilder] without consuming the inspector, or the recording limit error.
+    /// Returns the  [GethTraceBuilder] for the recorded traces without consuming the type.
     ///
     /// This can be useful for multiple transaction tracing (block) where this inspector can be
     /// reused for each transaction but caller must ensure that the traces are cleared before
     /// starting a new transaction: [`Self::fuse`]
     #[inline]
-    pub fn geth_builder(&self) -> Result<GethTraceBuilder<'_>, TraceError> {
-        self.check_limits()?;
+    pub fn geth_builder(&self) -> GethTraceBuilder<'_> {
         let builder = GethTraceBuilder::new_borrowed(&self.traces.arena);
-        Ok(match self.spec_id {
+        match self.spec_id {
             Some(spec_id) => builder.with_spec_id(spec_id),
             None => builder,
-        })
+        }
     }
 
     /// Returns true if we're no longer in the context of the root call.
@@ -505,7 +475,7 @@ impl TracingInspector {
 
         if self.config.record_step_deltas {
             self.finish_call_step(interp);
-            if self.budget.error.is_some() {
+            if self.budget.exceeded {
                 return;
             }
         }
@@ -817,8 +787,9 @@ impl<CTX> Inspector<CTX> for TracingInspector
 where
     CTX: ContextTr<Journal: JournalExt>,
 {
-    fn initialize_interp(&mut self, interp: &mut Interpreter, _context: &mut CTX) {
-        if self.budget.error.is_some() {
+    fn initialize_interp(&mut self, interp: &mut Interpreter, context: &mut CTX) {
+        if self.budget.propagate_error(context) {
+            interp.halt_fatal();
             return;
         }
         if self.spec_id.is_none() {
@@ -826,6 +797,8 @@ where
         }
         if self.config.record_bytecode {
             if !self.budget.record(interp.bytecode.original_byte_slice().len()) {
+                self.budget.propagate_error(context);
+                interp.halt_fatal();
                 return;
             }
             self.last_trace().trace.bytecode = Some(interp.bytecode.original_bytes());
@@ -834,26 +807,26 @@ where
 
     #[inline]
     fn step(&mut self, interp: &mut Interpreter, context: &mut CTX) {
-        if self.budget.error.is_some() {
-            return;
-        }
-        if self.config.record_steps {
+        if self.config.record_steps && !self.budget.exceeded {
             self.start_step(interp, context);
+        }
+        if self.budget.propagate_error(context) {
+            interp.halt_fatal();
         }
     }
 
     #[inline]
     fn step_end(&mut self, interp: &mut Interpreter, context: &mut CTX) {
-        if self.budget.error.is_some() {
-            return;
-        }
-        if self.config.record_steps {
+        if self.config.record_steps && !self.budget.exceeded {
             self.fill_step_on_step_end(interp, context);
+        }
+        if self.budget.propagate_error(context) {
+            interp.halt_fatal();
         }
     }
 
-    fn log(&mut self, _context: &mut CTX, log: Log) {
-        if self.budget.error.is_some() {
+    fn log(&mut self, context: &mut CTX, log: Log) {
+        if self.budget.exceeded {
             return;
         }
         if self.config.record_logs {
@@ -863,6 +836,7 @@ where
                     .saturating_add(log.data.data.len())
                     .saturating_add(mem::size_of_val(log.data.topics())),
             ) {
+                self.budget.propagate_error(context);
                 return;
             }
             // index starts at 0
@@ -879,9 +853,6 @@ where
     }
 
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
-        if self.budget.error.is_some() {
-            return None;
-        }
         if self.spec_id.is_none() {
             self.spec_id = Some(context.cfg().spec().into());
         }
@@ -913,7 +884,15 @@ where
 
         let input_len = if self.config.record_inputs { inputs.input.len() } else { 0 };
         if !self.record_frame(input_len) {
-            return None;
+            self.budget.propagate_error(context);
+            return Some(CallOutcome::new(
+                InterpreterResult::new(
+                    InstructionResult::FatalExternalError,
+                    Bytes::new(),
+                    Gas::new(inputs.gas_limit),
+                ),
+                inputs.return_memory_offset.clone(),
+            ));
         }
         let input =
             if self.config.record_inputs { inputs.input_data(context) } else { Bytes::new() };
@@ -931,14 +910,12 @@ where
         None
     }
 
-    fn call_end(&mut self, _: &mut CTX, _inputs: &CallInputs, outcome: &mut CallOutcome) {
+    fn call_end(&mut self, context: &mut CTX, _inputs: &CallInputs, outcome: &mut CallOutcome) {
         self.fill_trace_on_call_end(&outcome.result, None);
+        self.budget.propagate_error(context);
     }
 
     fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
-        if self.budget.error.is_some() {
-            return None;
-        }
         if self.spec_id.is_none() {
             self.spec_id = Some(context.cfg().spec().into());
         }
@@ -946,7 +923,15 @@ where
         let nonce = context.journal_mut().load_account(inputs.caller()).ok()?.info.nonce;
         let input_len = if self.config.record_inputs { inputs.init_code().len() } else { 0 };
         if !self.record_frame(input_len) {
-            return None;
+            self.budget.propagate_error(context);
+            return Some(CreateOutcome::new(
+                InterpreterResult::new(
+                    InstructionResult::FatalExternalError,
+                    Bytes::new(),
+                    Gas::new(inputs.gas_limit()),
+                ),
+                None,
+            ));
         }
         self.start_trace_on_call(
             context,
@@ -963,15 +948,16 @@ where
 
     fn create_end(
         &mut self,
-        _context: &mut CTX,
+        context: &mut CTX,
         _inputs: &CreateInputs,
         outcome: &mut CreateOutcome,
     ) {
         self.fill_trace_on_call_end(&outcome.result, outcome.address);
+        self.budget.propagate_error(context);
     }
 
     fn selfdestruct(&mut self, contract: Address, target: Address, value: U256) {
-        if self.budget.error.is_some() {
+        if self.budget.exceeded {
             return;
         }
         let node = self.last_trace();

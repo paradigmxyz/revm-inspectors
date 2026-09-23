@@ -75,8 +75,8 @@ fn test_parity_selfdestruct(spec_id: SpecId) {
         .unwrap();
     assert!(res.result.is_success(), "{res:#?}");
 
-    assert_eq!(evm.inspector().traces().unwrap().nodes().len(), 1);
-    let node = &evm.inspector().traces().unwrap().nodes()[0];
+    assert_eq!(evm.inspector().traces().nodes().len(), 1);
+    let node = &evm.inspector().traces().nodes()[0];
     assert!(node.is_selfdestruct(), "{node:#?}");
     assert_eq!(node.trace.address, addr);
     assert_eq!(node.trace.selfdestruct_address, Some(addr));
@@ -86,7 +86,6 @@ fn test_parity_selfdestruct(spec_id: SpecId) {
     let traces = evm
         .into_inspector()
         .into_parity_builder()
-        .unwrap()
         .into_localized_transaction_traces(TransactionInfo::default());
 
     assert_eq!(traces.len(), 2);
@@ -157,7 +156,6 @@ fn test_parity_constructor_selfdestruct() {
     let traces = evm
         .into_inspector()
         .into_parity_builder()
-        .unwrap()
         .into_localized_transaction_traces(TransactionInfo::default());
 
     assert_eq!(traces.len(), 3);
@@ -223,7 +221,6 @@ fn test_parity_call_selfdestruct() {
     let traces = evm
         .into_inspector()
         .into_parity_builder()
-        .unwrap()
         .into_trace_results(&res.result, &HashSet::from_iter([TraceType::Trace]));
     assert_eq!(traces.trace.len(), 2);
 
@@ -294,7 +291,6 @@ fn test_parity_call_selfdestruct_create() {
     let traces = evm
         .into_inspector()
         .into_parity_builder()
-        .unwrap()
         .into_localized_transaction_traces(Default::default());
 
     assert_eq!(traces[0].trace.subtraces, 2);
@@ -363,7 +359,7 @@ fn test_parity_statediff_blob_commit() {
         })
         .unwrap();
     let mut full_trace =
-        evm.inspector.into_parity_builder().unwrap().into_trace_results(&res.result, &trace_types);
+        evm.inspector.into_parity_builder().into_trace_results(&res.result, &trace_types);
 
     let state_diff = full_trace.state_diff.as_mut().unwrap();
     populate_state_diff(state_diff, db, res.state.iter()).unwrap();
@@ -434,7 +430,6 @@ fn test_parity_delegatecall_selfdestruct() {
     let traces = evm
         .into_inspector()
         .into_parity_builder()
-        .unwrap()
         .into_localized_transaction_traces(TransactionInfo::default());
 
     assert_eq!(traces.len(), 3);
@@ -469,7 +464,7 @@ fn test_parity_delegatecall_selfdestruct() {
 fn trace_vm_code(code: &[u8], child: &[u8]) -> alloy_rpc_types_trace::parity::VmTrace {
     let config =
         TracingInspectorConfig::from_parity_config(&HashSet::from_iter([TraceType::VmTrace]));
-    inspect_code(code, child, SpecId::default(), config).into_parity_builder().unwrap().vm_trace()
+    inspect_code(code, child, SpecId::default(), config).into_parity_builder().vm_trace()
 }
 
 fn inspect_code(
@@ -530,10 +525,10 @@ fn vmtrace_reports_remaining_gas_after_storage_credit() {
         SpecId::AMSTERDAM,
         TracingInspectorConfig::parity_vm_trace(),
     );
-    let steps = &inspector.traces().unwrap().nodes()[0].trace.steps;
+    let steps = &inspector.traces().nodes()[0].trace.steps;
     let gas_after = steps[6].gas_remaining;
     assert!(gas_after > steps[5].gas_remaining);
-    let trace = inspector.into_parity_builder().unwrap().vm_trace();
+    let trace = inspector.into_parity_builder().vm_trace();
     assert_eq!(trace.ops[5].ex.as_ref().unwrap().used, gas_after);
 }
 
@@ -547,12 +542,7 @@ fn non_vm_traces_do_not_record_step_deltas() {
         TracingInspectorConfig::from_geth_call_config(&Default::default()),
     ] {
         let inspector = inspect_code(&code, &hex!("00"), SpecId::AMSTERDAM, config);
-        assert!(inspector
-            .traces()
-            .unwrap()
-            .nodes()
-            .iter()
-            .all(|node| node.trace.step_deltas.is_empty()));
+        assert!(inspector.traces().nodes().iter().all(|node| node.trace.step_deltas.is_empty()));
     }
 }
 
@@ -669,7 +659,7 @@ fn vmtrace_nested_sibling_calls_keep_their_own_subtraces() {
         ..Default::default()
     })
     .unwrap();
-    let trace = evm.into_inspector().into_parity_builder().unwrap().vm_trace();
+    let trace = evm.into_inspector().into_parity_builder().vm_trace();
     assert_eq!(trace.ops[7].sub.as_ref().unwrap().ops.len(), 3);
     assert_eq!(trace.ops[16].sub.as_ref().unwrap().ops.len(), 9);
     assert_eq!(trace.ops[16].sub.as_ref().unwrap().ops[7].sub.as_ref().unwrap().ops.len(), 4);
