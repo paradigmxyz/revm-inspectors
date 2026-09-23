@@ -41,6 +41,14 @@ enum TraceConfig {
 }
 
 impl MuxInspector {
+    /// Returns a mutable reference to the inner [`TracingInspector`], if any tracer needs one.
+    ///
+    /// Its config is the merge of every configured tracer's, so input limits must be applied here
+    /// via [`TracingInspector::update_config`], see [`TracingInspectorConfig::merge`].
+    pub const fn tracing_mut(&mut self) -> Option<&mut TracingInspector> {
+        self.tracing.as_mut()
+    }
+
     /// Try creating a new instance of [MuxInspector] from the given [MuxConfig].
     pub fn try_from_config(config: MuxConfig) -> Result<MuxInspector, Error> {
         let mut four_byte = None;

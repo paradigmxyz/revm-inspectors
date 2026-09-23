@@ -87,6 +87,14 @@ pub struct TracingInspectorConfig {
     ///
     /// Required for parity `vmTrace`.
     pub record_step_deltas: bool,
+    /// Maximum number of call input bytes recorded per call frame.
+    /// `None` means unlimited. Excess bytes are never copied, and the frame records its true
+    /// input length in
+    /// [`CallTrace::full_data_len`](crate::tracing::types::CallTrace::full_data_len).
+    pub max_frame_input_bytes: Option<usize>,
+    /// Maximum total call input bytes recorded across all calls in a transaction.
+    /// `None` means unlimited. Frames are still recorded once it is exhausted, their input is not.
+    pub max_recorded_input_bytes: Option<u64>,
 }
 
 impl TracingInspectorConfig {
@@ -105,6 +113,8 @@ impl TracingInspectorConfig {
             record_logs: true,
             record_immediate_bytes: true,
             record_step_deltas: true,
+            max_frame_input_bytes: None,
+            max_recorded_input_bytes: None,
         }
     }
 
@@ -123,6 +133,8 @@ impl TracingInspectorConfig {
             record_opcodes_filter: None,
             record_immediate_bytes: false,
             record_step_deltas: false,
+            max_frame_input_bytes: None,
+            max_recorded_input_bytes: None,
         }
     }
 
@@ -143,6 +155,8 @@ impl TracingInspectorConfig {
             record_opcodes_filter: None,
             record_immediate_bytes: false,
             record_step_deltas: false,
+            max_frame_input_bytes: None,
+            max_recorded_input_bytes: None,
         }
     }
 
@@ -187,6 +201,8 @@ impl TracingInspectorConfig {
             record_opcodes_filter: None,
             record_immediate_bytes: false,
             record_step_deltas: false,
+            max_frame_input_bytes: None,
+            max_recorded_input_bytes: None,
         }
     }
 
@@ -278,6 +294,9 @@ impl TracingInspectorConfig {
     }
 
     /// Merge another config into this one.
+    ///
+    /// Every setting resolves to whatever records the most. No factory on this type sets the
+    /// input limits, so merging leaves them unlimited: apply those after merging, not before.
     #[inline]
     pub fn merge(&mut self, other: Self) -> &mut Self {
         // Capture enough steps for both consumers. A consumer that does not record steps
@@ -303,6 +322,11 @@ impl TracingInspectorConfig {
         self.record_opcodes_filter = self.record_opcodes_filter.or(other.record_opcodes_filter);
         self.record_immediate_bytes |= other.record_immediate_bytes;
         self.record_step_deltas |= other.record_step_deltas;
+        // Record enough for both consumers: unlimited wins, otherwise the larger limit.
+        self.max_frame_input_bytes =
+            max_limit(self.max_frame_input_bytes, other.max_frame_input_bytes);
+        self.max_recorded_input_bytes =
+            max_limit(self.max_recorded_input_bytes, other.max_recorded_input_bytes);
         self
     }
 
@@ -430,12 +454,32 @@ impl TracingInspectorConfig {
         self.set_immediate_bytes(true)
     }
 
+    /// Configure the maximum number of call input bytes recorded per frame
+    pub const fn set_max_frame_input_bytes(mut self, max_frame_input_bytes: Option<usize>) -> Self {
+        self.max_frame_input_bytes = max_frame_input_bytes;
+        self
+    }
+
+    /// Configure the total call input byte budget across all frames
+    pub const fn set_max_recorded_input_bytes(
+        mut self,
+        max_recorded_input_bytes: Option<u64>,
+    ) -> Self {
+        self.max_recorded_input_bytes = max_recorded_input_bytes;
+        self
+    }
+
     /// If [OpcodeFilter] is configured, returns whether the given opcode should be recorded.
     /// Otherwise, always returns true.
     #[inline]
     pub fn should_record_opcode(&self, op: OpCode) -> bool {
         self.record_opcodes_filter.as_ref().is_none_or(|filter| filter.is_enabled(op))
     }
+}
+
+/// Returns the less restrictive of two optional limits: `None` is unlimited and wins.
+fn max_limit<T: Ord>(a: Option<T>, b: Option<T>) -> Option<T> {
+    Some(a?.max(b?))
 }
 
 /// How much of the stack to record. Nothing, just the items pushed, the full stack, or only the
@@ -529,6 +573,37 @@ mod tests {
             let mut reversed = other;
             reversed.merge(limited);
             assert_eq!(reversed.step_limit, expected);
+        }
+    }
+
+    #[test]
+    fn merge_input_limits_keeps_the_least_restrictive() {
+        let capped = TracingInspectorConfig::none()
+            .set_max_frame_input_bytes(Some(1024))
+            .set_max_recorded_input_bytes(Some(4096));
+        for (other, frame, total) in [
+            (capped, Some(1024), Some(4096)),
+            (
+                capped
+                    .set_max_frame_input_bytes(Some(2048))
+                    .set_max_recorded_input_bytes(Some(8192)),
+                Some(2048),
+                Some(8192),
+            ),
+            (TracingInspectorConfig::none(), None, None),
+        ] {
+            let mut merged = capped;
+            merged.merge(other);
+            assert_eq!(
+                (merged.max_frame_input_bytes, merged.max_recorded_input_bytes),
+                (frame, total)
+            );
+            let mut reversed = other;
+            reversed.merge(capped);
+            assert_eq!(
+                (reversed.max_frame_input_bytes, reversed.max_recorded_input_bytes),
+                (frame, total)
+            );
         }
     }
 

@@ -186,6 +186,24 @@ impl DebugInspector {
         Ok(this)
     }
 
+    /// Returns a mutable reference to the inner [`TracingInspector`], if this tracer uses one.
+    ///
+    /// Settings the geth options cannot express, such as the input limits, must be applied here
+    /// via [`TracingInspector::update_config`].
+    pub const fn tracing_mut(&mut self) -> Option<&mut TracingInspector> {
+        match self {
+            Self::CallTracer(inspector, _)
+            | Self::PreStateTracer(inspector, _)
+            | Self::FlatCallTracer(inspector)
+            | Self::Erc7562Tracer(inspector, _)
+            | Self::Default(inspector, _) => Some(inspector),
+            Self::Mux(inspector, _) => inspector.tracing_mut(),
+            Self::FourByte(_) | Self::Noop(_) | Self::StateGasTracer(_) => None,
+            #[cfg(feature = "js-tracer")]
+            Self::Js(_) => None,
+        }
+    }
+
     /// Prepares inspector for executing the next transaction. This will remove any state from
     /// previous transactions.
     pub fn fuse(&mut self) -> Result<(), DebugInspectorError> {

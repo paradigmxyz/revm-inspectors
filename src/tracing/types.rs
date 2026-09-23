@@ -90,6 +90,12 @@ pub struct CallTrace {
     pub value: U256,
     /// The calldata/input, or the init code for contract creations.
     pub data: Bytes,
+    /// The full length of the frame's input when [`Self::data`] was truncated.
+    ///
+    /// `None` if [`Self::data`] holds the complete input.
+    /// See [`TracingInspectorConfig::max_frame_input_bytes`](crate::tracing::TracingInspectorConfig::max_frame_input_bytes).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub full_data_len: Option<usize>,
     /// The return data, or the runtime bytecode of the created contract.
     pub output: Bytes,
     /// The bytecode executed by this frame, including initcode and resolved delegation code.
@@ -129,6 +135,12 @@ impl CallTrace {
             return false;
         };
         !status.is_ok()
+    }
+
+    /// Returns true if [`Self::data`] holds only part of the frame's input.
+    #[inline]
+    pub const fn is_input_truncated(&self) -> bool {
+        self.full_data_len.is_some()
     }
 
     /// Returns true if the status code is a revert.

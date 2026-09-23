@@ -84,6 +84,12 @@ pub struct TracingInspector {
     log_count: usize,
     /// Number of opcode steps captured across all calls since the last reset.
     recorded_steps: u64,
+    /// Number of call input bytes recorded across all calls since the last reset.
+    recorded_input_bytes: u64,
+    /// Whether any frame recorded less than its full input.
+    input_truncated: bool,
+    /// Whether a frame's input was clipped because the recording budget ran out.
+    input_budget_exceeded: bool,
     /// Tracks the journal len in the step, used in step_end to check if the journal has changed
     last_journal_len: usize,
     /// The spec id of the EVM.
@@ -116,6 +122,9 @@ impl TracingInspector {
             spec_id,
             record_step_end,
             recorded_steps,
+            recorded_input_bytes,
+            input_truncated,
+            input_budget_exceeded,
             // kept
             config,
             reusable_step_vecs,
@@ -139,6 +148,9 @@ impl TracingInspector {
         *last_journal_len = 0;
         *record_step_end = false;
         *recorded_steps = 0;
+        *recorded_input_bytes = 0;
+        *input_truncated = false;
+        *input_budget_exceeded = false;
     }
 
     /// Resets the inspector to it's initial state of [Self::new].
@@ -164,6 +176,28 @@ impl TracingInspector {
         f: impl FnOnce(TracingInspectorConfig) -> TracingInspectorConfig,
     ) {
         self.config = f(self.config);
+    }
+
+    /// Returns the number of call input bytes recorded since the last reset.
+    pub const fn recorded_input_bytes(&self) -> u64 {
+        self.recorded_input_bytes
+    }
+
+    /// Returns whether any frame recorded less than its full input, from either limit.
+    ///
+    /// The affected frames carry their true input length in
+    /// [`CallTrace::full_data_len`](crate::tracing::types::CallTrace::full_data_len).
+    pub const fn input_truncated(&self) -> bool {
+        self.input_truncated
+    }
+
+    /// Returns whether [`TracingInspectorConfig::max_recorded_input_bytes`] ran out and some
+    /// frame's input was dropped. The call tree itself is still complete.
+    ///
+    /// Note: the per-frame cap truncates by design and does not set this, see
+    /// [`Self::input_truncated`].
+    pub const fn input_budget_exceeded(&self) -> bool {
+        self.input_budget_exceeded
     }
 
     /// Gets a reference to the recorded call traces.
@@ -338,6 +372,29 @@ impl TracingInspector {
         self.trace_stack.pop().expect("more traces were filled than started")
     }
 
+    /// Returns how many of a frame's `full_len` input bytes may be recorded, given the per-frame
+    /// cap and what is left of the budget. Callers must copy no more than this.
+    fn input_allowance(&mut self, full_len: usize) -> usize {
+        let capped_len = full_len.min(self.config.max_frame_input_bytes.unwrap_or(usize::MAX));
+        let Some(budget) = self.config.max_recorded_input_bytes else { return capped_len };
+
+        let remaining = budget.saturating_sub(self.recorded_input_bytes);
+        let allowance = capped_len.min(usize::try_from(remaining).unwrap_or(usize::MAX));
+        // the per-frame cap truncates by design, only the budget running out is incomplete
+        self.input_budget_exceeded |= allowance < capped_len;
+        allowance
+    }
+
+    /// Charges the `recorded` input bytes of a frame whose input was `full_len` long against the
+    /// budget, and returns the true length if anything was dropped.
+    ///
+    /// Charges what was recorded, not what was allowed, so a short read costs nothing extra.
+    fn account_input(&mut self, full_len: usize, recorded: usize) -> Option<usize> {
+        self.recorded_input_bytes += recorded as u64;
+        self.input_truncated |= recorded < full_len;
+        (recorded < full_len).then_some(full_len)
+    }
+
     /// Starts tracking a new trace.
     ///
     /// Invoked on [Inspector::call].
@@ -347,6 +404,7 @@ impl TracingInspector {
         context: &mut CTX,
         address: Address,
         input_data: Bytes,
+        full_data_len: Option<usize>,
         value: U256,
         kind: CallKind,
         caller: Address,
@@ -376,6 +434,7 @@ impl TracingInspector {
                 address,
                 kind,
                 data: input_data,
+                full_data_len,
                 value,
                 status: None,
                 caller,
@@ -759,11 +818,14 @@ where
             .exclude_precompile_calls
             .then(|| self.is_precompile_call(context, &to, &value));
 
-        let input = inputs.input_data(context);
+        let full_len = inputs.input.len();
+        let input = inputs.input_data_capped(context, self.input_allowance(full_len));
+        let full_data_len = self.account_input(full_len, input.len());
         self.start_trace_on_call(
             context,
             to,
             input,
+            full_data_len,
             value,
             inputs.scheme.into(),
             from,
@@ -784,10 +846,24 @@ where
         }
 
         let nonce = context.journal_mut().load_account(inputs.caller()).ok()?.info.nonce;
+
+        // EIP-3860 caps init code at 49152 bytes, but only from Shanghai on, and this inspector
+        // also traces older blocks
+        let init_code = inputs.init_code();
+        let full_len = init_code.len();
+        let allowance = self.input_allowance(full_len);
+        let init_code = if allowance < full_len {
+            Bytes::copy_from_slice(&init_code[..allowance])
+        } else {
+            init_code.clone()
+        };
+        let full_data_len = self.account_input(full_len, init_code.len());
+
         self.start_trace_on_call(
             context,
             inputs.created_address(nonce),
-            inputs.init_code().clone(),
+            init_code,
+            full_data_len,
             inputs.value(),
             inputs.scheme().into(),
             inputs.caller(),
@@ -864,17 +940,26 @@ impl From<alloy_rpc_types_eth::TransactionInfo> for TransactionContext {
 
 /// A helper extension trait that _clones_ the input data from the shared mem buffer
 pub(crate) trait CallInputExt {
-    fn input_data<CTX: ContextTr>(&self, ctx: &mut CTX) -> Bytes;
+    fn input_data_capped<CTX: ContextTr>(&self, ctx: &mut CTX, max_len: usize) -> Bytes;
 }
 
 impl CallInputExt for CallInputs {
-    fn input_data<CTX: ContextTr>(&self, ctx: &mut CTX) -> Bytes {
+    /// Clones at most `max_len` bytes of the input data.
+    ///
+    /// A truncated [`Bytes`] is copied into a fresh buffer rather than sliced, which would keep
+    /// the whole original allocation alive.
+    fn input_data_capped<CTX: ContextTr>(&self, ctx: &mut CTX, max_len: usize) -> Bytes {
         match &self.input {
-            CallInput::SharedBuffer(range) => ctx
-                .local()
-                .shared_memory_buffer_slice(range.clone())
-                .map(|slice| Bytes::copy_from_slice(&slice))
-                .unwrap_or_default(),
+            CallInput::SharedBuffer(range) => {
+                let range = range.start..range.end.min(range.start.saturating_add(max_len));
+                ctx.local()
+                    .shared_memory_buffer_slice(range)
+                    .map(|slice| Bytes::copy_from_slice(&slice))
+                    .unwrap_or_default()
+            }
+            CallInput::Bytes(bytes) if bytes.len() > max_len => {
+                Bytes::copy_from_slice(&bytes[..max_len])
+            }
             CallInput::Bytes(bytes) => bytes.clone(),
         }
     }

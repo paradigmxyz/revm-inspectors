@@ -531,7 +531,7 @@ where
         let value = inputs.transfer_value().unwrap_or_default();
         self.push_call(
             contract,
-            inputs.input_data(context),
+            inputs.input_data_capped(context, usize::MAX),
             value,
             inputs.scheme.into(),
             caller,

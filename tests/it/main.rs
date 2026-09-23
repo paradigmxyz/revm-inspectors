@@ -11,6 +11,8 @@ mod geth;
 #[cfg(feature = "js-tracer")]
 mod geth_js;
 #[cfg(feature = "std")]
+mod input_cap;
+#[cfg(feature = "std")]
 mod otterscan;
 #[cfg(feature = "std")]
 mod parity;
