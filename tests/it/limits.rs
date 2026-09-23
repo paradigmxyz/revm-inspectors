@@ -44,7 +44,8 @@ fn run(
     limit: Option<usize>,
 ) -> (TracingInspector, ExecutionResult) {
     let mut evm = Context::mainnet().with_db(database(code, child)).build_mainnet_with_inspector(
-        TracingInspector::new(config).with_limits(TraceLimits { max_recorded_bytes: limit }),
+        TracingInspector::new(config)
+            .with_limits(TraceLimits::default().set_max_recorded_bytes(limit)),
     );
     let result = evm
         .inspect_tx(TxEnv {
@@ -239,7 +240,7 @@ fn debug_and_mux_return_errors_and_preserve_limits_across_transactions() {
     for opts in [GethDebugTracingOptions::call_tracer(CallConfig::default()), mux] {
         let mut inspector = DebugInspector::new(opts)
             .unwrap()
-            .with_limits(TraceLimits { max_recorded_bytes: Some(1024) })
+            .with_limits(TraceLimits::default().set_max_recorded_bytes(Some(1024)))
             .unwrap();
         for _ in 0..2 {
             let mut evm = Context::mainnet()
@@ -278,7 +279,7 @@ fn unsupported_tracers_do_not_silently_ignore_limits() {
         let opts = serde_json::from_value(json).unwrap();
         let error = DebugInspector::new(opts)
             .unwrap()
-            .with_limits(TraceLimits { max_recorded_bytes: Some(1024) })
+            .with_limits(TraceLimits::default().set_max_recorded_bytes(Some(1024)))
             .unwrap_err();
         assert_eq!(error, TraceError::UnsupportedTracer);
     }
@@ -290,7 +291,8 @@ fn config_merging_and_late_limit_changes_cannot_reset_usage() {
         run(&hex!("00"), &[], Bytes::new(), TracingInspectorConfig::none(), None);
     let used = inspector.recorded_bytes();
     inspector.config_mut().merge(TracingInspectorConfig::all());
-    let inspector = inspector.with_limits(TraceLimits { max_recorded_bytes: Some(used - 1) });
+    let inspector =
+        inspector.with_limits(TraceLimits::default().set_max_recorded_bytes(Some(used - 1)));
     assert_eq!(inspector.recorded_bytes(), used);
     assert!(inspector.check_limits().is_err());
 }

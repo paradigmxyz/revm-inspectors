@@ -6,6 +6,7 @@ use thiserror::Error;
 ///
 /// Limits are independent of tracing configuration and are never relaxed by config merging.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct TraceLimits {
     /// Maximum cumulative bytes recorded between resets. `None` means unlimited.
     ///
@@ -19,6 +20,14 @@ pub struct TraceLimits {
     /// are outside the budget. Execution continues after exhaustion, but recording stops and
     /// trace retrieval returns [`TraceError`].
     pub max_recorded_bytes: Option<usize>,
+}
+
+impl TraceLimits {
+    /// Sets the cumulative recorded-byte limit. `None` means unlimited.
+    pub const fn set_max_recorded_bytes(mut self, max_recorded_bytes: Option<usize>) -> Self {
+        self.max_recorded_bytes = max_recorded_bytes;
+        self
+    }
 }
 
 /// A trace could not be recorded within its resource limits.

@@ -116,7 +116,7 @@ impl TracingInspector {
     /// ```
     /// use revm_inspectors::tracing::{TraceLimits, TracingInspector, TracingInspectorConfig};
     /// let inspector = TracingInspector::new(TracingInspectorConfig::default_parity())
-    ///     .with_limits(TraceLimits { max_recorded_bytes: Some(32 * 1024 * 1024) });
+    ///     .with_limits(TraceLimits::default().set_max_recorded_bytes(Some(32 * 1024 * 1024)));
     /// // Execute with the inspector, then propagate failure before building a response:
     /// let builder = inspector.into_geth_builder()?;
     /// # Ok::<(), revm_inspectors::tracing::TraceError>(())
