@@ -53,6 +53,8 @@ fn budgets_are_enforced_during_execution_and_accessors_stay_infallible() {
         &hex!("5f5f620100005f5f604361fffff100"),
         // Repeated calls with memory and return data.
         &hex!("60055b5f5f6104005f5f604361fffff150600190038060025760205ff3"),
+        // Identity precompile: no interpreter initialization callback.
+        &hex!("60205f6104005f5f600461fffff100"),
         // CREATE with initcode returning one byte of runtime code.
         &hex!("6960fe5f5360015ff300005f52600a60165ff000"),
         // Memory, storage, a log, and output.
@@ -67,12 +69,15 @@ fn budgets_are_enforced_during_execution_and_accessors_stay_infallible() {
             let (exact, result) = run(code, limited(config, total));
             assert_eq!(result.unwrap(), expected);
             assert_eq!(exact.traces(), baseline.traces());
-            for bytes in [0, 1, total / 4, total / 2, total - 1] {
+            // Walk every recording boundary, including failures with a pending EVM action.
+            let mut bytes = 0;
+            while bytes < total {
                 let (mut inspector, result) = run(code, limited(config, bytes));
                 assert!(
                     matches!(result, Err(EVMError::Custom(ref message)) if message == "trace recorded byte limit exceeded")
                 );
-                assert!(inspector.recorded_bytes() <= bytes);
+                assert!(inspector.recorded_bytes() > bytes);
+                bytes = inspector.recorded_bytes();
                 // Accessors/builders have their original signatures, even after an error.
                 let _ = inspector.traces();
                 let _ = inspector.traces_mut();
