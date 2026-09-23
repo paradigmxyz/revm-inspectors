@@ -17,6 +17,9 @@ concurrency:
 
 jobs:
   test:
+    permissions:
+      contents: read
+      id-token: write
     name: test ${{ matrix.rust }} ${{ matrix.flags }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -26,10 +29,12 @@ jobs:
         rust: ["stable", "nightly", "1.94"] # MSRV
         flags: ["", "--all-features"]
     steps:
+      - name: Secure runner
+        uses: tempoxyz/gh-actions/actions/secure-runner@48ff2b0c97ede86c9f10d105424380b9605f790d
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: ${{ matrix.rust }}
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
@@ -44,16 +49,26 @@ jobs:
         run: cargo test --workspace ${{ matrix.flags }}
 
   feature-checks:
+    permissions:
+      contents: read
+      id-token: write
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - name: Secure runner
+        uses: tempoxyz/gh-actions/actions/secure-runner@48ff2b0c97ede86c9f10d105424380b9605f790d
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: taiki-e/install-action@eea29cff9a2b68892c0845ae3e4f45fc47ee9354 # v2.75.13
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
-          tool: cargo-hack
+          toolchain: stable
+      - name: Install cargo-hack
+        uses: tempoxyz/gh-actions/vendor/taiki-e/install-action@48ff2b0c97ede86c9f10d105424380b9605f790d
+        with:
+          tool: cargo-hack@0.6.45
+          checksum: true
+          fallback: none
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-on-failure: true
@@ -61,13 +76,21 @@ jobs:
         run: cargo hack check --feature-powerset --depth 2
 
   clippy:
+    permissions:
+      contents: read
+      id-token: write
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - name: Secure runner
+        uses: tempoxyz/gh-actions/actions/secure-runner@48ff2b0c97ede86c9f10d105424380b9605f790d
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@clippy
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: nightly
+          components: clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-on-failure: true
@@ -76,13 +99,20 @@ jobs:
           RUSTFLAGS: -Dwarnings
 
   docs:
+    permissions:
+      contents: read
+      id-token: write
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
+      - name: Secure runner
+        uses: tempoxyz/gh-actions/actions/secure-runner@48ff2b0c97ede86c9f10d105424380b9605f790d
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: nightly
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-on-failure: true
@@ -91,17 +121,44 @@ jobs:
           RUSTDOCFLAGS: "--cfg docsrs -D warnings"
 
   deny:
-    uses: tempoxyz/ci/.github/workflows/deny.yml@f7b868401133161610784f840fbf8ba5c45fdd4e # main
-
-  fmt:
+    name: cargo deny check
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
     steps:
+      - name: Secure runner
+        uses: tempoxyz/gh-actions/actions/secure-runner@48ff2b0c97ede86c9f10d105424380b9605f790d
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@nightly
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
         with:
+          toolchain: nightly
+      - name: Install cargo-deny
+        uses: tempoxyz/gh-actions/vendor/taiki-e/install-action@48ff2b0c97ede86c9f10d105424380b9605f790d
+        with:
+          tool: cargo-deny@0.20.2
+          checksum: true
+          fallback: none
+      - run: cargo deny --all-features check all
+
+  fmt:
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Secure runner
+        uses: tempoxyz/gh-actions/actions/secure-runner@48ff2b0c97ede86c9f10d105424380b9605f790d
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: nightly
           components: rustfmt
       - run: cargo fmt --all --check
 
