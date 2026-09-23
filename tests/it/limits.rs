@@ -126,3 +126,29 @@ fn only_new_byte_buffers_are_charged() {
         assert_eq!(inspector.recorded_bytes(), bytes);
     }
 }
+
+#[test]
+fn repeated_staticcalls_cannot_bypass_input_budget() {
+    // Reuse the same 64 KiB slice for 128 zero-gas STATICCALLs to an empty address.
+    // Memory expansion is paid once; each recorded input still requires a fresh copy.
+    // Regression: https://github.com/paradigmxyz/revm-inspectors/pull/518#issuecomment-5796099703
+    let code = hex!("5f5f620100005f60445ffa50").repeat(128);
+    let config = TracingInspectorConfig::from_geth_call_config(&Default::default());
+    let (baseline, result) = run(&code, TracingInspector::new(config));
+    assert!(result.unwrap().is_success());
+    assert_eq!(baseline.recorded_bytes(), 128 * 65536);
+    assert_eq!(baseline.traces().nodes().len(), 129);
+
+    let (inspector, result) = run(&code, limited(config, 4 * 65536));
+    assert!(
+        matches!(result, Err(EVMError::Custom(ref message)) if message == "trace recorded byte limit exceeded")
+    );
+    // The fifth input crosses the budget, aborting even without a child interpreter.
+    assert_eq!(inspector.recorded_bytes(), 5 * 65536);
+    assert_eq!(inspector.traces().nodes().len(), 6);
+
+    let (inspector, result) = run(&code, limited(config.set_record_inputs(false), 0));
+    assert!(result.unwrap().is_success());
+    assert_eq!(inspector.recorded_bytes(), 0);
+    assert_eq!(inspector.traces().nodes().len(), 129);
+}
