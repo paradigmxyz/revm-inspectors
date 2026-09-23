@@ -571,8 +571,7 @@ impl TracingInspector {
     /// memory and the unused gas returned only after `step_end`, once the parent interpreter
     /// resumes, so this runs at the start of its next step.
     fn finish_call_step(&mut self, interp: &Interpreter) {
-        let trace_idx = self.last_trace_idx();
-        let trace = &mut self.traces.arena[trace_idx].trace;
+        let trace = &mut self.last_trace().trace;
         let step_idx = trace.steps.len().wrapping_sub(1);
         let Some((step, delta)) = trace.steps.last_mut().zip(trace.step_deltas.last_mut()) else {
             return;
@@ -594,7 +593,8 @@ impl TracingInspector {
             range.end = range.start + range.len().min(interp.return_data.buffer().len());
         }
         delta.record_memory_write(&interp.memory.borrow().context_memory());
-        self.budget.record(delta.memory.as_ref().map_or(0, |memory| memory.data.len()));
+        let bytes = delta.memory.as_ref().map_or(0, |memory| memory.data.len());
+        self.budget.record(bytes);
     }
 
     /// Fills the current trace with the output of a step.
@@ -720,7 +720,7 @@ where
         if self.spec_id.is_none() {
             self.spec_id = Some(interp.runtime_flag.spec_id());
         }
-        if self.config.record_bytecode && !self.budget.exceeded() {
+        if self.config.record_bytecode {
             self.last_trace().trace.bytecode = Some(interp.bytecode.original_bytes());
         }
         self.budget.check_and_halt(context, interp);
@@ -728,6 +728,7 @@ where
 
     #[inline]
     fn step(&mut self, interp: &mut Interpreter, context: &mut CTX) {
+        // revm invokes this even if initialize_interp already halted.
         if self.config.record_steps && !self.budget.exceeded() {
             self.start_step(interp, context);
         }
@@ -736,7 +737,7 @@ where
 
     #[inline]
     fn step_end(&mut self, interp: &mut Interpreter, context: &mut CTX) {
-        if self.config.record_steps && !self.budget.exceeded() {
+        if self.config.record_steps {
             self.fill_step_on_step_end(interp, context);
         }
         self.budget.check_and_halt(context, interp);
