@@ -60,6 +60,11 @@ impl OpcodeFilter {
 pub struct TracingInspectorConfig {
     /// Whether to record every individual opcode level step.
     pub record_steps: bool,
+    /// Whether to record call input and contract creation init code in the trace.
+    ///
+    /// When disabled, [`CallTrace::data`](crate::tracing::types::CallTrace::data) is empty.
+    /// This does not affect the input used by EVM execution.
+    pub record_inputs: bool,
     /// Whether to record the bytecode executed by each frame, required for parity `vmTrace`.
     pub record_bytecode: bool,
     /// Maximum number of opcode steps to capture across all calls in a transaction.
@@ -93,6 +98,7 @@ impl TracingInspectorConfig {
     /// Returns a config with everything enabled.
     pub const fn all() -> Self {
         Self {
+            record_inputs: true,
             record_steps: true,
             record_bytecode: true,
             step_limit: None,
@@ -111,6 +117,7 @@ impl TracingInspectorConfig {
     /// Returns a config with everything disabled.
     pub const fn none() -> Self {
         Self {
+            record_inputs: false,
             record_steps: false,
             record_bytecode: false,
             step_limit: None,
@@ -131,6 +138,7 @@ impl TracingInspectorConfig {
     /// This config does _not_ record opcode level traces and is suited for `trace_transaction`
     pub const fn default_parity() -> Self {
         Self {
+            record_inputs: true,
             record_steps: false,
             record_bytecode: false,
             step_limit: None,
@@ -148,17 +156,16 @@ impl TracingInspectorConfig {
 
     /// Returns the [`TracingInspectorConfig`] for [`TraceType::StateDiff`].
     ///
-    /// This is the same as [`Self::default_parity`]
-    ///
     /// Note: the parity statediffs can be populated entirely via the execution result, so we don't
     /// need statediff recording
     pub const fn parity_statediff() -> Self {
-        Self::default_parity()
+        Self::default_parity().set_record_inputs(false)
     }
 
     /// Returns the [`TracingInspectorConfig`] for [`TraceType::VmTrace`].
     pub const fn parity_vm_trace() -> Self {
         Self::default_parity()
+            .set_record_inputs(false)
             .set_steps(true)
             .set_bytecode(true)
             .set_stack_snapshots(StackSnapshotType::Pushes)
@@ -175,6 +182,7 @@ impl TracingInspectorConfig {
     /// [StructLogTracer](alloy_rpc_types_trace::geth::DefaultFrame).
     pub const fn default_geth() -> Self {
         Self {
+            record_inputs: false,
             record_steps: true,
             record_bytecode: false,
             step_limit: None,
@@ -200,6 +208,7 @@ impl TracingInspectorConfig {
         let snap_type =
             if needs_vm_trace { StackSnapshotType::Pushes } else { StackSnapshotType::None };
         Self::default_parity()
+            .set_record_inputs(trace_types.contains(&TraceType::Trace))
             .set_steps(needs_vm_trace)
             .set_bytecode(needs_vm_trace)
             .set_stack_snapshots(snap_type)
@@ -229,11 +238,12 @@ impl TracingInspectorConfig {
 
     /// Returns a config for geth's [CallTracer](alloy_rpc_types_trace::geth::CallFrame).
     ///
-    /// This returns [Self::none] and enables [TracingInspectorConfig::record_logs] if configured in
-    /// the given [CallConfig]
+    /// Records call inputs and enables [TracingInspectorConfig::record_logs] if configured in
+    /// the given [CallConfig].
     #[inline]
     pub fn from_geth_call_config(config: &CallConfig) -> Self {
         Self::none()
+            .set_record_inputs(true)
             // call tracer is similar parity tracer with optional support for logs
             .set_record_logs(config.with_log.unwrap_or_default())
     }
@@ -243,6 +253,7 @@ impl TracingInspectorConfig {
     #[inline]
     pub fn from_geth_erc7562_config(config: &Erc7562Config) -> Self {
         Self::none()
+            .set_record_inputs(true)
             // call tracer is similar parity tracer with optional support for logs
             .set_record_logs(config.with_log.unwrap_or_default())
             // need memory snapshots for keccak preimages
@@ -292,6 +303,7 @@ impl TracingInspectorConfig {
                 other.step_limit
             };
         }
+        self.record_inputs |= other.record_inputs;
         self.record_steps |= other.record_steps;
         self.record_bytecode |= other.record_bytecode;
         self.record_memory_snapshots |= other.record_memory_snapshots;
@@ -303,6 +315,12 @@ impl TracingInspectorConfig {
         self.record_opcodes_filter = self.record_opcodes_filter.or(other.record_opcodes_filter);
         self.record_immediate_bytes |= other.record_immediate_bytes;
         self.record_step_deltas |= other.record_step_deltas;
+        self
+    }
+
+    /// Configure whether call input and contract creation init code should be recorded.
+    pub const fn set_record_inputs(mut self, record_inputs: bool) -> Self {
+        self.record_inputs = record_inputs;
         self
     }
 
@@ -503,6 +521,52 @@ impl TraceStyle {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn input_recording_matches_consumers() {
+        for config in [
+            TracingInspectorConfig::default(),
+            TracingInspectorConfig::none(),
+            TracingInspectorConfig::default_geth(),
+            TracingInspectorConfig::from_geth_config(&GethDefaultTracingOptions::default()),
+            TracingInspectorConfig::from_geth_prestate_config(&PreStateConfig::default()),
+            TracingInspectorConfig::parity_statediff(),
+            TracingInspectorConfig::parity_vm_trace(),
+        ] {
+            assert!(!config.record_inputs);
+        }
+        for config in [
+            TracingInspectorConfig::all(),
+            TracingInspectorConfig::default_parity(),
+            TracingInspectorConfig::from_geth_call_config(&CallConfig::default()),
+            TracingInspectorConfig::from_geth_erc7562_config(&Erc7562Config::default()),
+            TracingInspectorConfig::from_flat_call_config(&FlatCallConfig::default()),
+        ] {
+            assert!(config.record_inputs);
+        }
+        for mask in 0..8 {
+            let types: HashSet<_> = [TraceType::Trace, TraceType::VmTrace, TraceType::StateDiff]
+                .into_iter()
+                .enumerate()
+                .filter_map(|(bit, ty)| (mask & (1 << bit) != 0).then_some(ty))
+                .collect();
+            assert_eq!(
+                TracingInspectorConfig::from_parity_config(&types).record_inputs,
+                mask & 1 != 0
+            );
+        }
+    }
+
+    #[test]
+    fn merge_preserves_input_consumers() {
+        for left in [false, true] {
+            for right in [false, true] {
+                let mut config = TracingInspectorConfig::none().set_record_inputs(left);
+                config.merge(TracingInspectorConfig::none().set_record_inputs(right));
+                assert_eq!(config.record_inputs, left || right);
+            }
+        }
+    }
 
     #[test]
     fn merge_step_limits_preserves_each_consumers_capture() {
