@@ -1,7 +1,5 @@
 //! Recording limits and internal byte accounting.
 
-use super::types::{CallTraceStep, StorageChange};
-use core::mem;
 use revm::{
     context_interface::{ContextError, ContextTr},
     interpreter::{interpreter_types::LoopControl, Interpreter},
@@ -11,10 +9,10 @@ use revm::{
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct TraceLimits {
-    /// Maximum recorded bytes between resets. `None` means unlimited.
+    /// Maximum cumulative byte-buffer allocation lengths between resets. `None` means unlimited.
     ///
-    /// Counts frame/step metadata and recorded payloads, counting shared buffers per
-    /// recording. Excludes allocator overhead, spare capacity and result construction.
+    /// Counts copied call inputs, memory snapshots, immediate bytes and memory deltas.
+    /// Shared buffer clones, stack/trace vector elements and allocator overhead are not counted.
     /// Checked after each recording callback, so the final callback can exceed the budget.
     /// Exceeding the budget aborts execution with a revm execution error.
     pub max_recorded_bytes: Option<usize>,
@@ -58,17 +56,5 @@ impl TraceBudget {
             interp.bytecode.reset_action();
             interp.halt_fatal();
         }
-    }
-}
-
-impl CallTraceStep {
-    pub(crate) fn recorded_size(&self) -> usize {
-        mem::size_of::<Self>()
-            + self.stack.as_deref().map_or(0, mem::size_of_val)
-            + self.push_stack.as_deref().map_or(0, mem::size_of_val)
-            + self.memory.as_ref().map_or(0, |memory| memory.len())
-            + self.returndata.len()
-            + self.immediate_bytes.as_ref().map_or(0, |bytes| bytes.len())
-            + self.storage_change.as_ref().map_or(0, |_| mem::size_of::<StorageChange>())
     }
 }

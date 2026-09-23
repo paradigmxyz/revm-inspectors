@@ -114,7 +114,7 @@ impl TracingInspector {
         self
     }
 
-    /// Returns the cumulative recorded bytes since the last reset.
+    /// Returns the cumulative byte-buffer allocation lengths since the last reset.
     pub const fn recorded_bytes(&self) -> usize {
         self.budget.recorded
     }
@@ -387,12 +387,6 @@ impl TracingInspector {
         // the currently active call is the parent of the new call
         let parent = self.trace_stack.last().copied().unwrap_or_default();
 
-        self.budget.record(mem::size_of::<CallTraceNode>() + input_data.len());
-        self.budget.record(mem::size_of::<usize>());
-        if !self.trace_stack.is_empty() {
-            self.budget.record(mem::size_of::<usize>() + mem::size_of::<TraceMemberOrder>());
-        }
-        self.budget.check(context);
         self.trace_stack.push(self.traces.push_trace(
             parent,
             push_kind,
@@ -424,7 +418,6 @@ impl TracingInspector {
         result: &InterpreterResult,
         created_address: Option<Address>,
     ) {
-        self.budget.record(result.output.len());
         let InterpreterResult { result, ref output, ref gas } = *result;
 
         let trace_idx = self.pop_trace_idx();
@@ -489,7 +482,9 @@ impl TracingInspector {
                     }
                 }
             }
-            RecordedMemory::new(&interp.memory.borrow().context_memory())
+            let memory = RecordedMemory::new(&interp.memory.borrow().context_memory());
+            self.budget.record(memory.len());
+            memory
         });
 
         let stack = if self.config.record_stack_snapshots.is_all()
@@ -518,6 +513,7 @@ impl TracingInspector {
         if self.config.record_immediate_bytes {
             let size = immediate_size(&interp.bytecode);
             if size != 0 {
+                self.budget.record(size as usize);
                 immediate_bytes = Some(Bytes::copy_from_slice(
                     &interp.bytecode.read_slice(size as usize + 1)[1..],
                 ));
@@ -555,14 +551,11 @@ impl TracingInspector {
             decoded: None,
         });
 
-        self.budget.record(node.trace.steps[step_idx].recorded_size());
-        self.budget.record(mem::size_of::<TraceMemberOrder>());
         node.ordering.push(TraceMemberOrder::Step(step_idx));
 
         if self.config.record_step_deltas {
             let write_range = memory_write_range(op.get(), interp.stack.data());
             if write_range.is_some() || node.trace.steps[step_idx].is_call_like_op() {
-                self.budget.record(mem::size_of::<StepDelta>());
                 node.trace.step_deltas.push(StepDelta {
                     step: step_idx,
                     write_range,
@@ -592,7 +585,6 @@ impl TracingInspector {
             return;
         }
 
-        let before = step.recorded_size();
         delta.gas_remaining_after = Some(interp.gas.remaining());
         if step.push_stack.is_some() {
             step.push_stack = Some(interp.stack.data().last().copied().into_iter().collect());
@@ -602,7 +594,6 @@ impl TracingInspector {
             range.end = range.start + range.len().min(interp.return_data.buffer().len());
         }
         delta.record_memory_write(&interp.memory.borrow().context_memory());
-        self.budget.record(step.recorded_size().saturating_sub(before));
         self.budget.record(delta.memory.as_ref().map_or(0, |memory| memory.data.len()));
     }
 
@@ -625,7 +616,6 @@ impl TracingInspector {
         let node = &mut self.traces.arena[trace_idx];
         let step_idx = node.trace.steps.len() - 1;
         let step = &mut node.trace.steps[step_idx];
-        let before = step.recorded_size();
 
         // See comments in `start_step`.
         debug_assert!(
@@ -699,8 +689,6 @@ impl TracingInspector {
         // set the status
         step.status = interp.bytecode.action().as_ref().and_then(|i| i.instruction_result());
 
-        self.budget.record(step.recorded_size().saturating_sub(before));
-
         // Call-like steps write memory only once the parent frame resumes, see
         // `finish_call_step`.
         if self.config.record_step_deltas && !step.is_error() && !step.is_call_like_op() {
@@ -711,7 +699,6 @@ impl TracingInspector {
             if gas_remaining_after.is_some()
                 && node.trace.step_deltas.last().is_none_or(|delta| delta.step != step_idx)
             {
-                self.budget.record(mem::size_of::<StepDelta>());
                 node.trace.step_deltas.push(StepDelta { step: step_idx, ..Default::default() });
             }
             if let Some(delta) =
@@ -734,7 +721,6 @@ where
             self.spec_id = Some(interp.runtime_flag.spec_id());
         }
         if self.config.record_bytecode && !self.budget.exceeded() {
-            self.budget.record(interp.bytecode.original_byte_slice().len());
             self.last_trace().trace.bytecode = Some(interp.bytecode.original_bytes());
         }
         self.budget.check_and_halt(context, interp);
@@ -756,11 +742,8 @@ where
         self.budget.check_and_halt(context, interp);
     }
 
-    fn log(&mut self, context: &mut CTX, log: Log) {
+    fn log(&mut self, _context: &mut CTX, log: Log) {
         if self.config.record_logs {
-            self.budget.record(mem::size_of::<CallLog>() + mem::size_of::<TraceMemberOrder>());
-            self.budget.record(log.data.data.len() + mem::size_of_val(log.data.topics()));
-            self.budget.check(context);
             // index starts at 0
             let log_count = self.log_count;
             self.log_count += 1;
@@ -806,6 +789,10 @@ where
 
         let input =
             if self.config.record_inputs { inputs.input_data(context) } else { Bytes::new() };
+        if matches!(inputs.input, CallInput::SharedBuffer(_)) {
+            self.budget.record(input.len());
+            self.budget.check(context);
+        }
         self.start_trace_on_call(
             context,
             to,
@@ -820,11 +807,8 @@ where
         None
     }
 
-    fn call_end(&mut self, context: &mut CTX, _inputs: &CallInputs, outcome: &mut CallOutcome) {
-        if !self.budget.exceeded() {
-            self.fill_trace_on_call_end(&outcome.result, None);
-        }
-        self.budget.check(context);
+    fn call_end(&mut self, _: &mut CTX, _inputs: &CallInputs, outcome: &mut CallOutcome) {
+        self.fill_trace_on_call_end(&outcome.result, None);
     }
 
     fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
@@ -848,14 +832,11 @@ where
 
     fn create_end(
         &mut self,
-        context: &mut CTX,
+        _context: &mut CTX,
         _inputs: &CreateInputs,
         outcome: &mut CreateOutcome,
     ) {
-        if !self.budget.exceeded() {
-            self.fill_trace_on_call_end(&outcome.result, outcome.address);
-        }
-        self.budget.check(context);
+        self.fill_trace_on_call_end(&outcome.result, outcome.address);
     }
 
     fn selfdestruct(&mut self, contract: Address, target: Address, value: U256) {

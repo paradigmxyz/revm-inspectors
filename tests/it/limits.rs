@@ -98,16 +98,35 @@ fn budgets_are_enforced_during_execution_and_accessors_stay_infallible() {
 }
 
 #[test]
-fn recording_configuration_controls_charges() {
+fn only_new_byte_buffers_are_charged() {
     let config = TracingInspectorConfig::none();
-    let (baseline, _) = run(&hex!("00"), TracingInspector::new(config));
-    let (inputs, _) = run(&hex!("00"), TracingInspector::new(config.set_record_inputs(true)));
-    assert_eq!(inputs.recorded_bytes(), baseline.recorded_bytes() + 32);
-    let (output, _) = run(&hex!("6104005ff3"), TracingInspector::new(config));
-    assert_eq!(output.recorded_bytes(), baseline.recorded_bytes() + 1024);
-    let (bytecode, _) = run(&hex!("6104005ff3"), TracingInspector::new(config.set_bytecode(true)));
-    assert_eq!(bytecode.recorded_bytes(), output.recorded_bytes() + hex!("6104005ff3").len());
-    // A budget sufficient for metadata remains sufficient when input recording is off.
-    let (_, result) = run(&hex!("00"), limited(config, baseline.recorded_bytes()));
+    // Root input, output and bytecode are shared Bytes clones, not new byte buffers.
+    let (inspector, result) =
+        run(&hex!("6104005ff3"), limited(config.set_record_inputs(true).set_bytecode(true), 0));
     assert!(result.unwrap().is_success());
+    assert_eq!(inspector.recorded_bytes(), 0);
+
+    let call = hex!("5f5f620100005f5f604361fffff100");
+    let (inspector, result) = run(&call, limited(config.set_record_inputs(true), 65536));
+    assert!(result.unwrap().is_success());
+    assert_eq!(inspector.recorded_bytes(), 65536);
+    let (_, result) = run(&call, limited(config.set_record_inputs(true), 65535));
+    assert!(matches!(result, Err(EVMError::Custom(_))));
+    let (inspector, result) = run(&call, limited(config, 0));
+    assert!(result.unwrap().is_success());
+    assert_eq!(inspector.recorded_bytes(), 0);
+
+    // One memory snapshot allocation, reused across subsequent steps.
+    let code = hex!("60015f5260025060035000");
+    let config = config.steps();
+    for (config, bytes) in [
+        (config.memory_snapshots(), 32),
+        (config.set_step_deltas(true), 32),
+        (config.record_immediate_bytes(), 3),
+        (config.stack_snapshots(), 0),
+    ] {
+        let (inspector, result) = run(&code, limited(config, bytes));
+        assert!(result.unwrap().is_success());
+        assert_eq!(inspector.recorded_bytes(), bytes);
+    }
 }
