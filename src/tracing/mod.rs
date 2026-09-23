@@ -759,7 +759,8 @@ where
             .exclude_precompile_calls
             .then(|| self.is_precompile_call(context, &to, &value));
 
-        let input = inputs.input_data(context);
+        let input =
+            if self.config.record_inputs { inputs.input_data(context) } else { Bytes::new() };
         self.start_trace_on_call(
             context,
             to,
@@ -787,7 +788,7 @@ where
         self.start_trace_on_call(
             context,
             inputs.created_address(nonce),
-            inputs.init_code().clone(),
+            if self.config.record_inputs { inputs.init_code().clone() } else { Bytes::new() },
             inputs.value(),
             inputs.scheme().into(),
             inputs.caller(),
