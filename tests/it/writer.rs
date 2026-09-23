@@ -106,7 +106,7 @@ fn deploy_fail() {
 
     assert_traces(base_path, Some("raw"), None, evm.inspector());
 
-    let node = &mut evm.inspector().traces_mut().nodes_mut()[0];
+    let node = &mut evm.inspector().traces_mut().unwrap().nodes_mut()[0];
 
     node.trace.decoded().label = Some("RevertingConstructor".to_string());
 
@@ -149,7 +149,7 @@ const EVENT_SIGNATURES: &[(&str, B256, &[&str])] = &[
 // Note: This is meant to verify that patches are correctly applied to the output.
 // The actual decoding logic, including edge case handling, is not implemented here.
 fn patch_traces(patch: usize, t: &mut TracingInspector) {
-    for node in t.traces_mut().nodes_mut() {
+    for node in t.traces_mut().unwrap().nodes_mut() {
         let decoded = node.trace.decoded.get_or_insert_with(Default::default).as_mut();
         // Inserts decoded `label` into the output, simulating actual decoding.
         LABELS.iter().for_each(|(label, address)| {

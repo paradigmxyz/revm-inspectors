@@ -65,6 +65,7 @@ fn authorization_code_changes() {
             let traces = evm
                 .inspector
                 .into_parity_builder()
+                .unwrap()
                 .into_trace_results_with_state(
                     &result,
                     &HashSet::from_iter([TraceType::StateDiff]),

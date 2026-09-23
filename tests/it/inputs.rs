@@ -50,7 +50,7 @@ fn shared_and_owned_call_inputs_are_optional() {
             Bytes::from_static(&[1, 2, 3, 4]),
             TracingInspectorConfig::none().set_record_inputs(record_inputs),
         );
-        let nodes = inspector.traces().nodes();
+        let nodes = inspector.traces().unwrap().nodes();
         assert_eq!(nodes.len(), 2);
         assert!(nodes.iter().all(|node| node.trace.success));
         assert_eq!(nodes[0].trace.data.len(), if record_inputs { 4 } else { 0 });
@@ -65,7 +65,7 @@ fn creation_input_is_optional() {
     for record_inputs in [false, true] {
         let inspector =
             inspect(&code, TracingInspectorConfig::none().set_record_inputs(record_inputs));
-        let nodes = inspector.traces().nodes();
+        let nodes = inspector.traces().unwrap().nodes();
         assert_eq!(nodes.len(), 2);
         let trace = &nodes[1].trace;
         assert!(trace.kind.is_any_create());
@@ -86,7 +86,7 @@ fn disabling_recording_preserves_calldata_execution() {
             data.clone(),
             TracingInspectorConfig::none().set_record_inputs(record_inputs),
         );
-        let trace = &inspector.traces().nodes()[0].trace;
+        let trace = &inspector.traces().unwrap().nodes()[0].trace;
         assert!(trace.success);
         assert_eq!(trace.output, data);
         assert_eq!(trace.data.len(), if record_inputs { 32 } else { 0 });

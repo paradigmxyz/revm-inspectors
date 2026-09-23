@@ -28,7 +28,7 @@ fn stack_snapshots(snapshot_type: StackSnapshotType) -> Vec<Option<Box<[U256]>>>
     );
     assert!(res.is_success());
 
-    let nodes = insp.traces().nodes();
+    let nodes = insp.traces().unwrap().nodes();
     assert_eq!(nodes.len(), 1);
 
     nodes[0].trace.steps.iter().map(|step| step.stack.clone()).collect()

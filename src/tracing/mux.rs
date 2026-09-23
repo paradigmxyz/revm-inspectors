@@ -1,4 +1,6 @@
-use crate::tracing::{FourByteInspector, TracingInspector, TracingInspectorConfig};
+use crate::tracing::{
+    FourByteInspector, TraceError, TraceLimits, TracingInspector, TracingInspectorConfig,
+};
 use alloc::vec::Vec;
 use alloy_primitives::{map::HashMap, Address, Log, U256};
 use alloy_rpc_types_eth::TransactionInfo;
@@ -41,6 +43,27 @@ enum TraceConfig {
 }
 
 impl MuxInspector {
+    /// Applies a shared recording budget after merging tracer configurations.
+    ///
+    /// Four-byte tracing uses a separate recorder and does not support byte limits.
+    pub fn with_limits(mut self, limits: TraceLimits) -> Result<Self, TraceError> {
+        if self.four_byte.is_some() && limits.max_recorded_bytes.is_some() {
+            return Err(TraceError::UnsupportedTracer);
+        }
+        self.tracing = self.tracing.map(|inspector| inspector.with_limits(limits));
+        Ok(self)
+    }
+
+    /// Clears transaction state while preserving configuration and limits.
+    pub fn fuse(&mut self) {
+        if let Some(inspector) = &mut self.tracing {
+            inspector.fuse();
+        }
+        if let Some(inspector) = &mut self.four_byte {
+            *inspector = FourByteInspector::default();
+        }
+    }
+
     /// Try creating a new instance of [MuxInspector] from the given [MuxConfig].
     pub fn try_from_config(config: MuxConfig) -> Result<MuxInspector, Error> {
         let mut four_byte = None;
@@ -120,7 +143,10 @@ impl MuxInspector {
         result: &ResultAndState<impl HaltReasonTr>,
         db: &DB,
         tx_info: TransactionInfo,
-    ) -> Result<MuxFrame, DB::Error> {
+    ) -> Result<MuxFrame, Error<DB::Error>> {
+        if let Some(inspector) = &self.tracing {
+            inspector.check_limits()?;
+        }
         let mut frame = HashMap::with_capacity_and_hasher(self.configs.len(), Default::default());
 
         for (tracer_type, config) in &self.configs {
@@ -128,7 +154,7 @@ impl MuxInspector {
                 TraceConfig::Call(call_config) => {
                     if let Some(inspector) = &self.tracing {
                         inspector
-                            .geth_builder()
+                            .geth_builder()?
                             .geth_call_traces_with_result_gas(*call_config, *result.result.gas())
                             .into()
                     } else {
@@ -138,8 +164,9 @@ impl MuxInspector {
                 TraceConfig::PreState(prestate_config) => {
                     if let Some(inspector) = &self.tracing {
                         inspector
-                            .geth_builder()
-                            .geth_prestate_traces(result, prestate_config, db)?
+                            .geth_builder()?
+                            .geth_prestate_traces(result, prestate_config, db)
+                            .map_err(Error::Database)?
                             .into()
                     } else {
                         continue;
@@ -149,7 +176,7 @@ impl MuxInspector {
                     if let Some(inspector) = &self.tracing {
                         inspector
                             .clone()
-                            .into_parity_builder()
+                            .into_parity_builder()?
                             .into_localized_transaction_traces(tx_info)
                             .into()
                     } else {
@@ -325,7 +352,13 @@ where
 
 /// Error type for [MuxInspector]
 #[derive(Debug, Error)]
-pub enum Error {
+pub enum Error<DBError = core::convert::Infallible> {
+    /// Trace recording exceeded its resource limits.
+    #[error(transparent)]
+    Trace(#[from] TraceError),
+    /// Database error while building the result.
+    #[error("database error: {0}")]
+    Database(DBError),
     /// Config was provided for a tracer that does not expect it
     #[error("unexpected config for tracer '{0:?}'")]
     UnexpectedConfig(GethDebugBuiltInTracerType),

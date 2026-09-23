@@ -188,6 +188,7 @@ fn test_geth_calltracer_logs() {
     let call_frame = insp
         .with_transaction_gas_used(res.result.tx_gas_used())
         .geth_builder()
+        .unwrap()
         .geth_call_traces(CallConfig::default().with_log(), res.result.tx_gas_used());
 
     // top-level call succeeded, no log and three subcalls
@@ -575,7 +576,7 @@ fn test_geth_inspector_reset() {
         .with_db(CacheDB::new(EmptyDB::default()))
         .modify_cfg_chained(|cfg| cfg.spec = SpecId::LONDON);
 
-    assert_eq!(insp.traces().nodes().first().unwrap().trace.gas_limit, 0);
+    assert_eq!(insp.traces().unwrap().nodes().first().unwrap().trace.gas_limit, 0);
 
     let mut evm = context.build_mainnet_with_inspector(insp);
     let tx = TxEnv::builder()
@@ -592,6 +593,7 @@ fn test_geth_inspector_reset() {
             .clone()
             .with_transaction_gas_limit(evm.ctx().tx().gas_limit)
             .traces()
+            .unwrap()
             .nodes()
             .first()
             .unwrap()
@@ -602,7 +604,7 @@ fn test_geth_inspector_reset() {
 
     // reset the inspector
     evm.inspector().fuse();
-    assert_eq!(evm.inspector().traces().nodes().first().unwrap().trace.gas_limit, 0);
+    assert_eq!(evm.inspector().traces().unwrap().nodes().first().unwrap().trace.gas_limit, 0);
 
     // second run inspector after reset
     let res = evm.inspect_tx(tx).unwrap();
@@ -612,6 +614,7 @@ fn test_geth_inspector_reset() {
         evm.into_inspector()
             .with_transaction_gas_limit(gas_limit)
             .traces()
+            .unwrap()
             .nodes()
             .first()
             .unwrap()
@@ -658,6 +661,7 @@ fn test_geth_calltracer_top_call_reverting() {
     let call_frame_top = insp
         .with_transaction_gas_used(res.result.tx_gas_used())
         .geth_builder()
+        .unwrap()
         .geth_call_traces(call_config_top, res.result.tx_gas_used());
 
     // With only_top_call = true, we should not see any subcalls in the trace
@@ -691,6 +695,7 @@ fn test_geth_calltracer_top_call_reverting() {
     let call_frame_all = insp2
         .with_transaction_gas_used(res2.result.tx_gas_used())
         .geth_builder()
+        .unwrap()
         .geth_call_traces(call_config_all, res2.result.tx_gas_used());
 
     // nestedEmitWithFailureAfterNestedEmit calls doubleNestedEmitWithSuccess which calls
@@ -746,6 +751,7 @@ fn test_geth_calltracer_nested_revert() {
     let call_frame_top = insp
         .with_transaction_gas_used(res.result.tx_gas_used())
         .geth_builder()
+        .unwrap()
         .geth_call_traces(call_config_top, res.result.tx_gas_used());
 
     // With only_top_call = true, we should not see the subcall to nestedEmitWithFailure
@@ -779,6 +785,7 @@ fn test_geth_calltracer_nested_revert() {
     let call_frame_all = insp2
         .with_transaction_gas_used(res2.result.tx_gas_used())
         .geth_builder()
+        .unwrap()
         .geth_call_traces(call_config_all, res2.result.tx_gas_used());
 
     // nestedRevert calls nestedEmitWithFailure, so we should see one subcall
@@ -817,6 +824,7 @@ fn test_geth_calltracer_nested_revert() {
     let top_call = insp3
         .with_transaction_gas_used(res3.result.tx_gas_used())
         .geth_builder()
+        .unwrap()
         .geth_call_traces(call_config_logs, res3.result.tx_gas_used());
 
     // nestedEmitWithFailure emits a log before reverting, but since it reverts, the log should not
@@ -871,6 +879,7 @@ fn test_geth_prestate_disable_code_in_diff_mode() {
     let frame = insp
         .with_transaction_gas_used(res.result.tx_gas_used())
         .geth_builder()
+        .unwrap()
         .geth_prestate_traces(&res, &prestate_config_no_code, db)
         .unwrap();
 
@@ -929,6 +938,7 @@ fn test_geth_prestate_disable_code_in_diff_mode() {
     let frame2 = insp2
         .with_transaction_gas_used(res2.result.tx_gas_used())
         .geth_builder()
+        .unwrap()
         .geth_prestate_traces(&res2, &prestate_config_with_code, db2)
         .unwrap();
 
@@ -1004,7 +1014,8 @@ fn test_geth_calltracer_null_bytes_revert_reason_omitted() {
         .unwrap();
 
     let call_config = CallConfig::default();
-    let call_frame = insp.geth_builder().geth_call_traces(call_config, res.result.tx_gas_used());
+    let call_frame =
+        insp.geth_builder().unwrap().geth_call_traces(call_config, res.result.tx_gas_used());
 
     assert!(call_frame.error.is_some(), "Call should have an error");
 
@@ -1073,8 +1084,11 @@ fn test_geth_default_tracer_empty_return_data_is_serialized_when_enabled() {
         .unwrap();
     assert!(res.result.is_success(), "Transaction should succeed: {res:#?}");
 
-    let frame =
-        insp.with_transaction_gas_used(res.result.tx_gas_used()).geth_builder().geth_traces(
+    let frame = insp
+        .with_transaction_gas_used(res.result.tx_gas_used())
+        .geth_builder()
+        .unwrap()
+        .geth_traces(
             res.result.tx_gas_used(),
             res.result.output().unwrap_or_default().clone(),
             GethDefaultTracingOptions::default().enable_return_data(),
@@ -1157,6 +1171,7 @@ fn test_geth_prestate_diff_selfdestruct(spec_id: SpecId) {
     let frame = insp
         .with_transaction_gas_used(res.result.tx_gas_used())
         .geth_builder()
+        .unwrap()
         .geth_prestate_traces(&res, &prestate_config, db)
         .unwrap();
 
@@ -1248,6 +1263,7 @@ fn test_geth_calltracer_logs_eip7708() {
     let call_frame = insp
         .with_transaction_gas_used(res.result.tx_gas_used())
         .geth_builder()
+        .unwrap()
         .geth_call_traces(CallConfig::default().with_log(), res.result.tx_gas_used());
 
     // The top-level call should have one subcall (the CALL to ecrecover precompile).
@@ -1334,6 +1350,7 @@ fn test_geth_calltracer_logs_address_regular() {
     let call_frame = insp
         .with_transaction_gas_used(res.result.tx_gas_used())
         .geth_builder()
+        .unwrap()
         .geth_call_traces(CallConfig::default().with_log(), res.result.tx_gas_used());
 
     // The top-level call should have one log with the contract address as the emitter.
@@ -1418,6 +1435,7 @@ fn test_geth_calltracer_logs_delegatecall() {
     let call_frame = insp
         .with_transaction_gas_used(res.result.tx_gas_used())
         .geth_builder()
+        .unwrap()
         .geth_call_traces(CallConfig::default().with_log(), res.result.tx_gas_used());
 
     // The top-level call is to the proxy. It should have one subcall (the DELEGATECALL).
@@ -1474,7 +1492,7 @@ fn test_geth_opcode_limit() {
                 })
                 .unwrap()
                 .result;
-            inspector.geth_builder().geth_traces(
+            inspector.geth_builder().unwrap().geth_traces(
                 result.tx_gas_used(),
                 result.output().cloned().unwrap_or_default(),
                 opts,
@@ -1504,14 +1522,24 @@ fn test_geth_opcode_limit() {
                 let actual = run(&mut inspector, opts);
                 assert_eq!(actual, expected, "limit {limit:?}, terminal {terminal}");
                 assert_eq!(
-                    inspector.traces().nodes().iter().map(|n| n.trace.steps.len()).sum::<usize>(),
+                    inspector
+                        .traces()
+                        .unwrap()
+                        .nodes()
+                        .iter()
+                        .map(|n| n.trace.steps.len())
+                        .sum::<usize>(),
                     expected_len
                 );
                 inspector.fuse();
             }
             // Builder options also apply to already collected unlimited traces.
             assert_eq!(
-                unlimited.geth_builder().geth_traces(full.gas, full.return_value.clone(), opts),
+                unlimited.geth_builder().unwrap().geth_traces(
+                    full.gas,
+                    full.return_value.clone(),
+                    opts
+                ),
                 expected
             );
         }

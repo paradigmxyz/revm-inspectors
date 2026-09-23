@@ -59,6 +59,7 @@ fn test_prestate_tracer_selfdestruct() {
     let frame = inspector
         .with_transaction_gas_used(res.result.tx_gas_used())
         .geth_builder()
+        .unwrap()
         .geth_prestate_traces(&res, &prestate_config, db)
         .unwrap();
 
@@ -98,6 +99,7 @@ fn test_prestate_tracer_selfdestruct_diff_mode() {
     let frame = inspector
         .with_transaction_gas_used(res.result.tx_gas_used())
         .geth_builder()
+        .unwrap()
         .geth_prestate_traces(&res, &prestate_config, db)
         .unwrap();
 

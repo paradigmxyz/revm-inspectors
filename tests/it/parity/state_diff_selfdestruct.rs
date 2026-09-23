@@ -52,6 +52,7 @@ fn existing_account_selfdestruct_across_cancun() {
             let traces = evm
                 .inspector
                 .into_parity_builder()
+                .unwrap()
                 .into_trace_results_with_state(
                     &result,
                     &HashSet::from_iter([TraceType::StateDiff]),
@@ -129,6 +130,7 @@ fn created_account_selfdestruct_across_cancun() {
             let traces = evm
                 .inspector
                 .into_parity_builder()
+                .unwrap()
                 .into_trace_results_with_state(
                     &result,
                     &HashSet::from_iter([TraceType::StateDiff]),

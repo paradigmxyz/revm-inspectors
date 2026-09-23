@@ -21,7 +21,7 @@ pub fn write_traces(tracer: &TracingInspector) -> String {
 
 pub fn write_traces_with(tracer: &TracingInspector, config: TraceWriterConfig) -> String {
     let mut w = TraceWriter::with_config(Vec::<u8>::new(), config);
-    w.write_arena(tracer.traces()).expect("failed to write traces to Vec<u8>");
+    w.write_arena(tracer.traces().unwrap()).expect("failed to write traces to Vec<u8>");
     String::from_utf8(w.into_writer()).expect("trace writer wrote invalid UTF-8")
 }
 

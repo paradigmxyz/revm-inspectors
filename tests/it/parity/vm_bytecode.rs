@@ -20,7 +20,7 @@ fn trace(db: CacheDB<EmptyDB>, tx: TxEnv) -> TraceResults {
             TracingInspectorConfig::from_parity_config(&types),
         ));
     let result = evm.inspect_tx(tx).unwrap();
-    let builder = evm.inspector.into_parity_builder();
+    let builder = evm.inspector.into_parity_builder().unwrap();
     let direct = builder.vm_trace();
     let traces = builder
         .into_trace_results_with_state(&result, &types, &evm.ctx.journaled_state.database)
@@ -147,12 +147,20 @@ fn bytecode_recording_is_opt_in() {
         TracingInspectorConfig::parity_statediff(),
     ] {
         let inspector = super::inspect_code(&code, &[], SpecId::PRAGUE, config);
-        assert!(inspector.traces().nodes().iter().all(|node| node.trace.bytecode.is_none()));
+        assert!(inspector
+            .traces()
+            .unwrap()
+            .nodes()
+            .iter()
+            .all(|node| node.trace.bytecode.is_none()));
     }
     let mut config = TracingInspectorConfig::default_geth();
     config.merge(TracingInspectorConfig::parity_vm_trace());
     let inspector = super::inspect_code(&code, &[], SpecId::PRAGUE, config);
-    assert_eq!(inspector.traces().nodes()[0].trace.bytecode.as_ref().unwrap().as_ref(), code);
+    assert_eq!(
+        inspector.traces().unwrap().nodes()[0].trace.bytecode.as_ref().unwrap().as_ref(),
+        code
+    );
 }
 
 #[test]
@@ -171,11 +179,11 @@ fn bytecode_recording_reuses_original_buffer() {
         evm.inspect_tx(TxEnv::builder().to(target).gas_limit(100_000).build_fill()).unwrap();
     assert!(result.result.is_success(), "{result:#?}");
 
-    let recorded = evm.inspector.traces().nodes()[0].trace.bytecode.as_ref().unwrap();
+    let recorded = evm.inspector.traces().unwrap().nodes()[0].trace.bytecode.as_ref().unwrap();
     assert_eq!(recorded.as_ptr(), code.original_byte_slice().as_ptr());
     assert_eq!(recorded.len(), code.len());
 
-    let vm_trace = evm.inspector.into_parity_builder().vm_trace();
+    let vm_trace = evm.inspector.into_parity_builder().unwrap().vm_trace();
     assert_eq!(vm_trace.code.as_ptr(), code.original_byte_slice().as_ptr());
     assert_eq!(vm_trace.code.len(), code.len());
 }
