@@ -89,6 +89,10 @@ pub struct CallTrace {
     /// The value transferred in the call.
     pub value: U256,
     /// The calldata/input, or the init code for contract creations.
+    ///
+    /// Empty when
+    /// [`TracingInspectorConfig::record_inputs`](crate::tracing::TracingInspectorConfig::record_inputs)
+    /// is disabled.
     pub data: Bytes,
     /// The return data, or the runtime bytecode of the created contract.
     pub output: Bytes,
