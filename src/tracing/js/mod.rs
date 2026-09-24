@@ -467,19 +467,37 @@ where
     }
 
     fn step_end(&mut self, interp: &mut Interpreter, context: &mut CTX) {
-        let Some(step_fn) = &self.step_fn else {
-            return;
-        };
-        if !core::mem::take(&mut self.step_pending) {
-            return;
-        }
-
         let result = interp.bytecode.action().as_ref().and_then(|a| a.instruction_result());
         // go-ethereum reports errors raised while executing the opcode to `fault` and the
         // preceding stack/gas checks to `step`; a plain `is_revert` check only reached the former
         // for `REVERT`, so an invalid jump, undefined opcode, static-context write, out-of-bounds
         // return data or a failed create never fired `fault`. Classify by result instead.
         let is_fault = result.is_some_and(should_fault);
+        let recorded_step = core::mem::take(&mut self.step_pending);
+
+        // A normal step is only reported when a `step` function recorded the pre-execution state.
+        // A fault is reported even without one, so a tracer that defines `fault` but not `step`
+        // still sees execution errors, as go-ethereum does.
+        if !recorded_step && !is_fault {
+            return;
+        }
+
+        if !recorded_step {
+            // No `step` ran, so nothing was recorded before the opcode. Snapshot the current
+            // state so the reusable log serves a consistent view instead of stale data;
+            // go-ethereum leaves a fault-only log stale except for the error, so reporting the
+            // post-execution state here is at least as informative.
+            self.gas_spent_before = interp.gas.total_gas_spent();
+            let memory = interp.memory.context_memory();
+            self.reusable_step_log.record_pre_execution(PreStep {
+                pc: interp.bytecode.pc() as u64,
+                op: interp.bytecode.opcode(),
+                gas_remaining: interp.gas.remaining(),
+                refund: interp.gas.refunded() as u64,
+                stack: interp.stack.data(),
+                memory: &memory,
+            });
+        }
 
         // Compute the actual gas cost now that the opcode has executed
         let cost = interp.gas.total_gas_spent().saturating_sub(self.gas_spent_before);
@@ -503,6 +521,13 @@ where
             call_id: call.id,
         };
 
+        // When not a fault the step function is present (a step was recorded); a fault always
+        // goes to `fault`.
+        let callback = if is_fault {
+            &self.fault_fn
+        } else {
+            self.step_fn.as_ref().expect("a recorded step implies a step function")
+        };
         let (db, state) = context.journal_mut().db_and_state_mut();
         let res = self.reusable_db.with_scope(state, db, || {
             self.reusable_step_log.with_scope(
@@ -511,8 +536,7 @@ where
                 info,
                 || {
                     let args = [self.reusable_step_log.value(), self.reusable_db.value()];
-                    let f = if is_fault { &self.fault_fn } else { step_fn };
-                    f.call(&self.this, &args, &mut self.ctx)
+                    callback.call(&self.this, &args, &mut self.ctx)
                 },
             )
         });
@@ -1493,6 +1517,22 @@ mod tests {
         assert_eq!(res["err"], json!("execution reverted"), "{res}");
 
         // A normal STOP does not fault.
+        let res = run_trace(code, Some(hex!("00").into()), true);
+        assert_eq!(res["faults"], json!(0), "a clean stop must not fault: {res}");
+    }
+
+    #[test]
+    fn test_fault_fires_without_a_step_function() {
+        // A tracer that defines `fault` and `result` but no `step`. go-ethereum still delivers
+        // fault callbacks to it on execution errors.
+        let code = r#"{n:0,e:null,fault:function(log){this.n++;this.e=log.getError()},result:function(){return {faults:this.n,err:this.e}}}"#;
+
+        // PUSH1 0xff, JUMP -> invalid jump destination.
+        let res = run_trace(code, Some(hex!("60ff56").into()), false);
+        assert_eq!(res["faults"], json!(1), "invalid jump must fault without a step fn: {res}");
+        assert_eq!(res["err"], json!("invalid jump destination"), "{res}");
+
+        // A clean STOP does not fault.
         let res = run_trace(code, Some(hex!("00").into()), true);
         assert_eq!(res["faults"], json!(0), "a clean stop must not fault: {res}");
     }
