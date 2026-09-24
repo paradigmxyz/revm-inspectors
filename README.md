@@ -4,6 +4,12 @@ Common [`revm`] inspector implementations.
 
 Originally part of [`reth`] as the `reth-revm-inspectors` crate.
 
+## Account extensions
+
+Enable the optional `account-ext` feature when tracing revm accounts with opaque
+payloads. It is disabled by default and forwards to `revm/account-ext`; standard
+Ethereum trace formats do not include the payload.
+
 ## Users
 
 - [`reth`]
