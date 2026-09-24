@@ -487,12 +487,11 @@ where
             entry.balance = Delta::Added(changed_acc.info.balance);
             entry.nonce = Delta::Added(U64::from(changed_acc.info.nonce));
 
-            // accounts without code are marked as added
+            // Empty code is still marked as added for a new account.
             let account_code = load_account_code(&db, &changed_acc.info).unwrap_or_default();
             entry.code = Delta::Added(account_code);
 
-            // new storage values are marked as added,
-            // however we're filtering changed here to avoid adding entries for the zero value
+            // Only changed slots are added; unchanged zero-valued slots are omitted.
             for (key, slot) in changed_acc.storage.iter().filter(|(_, slot)| slot.is_changed()) {
                 entry.storage.insert((*key).into(), Delta::Added(slot.present_value.into()));
             }
