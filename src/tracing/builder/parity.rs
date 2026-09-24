@@ -358,11 +358,6 @@ impl ParityTraceBuilder {
         delta: Option<&StepDelta>,
         maybe_sub_call: Option<VmTrace>,
     ) -> VmInstruction {
-        let maybe_storage = step.storage_change.as_ref().map(|storage_change| StorageDelta {
-            key: storage_change.key,
-            val: storage_change.value,
-        });
-
         // A halted step has no effects to report, while a `REVERT` executes like any other step.
         let halted = step.status.is_some_and(|status| status.is_halt());
         let maybe_execution = (!halted).then(|| VmExecutedOperation {
@@ -371,7 +366,7 @@ impl ParityTraceBuilder {
                 .unwrap_or_else(|| step.gas_remaining.saturating_sub(step.gas_cost)),
             push: step.push_stack.clone().unwrap_or_default().into(),
             mem: delta.and_then(|delta| delta.memory.clone()),
-            store: maybe_storage,
+            store: delta.and_then(|delta| delta.store),
         });
 
         VmInstruction {

@@ -554,6 +554,43 @@ fn vmtrace_records_storage_for_vm_only_requests() {
     assert_eq!(store.val, U256::from(42));
 }
 
+/// Returns the `(pc, key, val)` of every reported storage write.
+fn vm_stores(trace: &alloy_rpc_types_trace::parity::VmTrace) -> Vec<(usize, U256, U256)> {
+    trace
+        .ops
+        .iter()
+        .filter_map(|op| op.ex.as_ref()?.store.as_ref().map(|store| (op.pc, store.key, store.val)))
+        .collect()
+}
+
+#[test]
+fn vmtrace_reads_do_not_report_store() {
+    // A cold and a warm SLOAD, then TSTORE and TLOAD.
+    let trace = trace_vm_code(&hex!("5f545f54602a5f5d5f5c00"), &[]);
+    assert!(vm_stores(&trace).is_empty(), "{trace:?}");
+}
+
+#[test]
+fn vmtrace_reports_every_completed_sstore() {
+    // Cold SSTORE of the unchanged value, a changing SSTORE, then a warm SSTORE of the same value.
+    let trace = trace_vm_code(&hex!("5f5f55602a5f55602a5f5500"), &[]);
+    let [zero, answer] = [U256::ZERO, U256::from(42)];
+    assert_eq!(vm_stores(&trace), vec![(2, zero, zero), (6, zero, answer), (10, zero, answer)]);
+}
+
+#[test]
+fn vmtrace_reverted_frame_keeps_its_stores() {
+    let trace = trace_vm_code(&hex!("5f5f5f5f5f604361fffff100"), &hex!("602a5f555f5ffd"));
+    let sub = trace.ops[7].sub.as_ref().unwrap();
+    assert_eq!(vm_stores(sub), vec![(3, U256::ZERO, U256::from(42))]);
+
+    // An SSTORE that halts, here in a static context, has no execution record.
+    let trace = trace_vm_code(&hex!("5f5f5f5f604361fffffa00"), &hex!("602a5f5500"));
+    let sub = trace.ops[6].sub.as_ref().unwrap();
+    assert_eq!(sub.ops[2].op.as_deref(), Some("SSTORE"));
+    assert!(sub.ops[2].ex.is_none());
+}
+
 #[test]
 fn vmtrace_faults_have_no_execution_delta() {
     for code in [&hex!("01")[..], &hex!("f1")[..], &hex!("fe")[..]] {
