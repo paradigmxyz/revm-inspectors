@@ -15,6 +15,8 @@ mod geth_js;
 #[cfg(feature = "std")]
 mod inputs;
 #[cfg(feature = "std")]
+mod limits;
+#[cfg(feature = "std")]
 mod parity;
 #[cfg(feature = "js-tracer")]
 mod test_native_bigint;
