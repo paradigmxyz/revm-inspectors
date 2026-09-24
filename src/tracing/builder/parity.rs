@@ -481,8 +481,8 @@ where
             continue;
         }
 
-        // Account birth also includes value transfers and fee recipients, not just CREATE.
-        // Preserve the omission of empty, non-created accounts (e.g. zero-value calls).
+        // An absent prestate account is added if it has nonempty final state or
+        // the EVM marked it created (which can preserve an empty account).
         if !existed && (changed_acc.is_created() || !changed_acc.is_empty()) {
             entry.balance = Delta::Added(changed_acc.info.balance);
             entry.nonce = Delta::Added(U64::from(changed_acc.info.nonce));
