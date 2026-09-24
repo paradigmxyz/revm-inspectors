@@ -5,11 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.2](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.39.2) - 2026-09-24
+
+### Bug Fixes
+
+- Keep 0.39 compatible with current dependencies and Clippy
+
+### Features
+
+- [tracing] Configure byte recording limits ([#520](https://github.com/paradigmxyz/revm-inspectors/issues/520))
+
+### Performance
+
+- [tracing] Make call input recording optional ([#519](https://github.com/paradigmxyz/revm-inspectors/issues/519))
+
 ## [0.39.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.39.1) - 2026-06-01
 
 ### Bug Fixes
 
 - [erc7562] Enable state diffs to capture SLOAD in accessedSlots.reads ([#451](https://github.com/paradigmxyz/revm-inspectors/issues/451))
+
+### Miscellaneous Tasks
+
+- Release 0.39.1
 
 ## [0.39.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.39.0) - 2026-04-17
 
