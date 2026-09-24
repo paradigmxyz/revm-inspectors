@@ -118,7 +118,11 @@ fn creation_uses_account_existence_not_initial_balance() {
                 assert_eq!(account.nonce, Delta::changed(U64::ZERO, U64::from(1)));
                 assert_eq!(
                     account.code,
-                    if runtime { Delta::changed(Default::default(), code) } else { Delta::Unchanged }
+                    if runtime {
+                        Delta::changed(Default::default(), code)
+                    } else {
+                        Delta::Unchanged
+                    }
                 );
             }
             assert!(account.storage.is_empty());
