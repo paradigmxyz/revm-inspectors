@@ -799,10 +799,15 @@ pub struct StepDelta {
 
 impl StepDelta {
     /// Records the bytes the step wrote to `memory`, if a write range was captured.
-    pub(crate) fn record_memory_write(&mut self, memory: &[u8]) {
+    pub(crate) fn record_memory_write(
+        &mut self,
+        memory: &[u8],
+        budget: &mut super::limits::TraceBudget,
+    ) {
         if let Some(range) = self.write_range.take().filter(|range| !range.is_empty()) {
             self.memory = memory
                 .get(range.clone())
+                .filter(|data| budget.reserve(data.len()))
                 .map(|data| MemoryDelta { off: range.start, data: Bytes::copy_from_slice(data) });
         }
     }
