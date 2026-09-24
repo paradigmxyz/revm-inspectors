@@ -116,7 +116,7 @@ BigInt.prototype.minus = BigInt.prototype.subtract;
 "#,
     ))?;
     // Create global 'bigint' alias for native BigInt constructor (lowercase for compatibility)
-    ctx.register_global_property(js_string!("bigint"), big_int.clone(), Attribute::all())?;
+    ctx.register_global_property(js_string!("bigint"), big_int, Attribute::all())?;
     // Create global 'bigInt' alias (camelCase) for geth BigInteger.js polyfill compatibility.
     // Geth's goja engine runs `var bigInt = function(){...}()` at global scope, making `bigInt`
     // the standard way to construct big integers in geth JS tracers.
