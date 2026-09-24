@@ -14,7 +14,9 @@ use revm::{
     state::AccountInfo,
     Context, InspectEvm, MainBuilder, MainContext,
 };
-use revm_inspectors::tracing::{TraceLimits, TracingInspector, TracingInspectorConfig};
+use revm_inspectors::tracing::{
+    TraceLimitBehavior, TraceLimits, TracingInspector, TracingInspectorConfig,
+};
 
 fn run(
     code: &[u8],
@@ -42,8 +44,11 @@ fn run(
 }
 
 fn limited(config: TracingInspectorConfig, bytes: usize) -> TracingInspector {
-    TracingInspector::new(config)
-        .with_limits(TraceLimits::default().set_max_recorded_bytes(Some(bytes)))
+    TracingInspector::new(config).with_limits(
+        TraceLimits::default()
+            .set_max_recorded_bytes(Some(bytes))
+            .set_behavior(TraceLimitBehavior::Halt),
+    )
 }
 
 #[test]
@@ -64,15 +69,13 @@ fn step_budget_aborts_at_recording_boundaries() {
         assert_eq!(result.unwrap(), expected);
         assert_eq!(exact.traces(), baseline.traces());
 
-        // Each run reaches the next allocation boundary, including pending CALL/RETURN actions.
-        let mut bytes = 0;
-        while bytes < total {
+        for bytes in [0, total / 2, total - 1] {
             let (inspector, result) = run(code, limited(config, bytes));
             assert!(
                 matches!(result, Err(EVMError::Custom(ref message)) if message == "trace recorded byte limit exceeded")
             );
-            assert!(inspector.recorded_bytes() > bytes);
-            bytes = inspector.recorded_bytes();
+            assert!(inspector.limit_exceeded());
+            assert!(inspector.recorded_bytes() <= bytes);
         }
     }
 }
@@ -92,8 +95,10 @@ fn input_budget_survives_reset() {
 
         let (mut inspector, result) = run(&code, limited(config, 65535));
         assert!(matches!(result, Err(EVMError::Custom(_))));
+        assert!(inspector.limit_exceeded());
         inspector.fuse();
         assert_eq!(inspector.recorded_bytes(), 0);
+        assert!(!inspector.limit_exceeded());
         let (_, result) = run(&code, inspector);
         assert!(matches!(result, Err(EVMError::Custom(_))));
 
@@ -143,12 +148,49 @@ fn repeated_staticcalls_cannot_bypass_input_budget() {
     assert!(
         matches!(result, Err(EVMError::Custom(ref message)) if message == "trace recorded byte limit exceeded")
     );
-    // The fifth input crosses the budget, aborting even without a child interpreter.
-    assert_eq!(inspector.recorded_bytes(), 5 * 65536);
+    // The fifth input is refused before copying, even without a child interpreter.
+    assert_eq!(inspector.recorded_bytes(), 4 * 65536);
     assert_eq!(inspector.traces().nodes().len(), 6);
+    assert!(inspector.limit_exceeded());
+
+    let (inspector, result) = run(
+        &code,
+        TracingInspector::new(config)
+            .with_limits(TraceLimits::default().set_max_recorded_bytes(Some(4 * 65536))),
+    );
+    assert!(result.unwrap().is_success());
+    assert_eq!(inspector.recorded_bytes(), 4 * 65536);
+    assert!(inspector.limit_exceeded());
+    let nodes = inspector.traces().nodes();
+    assert_eq!(nodes.len(), 129);
+    assert!(nodes[1..5].iter().all(|node| node.trace.data.len() == 65536));
+    assert!(nodes[5..].iter().all(|node| node.trace.data.is_empty()));
+    let call_trace = inspector.geth_builder().geth_call_traces(Default::default(), 0);
+    assert_eq!(call_trace.calls.len(), 128);
+    assert!(call_trace.calls[4..].iter().all(|call| call.input.is_empty()));
 
     let (inspector, result) = run(&code, limited(config.set_record_inputs(false), 0));
     assert!(result.unwrap().is_success());
     assert_eq!(inspector.recorded_bytes(), 0);
     assert_eq!(inspector.traces().nodes().len(), 129);
+}
+
+#[test]
+fn skip_is_default_and_stops_step_buffer_allocations() {
+    assert_eq!(TraceLimitBehavior::default(), TraceLimitBehavior::Skip);
+    let code = hex!("60015f5260025060035000");
+    let config = TracingInspectorConfig::all();
+    let (mut inspector, result) = run(
+        &code,
+        TracingInspector::new(config)
+            .with_limits(TraceLimits::default().set_max_recorded_bytes(Some(0))),
+    );
+    assert!(result.unwrap().is_success());
+    assert_eq!(inspector.recorded_bytes(), 0);
+    assert!(inspector.limit_exceeded());
+    inspector.fuse();
+    assert!(!inspector.limit_exceeded());
+    let (inspector, result) = run(&code, inspector);
+    assert!(result.unwrap().is_success());
+    assert!(inspector.limit_exceeded());
 }
