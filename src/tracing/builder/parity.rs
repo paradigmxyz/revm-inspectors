@@ -4,7 +4,7 @@ use crate::tracing::{
     TracingInspectorConfig,
 };
 use alloc::{string::ToString, vec, vec::Vec};
-use alloy_primitives::{map::HashSet, Address, U256, U64};
+use alloy_primitives::{map::HashSet, Address, U64};
 use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::parity::*;
 use core::iter::Peekable;
@@ -463,6 +463,7 @@ where
             continue;
         }
 
+        let existed = db_acc.is_some();
         let db_acc = db_acc.unwrap_or_default();
         let entry = state_diff.entry(addr).or_default();
 
@@ -480,11 +481,9 @@ where
             continue;
         }
 
-        // we check if this account was created during the transaction
-        // where the smart contract was not touched before being created (no balance)
-        if changed_acc.is_created() && db_acc.balance == U256::ZERO {
-            // This only applies to newly created accounts without balance
-            // A non existing touched account (e.g. `to` that does not exist) is excluded here
+        // Account birth also includes value transfers and fee recipients, not just CREATE.
+        // Preserve the omission of empty, non-created accounts (e.g. zero-value calls).
+        if !existed && (changed_acc.is_created() || !changed_acc.is_empty()) {
             entry.balance = Delta::Added(changed_acc.info.balance);
             entry.nonce = Delta::Added(U64::from(changed_acc.info.nonce));
 
