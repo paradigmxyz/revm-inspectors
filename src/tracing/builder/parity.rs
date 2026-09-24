@@ -4,7 +4,7 @@ use crate::tracing::{
     TracingInspectorConfig,
 };
 use alloc::{string::ToString, vec, vec::Vec};
-use alloy_primitives::{map::HashSet, Address, U256, U64};
+use alloy_primitives::{map::HashSet, Address, U64};
 use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::parity::*;
 use core::iter::Peekable;
@@ -457,12 +457,13 @@ where
         let addr = *addr;
         let db_acc = db.basic_ref(addr)?;
 
-        // An account created and destroyed in this transaction has no net change unless it
-        // already existed, for example with a prefunded balance.
-        if changed_acc.is_selfdestructed() && db_acc.is_none() {
+        // An absent account has no diff if it is still absent after the transaction. This
+        // includes accounts created and destroyed in one transaction and empty touched accounts.
+        if db_acc.is_none() && (changed_acc.is_selfdestructed() || changed_acc.info.is_empty()) {
             continue;
         }
 
+        let is_new = db_acc.is_none();
         let db_acc = db_acc.unwrap_or_default();
         let entry = state_diff.entry(addr).or_default();
 
@@ -480,20 +481,14 @@ where
             continue;
         }
 
-        // we check if this account was created during the transaction
-        // where the smart contract was not touched before being created (no balance)
-        if changed_acc.is_created() && db_acc.balance == U256::ZERO {
-            // This only applies to newly created accounts without balance
-            // A non existing touched account (e.g. `to` that does not exist) is excluded here
+        if is_new {
             entry.balance = Delta::Added(changed_acc.info.balance);
             entry.nonce = Delta::Added(U64::from(changed_acc.info.nonce));
 
-            // accounts without code are marked as added
             let account_code = load_account_code(&db, &changed_acc.info).unwrap_or_default();
             entry.code = Delta::Added(account_code);
 
-            // new storage values are marked as added,
-            // however we're filtering changed here to avoid adding entries for the zero value
+            // The state map contains accessed slots only; skip unchanged zero values.
             for (key, slot) in changed_acc.storage.iter().filter(|(_, slot)| slot.is_changed()) {
                 entry.storage.insert((*key).into(), Delta::Added(slot.present_value.into()));
             }
