@@ -76,8 +76,7 @@ pub(crate) fn fmt_error_msg(res: InstructionResult, kind: TraceStyle) -> Option<
 /// See: <https://github.com/ethereum/go-ethereum/blob/366d2169fbc0e0f803b68c042b77b6b480836dbc/eth/tracers/logger/logger.go#L450-L452>
 pub(crate) fn convert_memory(data: &[u8]) -> Vec<String> {
     let mut memory = Vec::with_capacity(data.len().div_ceil(32));
-    let chunks = data.chunks_exact(32);
-    let remainder = chunks.remainder();
+    let (chunks, remainder) = data.as_chunks::<32>();
     for chunk in chunks {
         memory.push(hex::encode_prefixed(chunk));
     }

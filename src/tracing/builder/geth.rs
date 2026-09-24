@@ -140,6 +140,7 @@ impl<'a> GethTraceBuilder<'a> {
             gas: receipt_gas_used,
             return_value,
             struct_logs,
+            ..Default::default()
         }
     }
 

@@ -447,6 +447,7 @@ impl CallTraceNode {
             revert_reason: None,
             calls: Default::default(),
             logs: Default::default(),
+            ..Default::default()
         };
 
         if self.trace.kind.is_static_call() {
@@ -735,6 +736,7 @@ impl CallTraceStep {
 
             // This is always `None` in the RPC response.
             memory_size: None,
+            ..Default::default()
         }
     }
 
