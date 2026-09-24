@@ -21,7 +21,6 @@ use alloy_primitives::{Address, Bytes, U256};
 pub use boa_engine::vm::RuntimeLimits;
 use boa_engine::{js_string, Context, JsError, JsObject, JsResult, JsValue, Script, Source};
 use revm::{
-    bytecode::opcode,
     context::JournalTr,
     context_interface::{
         result::{ExecutionResult, HaltReasonTr, Output, ResultAndState},
@@ -476,7 +475,11 @@ where
         }
 
         let result = interp.bytecode.action().as_ref().and_then(|a| a.instruction_result());
-        let is_revert = result.is_some_and(|r| r.is_revert());
+        // go-ethereum reports errors raised while executing the opcode to `fault` and the
+        // preceding stack/gas checks to `step`; a plain `is_revert` check only reached the former
+        // for `REVERT`, so an invalid jump, undefined opcode, static-context write, out-of-bounds
+        // return data or a failed create never fired `fault`. Classify by result instead.
+        let is_fault = result.is_some_and(should_fault);
 
         // Compute the actual gas cost now that the opcode has executed
         let cost = interp.gas.total_gas_spent().saturating_sub(self.gas_spent_before);
@@ -485,8 +488,14 @@ where
         let info = StepInfo {
             cost,
             depth,
-            error: if is_revert { result.map(|result| format!("{result:?}")) } else { None },
-            op: is_revert.then_some(opcode::REVERT),
+            error: if is_fault {
+                result.and_then(|result| utils::fmt_error_msg(result, TraceStyle::Geth))
+            } else {
+                None
+            },
+            // Faults keep the opcode recorded before execution (the one that faulted), matching
+            // go-ethereum's `OnFault`, which reports the faulting opcode.
+            op: None,
             caller: interp.input.caller_address,
             contract: interp.input.target_address,
             value: call.contract.value,
@@ -502,7 +511,7 @@ where
                 info,
                 || {
                     let args = [self.reusable_step_log.value(), self.reusable_db.value()];
-                    let f = if is_revert { &self.fault_fn } else { step_fn };
+                    let f = if is_fault { &self.fault_fn } else { step_fn };
                     f.call(&self.this, &args, &mut self.ctx)
                 },
             )
@@ -510,7 +519,7 @@ where
 
         // Only set revert if the opcode didn't already set an action (e.g. STOP/RETURN).
         // If the opcode completed successfully, we can't revert it after the fact.
-        if !is_revert && res.is_err() && interp.bytecode.action().is_none() {
+        if !is_fault && res.is_err() && interp.bytecode.action().is_none() {
             interp
                 .bytecode
                 .set_action(InterpreterAction::new_halt(InstructionResult::Revert, interp.gas));
@@ -739,6 +748,28 @@ pub enum JsInspectorError {
     /// Invalid JSON configuration encountered.
     #[error("invalid JSON config: {0}")]
     InvalidJsonConfig(JsError),
+}
+
+/// Whether an instruction result should be reported to the tracer's `fault` hook rather than
+/// `step`.
+///
+/// Mirrors go-ethereum, which faults on errors raised while executing the opcode (after
+/// `OnOpcode`) and routes the checks that precede execution — stack validation and gas — to
+/// `step` instead. Successful terminations never fault.
+fn should_fault(result: InstructionResult) -> bool {
+    use InstructionResult::*;
+    !result.is_ok()
+        && !matches!(
+            result,
+            StackUnderflow
+                | StackOverflow
+                | OutOfGas
+                | MemoryOOG
+                | MemoryLimitOOG
+                | PrecompileOOG
+                | InvalidOperandOOG
+                | ReentrancySentryOOG
+        )
 }
 
 /// Converts a JavaScript error into a [InstructionResult::Revert] [InterpreterResult].
@@ -1439,5 +1470,30 @@ mod tests {
         assert_eq!(obj["stackPeek"], json!("1"));
         assert_eq!(obj["value"], json!("0"));
         assert_eq!(obj["balance"], json!("0"));
+    }
+
+    #[test]
+    fn test_fault_fires_for_non_revert_execution_errors() {
+        // A tracer that counts fault callbacks and records the last error. The step function is
+        // present but does nothing, matching the common geth pattern.
+        let code = r#"{n:0,e:null,step:function(){},fault:function(log){this.n++;this.e=log.getError()},result:function(){return {faults:this.n,err:this.e}}}"#;
+
+        // PUSH1 0xff, JUMP -> invalid jump destination (an execution error, not a revert).
+        let res = run_trace(code, Some(hex!("60ff56").into()), false);
+        assert_eq!(res["faults"], json!(1), "invalid jump must fire fault: {res}");
+        assert_eq!(res["err"], json!("invalid jump destination"), "{res}");
+
+        // 0x0c is not a defined opcode.
+        let res = run_trace(code, Some(hex!("0c").into()), false);
+        assert_eq!(res["faults"], json!(1), "undefined opcode must fire fault: {res}");
+
+        // REVERT still faults (regression guard).
+        let res = run_trace(code, Some(hex!("60006000fd").into()), false);
+        assert_eq!(res["faults"], json!(1), "revert must still fire fault: {res}");
+        assert_eq!(res["err"], json!("execution reverted"), "{res}");
+
+        // A normal STOP does not fault.
+        let res = run_trace(code, Some(hex!("00").into()), true);
+        assert_eq!(res["faults"], json!(0), "a clean stop must not fault: {res}");
     }
 }
