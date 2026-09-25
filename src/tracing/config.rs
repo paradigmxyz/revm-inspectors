@@ -170,8 +170,6 @@ impl TracingInspectorConfig {
             .set_bytecode(true)
             .set_stack_snapshots(StackSnapshotType::Pushes)
             .set_step_deltas(true)
-            // also need statediffs for recording altered storage in `VmExecutedOperation.store`
-            .set_state_diffs(true)
     }
 
     /// Returns a config for geth style traces.
@@ -213,7 +211,6 @@ impl TracingInspectorConfig {
             .set_bytecode(needs_vm_trace)
             .set_stack_snapshots(snap_type)
             .set_step_deltas(needs_vm_trace)
-            .set_state_diffs(needs_vm_trace)
     }
 
     /// Returns a config for geth style traces based on the given [GethDefaultTracingOptions].
@@ -610,7 +607,8 @@ mod tests {
         s.insert(TraceType::VmTrace);
         let config = TracingInspectorConfig::from_parity_config(&s);
         assert!(config.record_steps);
-        assert!(config.record_state_diff);
+        // `VmExecutedOperation.store` is recorded with the step deltas
+        assert!(!config.record_state_diff);
         assert!(config.record_step_deltas);
         // the deltas replace full memory snapshots
         assert!(!config.record_memory_snapshots);
@@ -620,8 +618,8 @@ mod tests {
         s.insert(TraceType::StateDiff);
         let config = TracingInspectorConfig::from_parity_config(&s);
         assert!(config.record_steps);
-        // required for VmTrace
-        assert!(config.record_state_diff);
+        // stateDiff is computed from the database, and vmTrace no longer needs it
+        assert!(!config.record_state_diff);
     }
 
     #[test]

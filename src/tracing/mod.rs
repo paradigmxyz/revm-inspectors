@@ -10,6 +10,7 @@ use crate::{
     },
 };
 use alloc::{boxed::Box, vec::Vec};
+use alloy_rpc_types_trace::parity::StorageDelta;
 use core::{borrow::Borrow, mem, ops::Range};
 use revm::{
     bytecode::opcode::{self, OpCode},
@@ -568,9 +569,14 @@ impl TracingInspector {
 
         if self.config.record_step_deltas {
             let write_range = memory_write_range(op.get(), interp.stack.data());
-            if write_range.is_some() || node.trace.steps[step_idx].is_call_like_op() {
+            let store = storage_write(op.get(), interp.stack.data());
+            if write_range.is_some()
+                || store.is_some()
+                || node.trace.steps[step_idx].is_call_like_op()
+            {
                 node.trace.step_deltas.push(StepDelta {
                     step: step_idx,
+                    store,
                     write_range,
                     ..Default::default()
                 });
@@ -958,4 +964,14 @@ fn memory_write_range(op: u8, stack: &[U256]) -> Option<Range<usize>> {
         _ => return None,
     };
     (size != 0).then_some(offset..offset.checked_add(size)?)
+}
+
+/// Returns the storage write of an `SSTORE`, derived from its inputs on the stack.
+///
+/// This is independent of the journal, which has no entry for a warm write of the unchanged value.
+fn storage_write(op: u8, stack: &[U256]) -> Option<StorageDelta> {
+    match (op, stack) {
+        (opcode::SSTORE, [.., val, key]) => Some(StorageDelta { key: *key, val: *val }),
+        _ => None,
+    }
 }
