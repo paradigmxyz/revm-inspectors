@@ -19,8 +19,8 @@ use revm::{
     inspector::JournalExt,
     interpreter::{
         interpreter_types::{Immediates, Jumps, LoopControl, ReturnData, RuntimeFlag},
-        CallInput, CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, Interpreter,
-        InterpreterResult,
+        CallInput, CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome,
+        InstructionResult, Interpreter, InterpreterResult,
     },
     primitives::{hardfork::SpecId, Address, Bytes, Log, B256, U256},
     Inspector, JournalEntry,
@@ -864,11 +864,27 @@ where
 
     fn create_end(
         &mut self,
-        _context: &mut CTX,
-        _inputs: &CreateInputs,
+        context: &mut CTX,
+        inputs: &CreateInputs,
         outcome: &mut CreateOutcome,
     ) {
+        let trace_idx = self.last_trace_idx();
         self.fill_trace_on_call_end(&outcome.result, outcome.address);
+
+        // revm returns a creation whose creator nonce cannot be incremented as a successful return
+        // without an address, keeping its gas unspent.
+        let nonce_overflow = outcome.address.is_none()
+            && outcome.result.result == InstructionResult::Return
+            && context
+                .journal_ref()
+                .evm_state()
+                .get(&inputs.caller())
+                .is_some_and(|account| account.info.nonce == u64::MAX);
+        if nonce_overflow {
+            let trace = &mut self.traces.arena[trace_idx].trace;
+            trace.status = Some(InstructionResult::NonceOverflow);
+            trace.success = false;
+        }
     }
 
     fn selfdestruct(&mut self, contract: Address, target: Address, value: U256) {
