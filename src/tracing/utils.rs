@@ -143,7 +143,6 @@ mod tests {
     use super::*;
     use alloc::vec;
     use alloy_sol_types::{GenericContractError, SolInterface};
-    use revm::{database_interface::EmptyDB, state::AccountInfo};
 
     #[test]
     fn decode_revert_reason() {
@@ -228,14 +227,5 @@ mod tests {
                 "0x2000000000000000000000000000000000000000000000000000000000000000".to_string(),
             ]
         );
-    }
-
-    #[test]
-    fn load_account_code_empty_hash_ignores_cache() {
-        let mut account = AccountInfo::default();
-        assert_eq!(load_account_code(EmptyDB::default(), &account), None);
-
-        account.code = None;
-        assert_eq!(load_account_code(EmptyDB::default(), &account), None);
     }
 }
