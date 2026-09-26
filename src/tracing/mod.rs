@@ -89,6 +89,9 @@ pub struct TracingInspector {
     record_step_end: bool,
     /// Number of logs recorded so far, used as the index of the next log.
     log_count: usize,
+    /// The `log_count` at the start of each active call, restored when the call reverts because
+    /// its logs never take effect.
+    log_count_stack: Vec<usize>,
     /// Number of opcode steps captured across all calls since the last reset.
     recorded_steps: u64,
     /// Tracks the journal len in the step, used in step_end to check if the journal has changed
@@ -135,6 +138,7 @@ impl TracingInspector {
             traces,
             trace_stack,
             log_count,
+            log_count_stack,
             last_journal_len,
             spec_id,
             record_step_end,
@@ -158,6 +162,7 @@ impl TracingInspector {
 
         traces.clear();
         trace_stack.clear();
+        log_count_stack.clear();
         spec_id.take();
         *log_count = 0;
         *last_journal_len = 0;
@@ -243,6 +248,15 @@ impl TracingInspector {
         if let Some(node) = self.traces.arena.first_mut() {
             node.trace.gas_limit = gas_limit;
         }
+    }
+
+    /// Sets the index the next recorded log receives.
+    ///
+    /// Log indices count all logs that took effect in the block, so this should be the number of
+    /// logs emitted by the preceding transactions when tracing a transaction inside a block.
+    #[inline]
+    pub fn set_next_log_index(&mut self, index: usize) {
+        self.log_count = index;
     }
 
     /// Convenience function for [ParityTraceBuilder::set_transaction_gas_used] that consumes the
@@ -394,6 +408,7 @@ impl TracingInspector {
         // the currently active call is the parent of the new call
         let parent = self.trace_stack.last().copied().unwrap_or_default();
 
+        self.log_count_stack.push(self.log_count);
         self.trace_stack.push(self.traces.push_trace(
             parent,
             push_kind,
@@ -428,6 +443,7 @@ impl TracingInspector {
         let InterpreterResult { result, ref output, ref gas } = *result;
 
         let trace_idx = self.pop_trace_idx();
+        let log_count = self.log_count_stack.pop().expect("more traces were filled than started");
         let trace = &mut self.traces.arena[trace_idx].trace;
 
         trace.gas_used = gas.total_gas_spent();
@@ -436,6 +452,9 @@ impl TracingInspector {
         trace.status = Some(result);
         trace.success = trace.status.is_some_and(|status| status.is_ok());
         trace.output = output.clone();
+        if !trace.success {
+            self.log_count = log_count;
+        }
 
         if let Some(address) = created_address {
             // A new contract was created via CREATE

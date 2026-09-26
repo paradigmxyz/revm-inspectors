@@ -170,6 +170,8 @@ fn test_geth_calltracer_logs() {
 
     let mut insp =
         TracingInspector::new(TracingInspectorConfig::default_geth().set_record_logs(true));
+    // three logs emitted by preceding transactions in the block
+    insp.set_next_log_index(3);
 
     let mut evm = evm.with_inspector(&mut insp);
 
@@ -190,9 +192,11 @@ fn test_geth_calltracer_logs() {
         .geth_builder()
         .geth_call_traces(CallConfig::default().with_log(), res.result.tx_gas_used());
 
-    // top-level call succeeded, no log and three subcalls
+    // top-level call succeeded, one log and three subcalls
     assert_eq!(call_frame.calls.len(), 3);
     assert_eq!(call_frame.logs.len(), 1);
+    assert_eq!(call_frame.logs[0].index, Some(3));
+    assert_eq!(call_frame.logs[0].position, Some(0));
     assert!(call_frame.error.is_none());
 
     // first subcall failed, and no logs
@@ -209,9 +213,58 @@ fn test_geth_calltracer_logs() {
     assert!(call_frame.calls[1].calls[0].calls[0].logs.is_empty());
     assert!(call_frame.calls[1].calls[0].calls[0].error.is_none());
 
-    // third subcall succeeded, one log
+    // third subcall succeeded, one log; the logs of the reverted subcalls did not consume an index
     assert_eq!(call_frame.calls[2].logs.len(), 1);
+    assert_eq!(call_frame.calls[2].logs[0].index, Some(4));
     assert!(call_frame.calls[2].error.is_none());
+}
+
+#[test]
+fn test_geth_calltracer_only_top_call_log_position() {
+    // CALL 0x1234, then LOG0
+    let code = hex!("600060006000600060006112345af150600060006000a000");
+    let account = address!("1000000000000000000000000000000000000001");
+    let caller = address!("1000000000000000000000000000000000000002");
+
+    let context =
+        Context::mainnet().with_db(CacheDB::<EmptyDB>::default()).modify_db_chained(|db| {
+            db.insert_account_info(
+                account,
+                AccountInfo { code: Some(Bytecode::new_raw(code.into())), ..Default::default() },
+            );
+        });
+
+    let mut insp = TracingInspector::new(TracingInspectorConfig::none().set_record_logs(true));
+    let mut evm = context.build_mainnet().with_inspector(&mut insp);
+
+    let res = evm
+        .inspect_tx(TxEnv {
+            caller,
+            gas_limit: 1000000,
+            kind: TransactTo::Call(account),
+            data: Bytes::default(),
+            nonce: 0,
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(res.result.is_success(), "{res:#?}");
+
+    let gas_used = res.result.tx_gas_used();
+    let insp = insp.with_transaction_gas_used(gas_used);
+    let builder = insp.geth_builder();
+
+    let call_frame = builder.geth_call_traces(CallConfig::default().with_log(), gas_used);
+    assert_eq!(call_frame.calls.len(), 1);
+    assert_eq!(call_frame.logs.len(), 1);
+    assert_eq!(call_frame.logs[0].index, Some(0));
+    assert_eq!(call_frame.logs[0].position, Some(1));
+
+    let call_frame =
+        builder.geth_call_traces(CallConfig::default().only_top_call().with_log(), gas_used);
+    assert!(call_frame.calls.is_empty());
+    assert_eq!(call_frame.logs.len(), 1);
+    assert_eq!(call_frame.logs[0].index, Some(0));
+    assert_eq!(call_frame.logs[0].position, Some(0));
 }
 
 #[test]
