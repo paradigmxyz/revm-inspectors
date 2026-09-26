@@ -103,13 +103,14 @@ pub(crate) fn load_account_code<DB: DatabaseRef>(
     db: DB,
     db_acc: &revm::state::AccountInfo,
 ) -> Option<Bytes> {
-    db_acc.code.as_ref().map(|code| code.original_bytes()).or_else(|| {
-        if db_acc.code_hash == KECCAK_EMPTY {
-            None
-        } else {
-            db.code_by_hash_ref(db_acc.code_hash).ok().map(|code| code.original_bytes())
-        }
-    })
+    if db_acc.code_hash == KECCAK_EMPTY {
+        return None;
+    }
+    db_acc
+        .code
+        .as_ref()
+        .map(|code| code.original_bytes())
+        .or_else(|| db.code_by_hash_ref(db_acc.code_hash).ok().map(|code| code.original_bytes()))
 }
 
 /// Returns a non-empty revert reason if the output is a revert/error.
