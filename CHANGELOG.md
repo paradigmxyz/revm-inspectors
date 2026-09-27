@@ -5,6 +5,59 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.44.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.44.0) - 2026-09-25
+
+### Bug Fixes
+
+- [parity] Report vmTrace store from SSTORE operands ([#528](https://github.com/paradigmxyz/revm-inspectors/issues/528))
+- [parity] Preserve account existence in state diffs ([#526](https://github.com/paradigmxyz/revm-inspectors/issues/526))
+- [js] Complete geth BigInt compatibility shims ([#524](https://github.com/paradigmxyz/revm-inspectors/issues/524))
+- [ci] Reuse shared deny and refresh runner pins ([#514](https://github.com/paradigmxyz/revm-inspectors/issues/514))
+- [parity] Record executed bytecode in VM traces ([#511](https://github.com/paradigmxyz/revm-inspectors/issues/511))
+- [parity] Report selfdestructed account deletions ([#510](https://github.com/paradigmxyz/revm-inspectors/issues/510))
+- [parity] Report EIP-7702 code changes in state diffs ([#509](https://github.com/paradigmxyz/revm-inspectors/issues/509))
+- [tracing] Record complete Parity VM execution deltas ([#504](https://github.com/paradigmxyz/revm-inspectors/issues/504))
+- [js-tracer] Reference bigint dependency directly ([#507](https://github.com/paradigmxyz/revm-inspectors/issues/507))
+- Preserve changelog history during releases ([#500](https://github.com/paradigmxyz/revm-inspectors/issues/500))
+- Honor opcode trace step limits ([#487](https://github.com/paradigmxyz/revm-inspectors/issues/487))
+- [tracing] Use opcode logger for empty tracer names ([#488](https://github.com/paradigmxyz/revm-inspectors/issues/488))
+- Normalize access list collection ([#479](https://github.com/paradigmxyz/revm-inspectors/issues/479))
+- [access-list] Only exclude applicable authorities ([#484](https://github.com/paradigmxyz/revm-inspectors/issues/484))
+
+### Dependencies
+
+- [deps] Bump re-actors/alls-green from 1.2.2 to 1.3.0 ([#486](https://github.com/paradigmxyz/revm-inspectors/issues/486))
+
+### Features
+
+- [tracing] Configure byte recording limits ([#520](https://github.com/paradigmxyz/revm-inspectors/issues/520))
+- Add Otterscan internal operations inspector ([#508](https://github.com/paradigmxyz/revm-inspectors/issues/508))
+- Add top-of-stack snapshot type ([#468](https://github.com/paradigmxyz/revm-inspectors/issues/468))
+- [tracing] Build parity traces from borrowed result and state ([#506](https://github.com/paradigmxyz/revm-inspectors/issues/506))
+
+### Miscellaneous Tasks
+
+- [ci] Migrate deny to gh-actions ([#529](https://github.com/paradigmxyz/revm-inspectors/issues/529))
+- [ci] Scan GitHub Actions workflows ([#517](https://github.com/paradigmxyz/revm-inspectors/issues/517))
+- [ci] Update gh-actions pins ([#516](https://github.com/paradigmxyz/revm-inspectors/issues/516))
+- [ci] Protect dependency installs with Aegis ([#513](https://github.com/paradigmxyz/revm-inspectors/issues/513))
+
+### Performance
+
+- [tracing] Make call input recording optional ([#519](https://github.com/paradigmxyz/revm-inspectors/issues/519))
+- [js] Avoid per-step allocations and copies ([#493](https://github.com/paradigmxyz/revm-inspectors/issues/493))
+- [geth] Skip storage lookups for unrelated opcodes ([#496](https://github.com/paradigmxyz/revm-inspectors/issues/496))
+- [geth] Stream opcode steps during trace construction ([#495](https://github.com/paradigmxyz/revm-inspectors/issues/495))
+- [js] Evaluate the tracer script in place on fuse ([#492](https://github.com/paradigmxyz/revm-inspectors/issues/492))
+- [geth] Propagate log visibility through call frames ([#494](https://github.com/paradigmxyz/revm-inspectors/issues/494))
+- [geth] Avoid quadratic call frame rollup ([#489](https://github.com/paradigmxyz/revm-inspectors/issues/489))
+- [tracing] Cheaper per-call and per-log bookkeeping ([#491](https://github.com/paradigmxyz/revm-inspectors/issues/491))
+- [parity] Compute trace addresses in a single pass ([#490](https://github.com/paradigmxyz/revm-inspectors/issues/490))
+
+### Styling
+
+- Fmt ([#485](https://github.com/paradigmxyz/revm-inspectors/issues/485))
+
 ## [0.43.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.43.0) - 2026-08-26
 
 ### Dependencies
@@ -15,6 +68,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Features
 
 - [tracing] Support EIP-8037 trace fields ([#476](https://github.com/paradigmxyz/revm-inspectors/issues/476))
+
+### Miscellaneous Tasks
+
+- Release 0.43.0
 
 ### Performance
 

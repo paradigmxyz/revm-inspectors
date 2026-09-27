@@ -13,7 +13,8 @@ use alloy_rpc_types_trace::{
     geth::{CallFrame, CallLogFrame, GethDefaultTracingOptions, StructLog},
     parity::{
         Action, ActionType, CallAction, CallOutput, CallType, CreateAction, CreateOutput,
-        CreationMethod, MemoryDelta, SelfdestructAction, TraceOutput, TransactionTrace,
+        CreationMethod, MemoryDelta, SelfdestructAction, StorageDelta, TraceOutput,
+        TransactionTrace,
     },
 };
 use core::ops::Range;
@@ -89,9 +90,20 @@ pub struct CallTrace {
     /// The value transferred in the call.
     pub value: U256,
     /// The calldata/input, or the init code for contract creations.
+    ///
+    /// Empty when
+    /// [`TracingInspectorConfig::record_inputs`](crate::tracing::TracingInspectorConfig::record_inputs)
+    /// is disabled.
     pub data: Bytes,
     /// The return data, or the runtime bytecode of the created contract.
     pub output: Bytes,
+    /// The bytecode executed by this frame, including initcode and resolved delegation code.
+    ///
+    /// `None` if recording is disabled or the frame never initializes an interpreter.
+    /// `Some` contains the recorded bytes, which may be empty.
+    /// See [`TracingInspectorConfig::record_bytecode`](crate::tracing::TracingInspectorConfig::record_bytecode).
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub bytecode: Option<Bytes>,
     /// The total gas cost of the call.
     pub gas_used: u64,
     /// The gas limit of the call.
@@ -765,8 +777,8 @@ impl CallTraceStep {
 
 /// The deltas a [`CallTraceStep`] produced, as reported by parity's `vmTrace`.
 ///
-/// Recorded in [`CallTrace::step_deltas`] for the steps that write memory, make a call or gain gas,
-/// when [`record_step_deltas`] is enabled.
+/// Recorded in [`CallTrace::step_deltas`] for the steps that write memory or storage, make a call
+/// or gain gas, when [`record_step_deltas`] is enabled.
 ///
 /// [`record_step_deltas`]: crate::tracing::TracingInspectorConfig::record_step_deltas
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -776,6 +788,9 @@ pub struct StepDelta {
     pub step: usize,
     /// The memory written by the step, if any.
     pub memory: Option<MemoryDelta>,
+    /// The storage written by an `SSTORE`, taken from its operands, so it is also set when the
+    /// value does not change.
+    pub store: Option<StorageDelta>,
     /// The remaining gas after a call-like step resumed or an instruction gained gas.
     ///
     /// For all other steps the remaining gas after execution is `gas_remaining - gas_cost`.
@@ -788,10 +803,15 @@ pub struct StepDelta {
 
 impl StepDelta {
     /// Records the bytes the step wrote to `memory`, if a write range was captured.
-    pub(crate) fn record_memory_write(&mut self, memory: &[u8]) {
+    pub(crate) fn record_memory_write(
+        &mut self,
+        memory: &[u8],
+        budget: &mut super::limits::TraceBudget,
+    ) {
         if let Some(range) = self.write_range.take().filter(|range| !range.is_empty()) {
             self.memory = memory
                 .get(range.clone())
+                .filter(|data| budget.reserve(data.len()))
                 .map(|data| MemoryDelta { off: range.start, data: Bytes::copy_from_slice(data) });
         }
     }
