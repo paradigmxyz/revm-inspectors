@@ -4,7 +4,7 @@ use crate::utils::{deploy_contract, inspect_deploy_contract, print_traces};
 use alloy_primitives::{address, hex, map::HashSet, Address, U256};
 use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::parity::{
-    Action, CallAction, CallType, CreationMethod, SelfdestructAction, TraceType,
+    Action, CallAction, CallType, CreationMethod, SelfdestructAction, TraceType, VmTrace,
 };
 use revm::{
     context::TxEnv,
@@ -593,10 +593,124 @@ fn vmtrace_reverted_frame_keeps_its_stores() {
 
 #[test]
 fn vmtrace_faults_have_no_execution_delta() {
-    for code in [&hex!("01")[..], &hex!("f1")[..], &hex!("fe")[..]] {
+    // An MLOAD out of gas and a JUMP to an invalid destination halt after they began executing.
+    for code in [&hex!("63ffffffff51")[..], &hex!("5f56")[..]] {
         let trace = trace_vm_code(code, &[]);
-        assert!(trace.ops[0].ex.is_none(), "{trace:?}");
+        let fault = trace.ops.last().unwrap();
+        assert_eq!(fault.pc, code.len() - 1, "{trace:?}");
+        assert!(fault.ex.is_none() && fault.sub.is_none(), "{trace:?}");
     }
+}
+
+#[test]
+fn vmtrace_omits_operations_rejected_before_execution() {
+    // Stack underflow, the designated invalid opcode 0xFE, an undefined opcode, a CALL without its
+    // operands and a stack overflow.
+    let overflow = [0x5f; 1025];
+    for (code, executed) in [
+        (&hex!("600101")[..], 1),
+        (&hex!("5ffe")[..], 1),
+        (&hex!("5f0c")[..], 1),
+        (&hex!("5ff1")[..], 1),
+        (&overflow[..], 1024),
+    ] {
+        let trace = trace_vm_code(code, &[]);
+        assert_eq!(trace.ops.len(), executed, "{code:x?}");
+        assert!(trace.ops.iter().all(|op| op.ex.is_some()), "{trace:?}");
+    }
+
+    // MCOPY before Cancun is undefined, and so are DUPN, SWAPN and EXCHANGE with an invalid
+    // immediate.
+    let config =
+        TracingInspectorConfig::from_parity_config(&HashSet::from_iter([TraceType::VmTrace]));
+    for (code, spec, executed) in [
+        (&hex!("5f5f5f5e")[..], SpecId::SHANGHAI, 3),
+        (&hex!("5fe65b")[..], SpecId::AMSTERDAM, 1),
+        (&hex!("5f5fe75b")[..], SpecId::AMSTERDAM, 2),
+        (&hex!("5f5fe85b")[..], SpecId::AMSTERDAM, 2),
+    ] {
+        let trace = inspect_code(code, &[], spec, config).into_parity_builder().vm_trace();
+        assert_eq!(trace.ops.len(), executed, "{trace:?}");
+    }
+}
+
+#[test]
+fn vmtrace_has_no_implicit_stop() {
+    // Code that runs off its end, including through a truncated PUSH.
+    for (code, pcs) in [(&hex!("6001600201")[..], &[0, 2, 4][..]), (&hex!("60")[..], &[0][..])] {
+        let trace = trace_vm_code(code, &[]);
+        assert_eq!(trace.ops.iter().map(|op| op.pc).collect::<Vec<_>>(), pcs);
+    }
+
+    let trace = trace_vm_code(&hex!("5f5f5f5f5f604361fffff100"), &hex!("600150"));
+    let sub = trace.ops[7].sub.as_ref().unwrap();
+    assert_eq!(sub.ops.iter().map(|op| op.pc).collect::<Vec<_>>(), [0, 2]);
+}
+
+#[test]
+fn vmtrace_mload_reports_the_loaded_word() {
+    // MLOAD a stored word, then a word past the end of memory.
+    let trace = trace_vm_code(&hex!("602a5f525f5160405100"), &[]);
+    for (idx, off, word) in [(4, 0, U256::from(42)), (6, 64, U256::ZERO)] {
+        assert_eq!(trace.ops[idx].op.as_deref(), Some("MLOAD"));
+        let mem = trace.ops[idx].ex.as_ref().unwrap().mem.as_ref().unwrap();
+        assert_eq!(mem.off, off);
+        assert_eq!(mem.data.as_ref(), word.to_be_bytes::<32>());
+    }
+}
+
+#[test]
+fn vmtrace_precompile_and_empty_code_calls_have_empty_subtraces() {
+    // Call the identity precompile, then an account without code.
+    let trace = trace_vm_code(&hex!("5f5f5f5f5f600461fffff1505f5f5f5f5f604361fffff100"), &[]);
+    for call in [&trace.ops[7], &trace.ops[16]] {
+        assert_eq!(call.sub, Some(VmTrace::default()), "{trace:?}");
+    }
+
+    // A failing precompile, BN254 addition of a point off the curve, and a second CREATE2 of the
+    // same initcode and salt, which collides, also entered their frames.
+    for (code, op) in [
+        (&hex!("60015f5260016020525f5f60405f5f600661fffff100")[..], "CALL"),
+        (&hex!("5f5f5f5ff5505f5f5f5ff500")[..], "CREATE2"),
+    ] {
+        let trace = trace_vm_code(code, &[]);
+        let call = trace.ops.iter().rev().find(|call| call.op.as_deref() == Some(op)).unwrap();
+        assert_eq!(call.ex.as_ref().unwrap().push, vec![U256::ZERO]);
+        assert_eq!(call.sub, Some(VmTrace::default()), "{trace:?}");
+    }
+}
+
+#[test]
+fn vmtrace_failed_precheck_has_no_subtrace() {
+    // A CALL and a CREATE with value from an empty account fail their balance precheck, and the
+    // next CALL enters its frame.
+    for code in [
+        &hex!("5f5f5f5f6001604361fffff1505f5f5f5f5f604361fffff100")[..],
+        &hex!("5f5f6001f0505f5f5f5f5f604361fffff100")[..],
+    ] {
+        let trace = trace_vm_code(code, &hex!("00"));
+        let calls = trace
+            .ops
+            .iter()
+            .filter(|op| matches!(op.op.as_deref(), Some("CALL" | "CREATE")))
+            .collect::<Vec<_>>();
+        assert_eq!(calls[0].ex.as_ref().unwrap().push, vec![U256::ZERO]);
+        assert!(calls[0].sub.is_none(), "{trace:?}");
+        assert_eq!(calls[1].sub.as_ref().unwrap().ops.len(), 1);
+    }
+
+    // Before EIP-150 a frame can forward nearly all its gas, so recursion reaches the depth limit.
+    let config =
+        TracingInspectorConfig::from_parity_config(&HashSet::from_iter([TraceType::VmTrace]));
+    let code = hex!("600060006000600060003060645a03f100");
+    let trace =
+        inspect_code(&code, &[], SpecId::HOMESTEAD, config).into_parity_builder().vm_trace();
+    let (mut frame, mut depth) = (&trace, 0);
+    while let Some(sub) = frame.ops.iter().find_map(|op| op.sub.as_ref()) {
+        frame = sub;
+        depth += 1;
+    }
+    assert_eq!(depth, 1024);
 }
 
 #[test]
@@ -706,7 +820,7 @@ fn vmtrace_nested_sibling_calls_keep_their_own_subtraces() {
 fn vmtrace_precompile_does_not_steal_the_next_calls_subtrace() {
     let trace =
         trace_vm_code(&hex!("5f5f5f5f5f600461fffff1505f5f5f5f5f604361fffff100"), &hex!("60015000"));
-    assert!(trace.ops[7].sub.is_none());
+    assert!(trace.ops[7].sub.as_ref().unwrap().ops.is_empty());
     assert_eq!(trace.ops[16].sub.as_ref().unwrap().ops.len(), 3);
     assert_eq!(trace.ops[7].ex.as_ref().unwrap().push, vec![U256::from(1)]);
 }
@@ -738,6 +852,196 @@ fn vmtrace_failed_child_pushes_zero_and_parent_resumes() {
             trace.ops[7].ex.as_ref().unwrap().used - trace.ops[8].cost,
             trace.ops[8].ex.as_ref().unwrap().used
         );
+    }
+}
+
+/// Returns the errors of the Parity and geth call frames, in call order.
+fn frame_errors(inspector: &TracingInspector) -> (Vec<String>, Vec<String>) {
+    let parity = inspector
+        .clone()
+        .into_parity_builder()
+        .into_transaction_traces()
+        .into_iter()
+        .filter_map(|trace| trace.error)
+        .collect();
+    let mut geth = Vec::new();
+    let mut frames = vec![inspector.geth_builder().geth_call_traces(Default::default(), 0)];
+    while let Some(frame) = frames.pop() {
+        geth.extend(frame.error);
+        frames.extend(frame.calls.into_iter().rev());
+    }
+    (parity, geth)
+}
+
+#[test]
+fn reverted_create_reports_gas_and_revert_data() {
+    use alloy_rpc_types_trace::{filter::TraceFilter, parity::TransactionTrace};
+
+    // Initcode that reverts with 0xdeadbeef, run by a transaction and by CREATE.
+    let initcode = hex!("63deadbeef5f526004601cfd");
+    let factory = Address::with_last_byte(0x42);
+    let mut db = CacheDB::<EmptyDB>::default();
+    db.insert_account_info(
+        factory,
+        AccountInfo::default().with_code(revm::bytecode::Bytecode::new_raw(
+            hex!("6b63deadbeef5f526004601cfd5f52600c60145ff000").into(),
+        )),
+    );
+    let mut evm = Context::mainnet().with_db(db).build_mainnet_with_inspector(
+        TracingInspector::new(TracingInspectorConfig::default_parity()),
+    );
+    for (kind, data, creator) in [
+        (TransactTo::Create, initcode.into(), Address::ZERO),
+        (TransactTo::Call(factory), Default::default(), factory),
+    ] {
+        evm.inspect_tx(TxEnv { gas_limit: 1_000_000, kind, data, ..Default::default() }).unwrap();
+        let traces = evm.inspector.clone().into_parity_builder().into_transaction_traces();
+        evm.inspector.fuse();
+        let create = traces.last().unwrap();
+        assert!(create.action.is_create());
+        assert_eq!(create.error.as_deref(), Some("Reverted"));
+        let json = serde_json::to_value(create).unwrap();
+        assert_eq!(
+            json["result"],
+            serde_json::json!({ "gasUsed": "0x11", "output": "0xdeadbeef" })
+        );
+        assert_eq!(serde_json::from_value::<TransactionTrace>(json).unwrap(), *create);
+
+        // The would-be address is not reported, so an address filter only finds the creator.
+        let to = TraceFilter { to_address: vec![creator.create(0)], ..Default::default() };
+        let from = TraceFilter { from_address: vec![creator], ..Default::default() };
+        assert!(!to.matcher().matches(create));
+        assert!(from.matcher().matches(create));
+    }
+
+    // A successful creation keeps its address and code, and a halted one has no result.
+    for (initcode, expected) in [
+        (&hex!("602a5f5360015ff3")[..], Some((Address::ZERO.create(0), hex!("2a")))),
+        (&hex!("fe")[..], None),
+    ] {
+        evm.inspect_tx(TxEnv {
+            gas_limit: 1_000_000,
+            kind: TransactTo::Create,
+            data: initcode.to_vec().into(),
+            ..Default::default()
+        })
+        .unwrap();
+        let traces = evm.inspector.clone().into_parity_builder().into_transaction_traces();
+        evm.inspector.fuse();
+        let result = traces[0]
+            .result
+            .as_ref()
+            .map(|result| result.as_create().map(|output| (output.address, output.code.to_vec())));
+        assert_eq!(result, expected.map(|(address, code)| Some((address, code.to_vec()))));
+    }
+}
+
+#[test]
+fn failed_frames_use_parity_labels() {
+    for (code, child, spec, labels) in [
+        // A second CREATE2 of the same initcode and salt collides with the first.
+        (
+            &hex!("5f5f5f5ff5505f5f5f5ff500")[..],
+            &[][..],
+            SpecId::PRAGUE,
+            ["Contract address collision", "contract address collision"],
+        ),
+        // SSTORE and a CALL with value in a static context.
+        (
+            &hex!("5f5f5f5f604361fffffa00")[..],
+            &hex!("602a5f5500")[..],
+            SpecId::PRAGUE,
+            ["Mutable Call In Static Context", "write protection"],
+        ),
+        (
+            &hex!("5f5f5f5f604361fffffa00")[..],
+            &hex!("5f5f5f5f6001604461fffff1")[..],
+            SpecId::PRAGUE,
+            ["Mutable Call In Static Context", "write protection"],
+        ),
+        // RETURNDATACOPY past the end of the return data.
+        (
+            &hex!("60015f5f3e00")[..],
+            &[][..],
+            SpecId::PRAGUE,
+            ["Out of bounds", "return data out of bounds"],
+        ),
+        (&hex!("01")[..], &[][..], SpecId::PRAGUE, ["Stack underflow", "stack underflow"]),
+        // MCOPY before Cancun.
+        (&hex!("5f5f5f5e")[..], &[][..], SpecId::SHANGHAI, ["Bad instruction", "invalid opcode"]),
+        // Runtime code above the EIP-170 limit, and runtime code starting with 0xEF.
+        (
+            &hex!("646160015ff35f526005601b5ff000")[..],
+            &[][..],
+            SpecId::PRAGUE,
+            ["Out of gas", "max code size exceeded"],
+        ),
+        (
+            &hex!("6760ef5f5360015ff35f52600860185ff000")[..],
+            &[][..],
+            SpecId::PRAGUE,
+            ["Invalid code", "invalid code: must not begin with 0xef"],
+        ),
+        // Initcode above the EIP-3860 limit.
+        (
+            &hex!("61c0015f5ff000")[..],
+            &[][..],
+            SpecId::PRAGUE,
+            ["Out of gas", "max initcode size exceeded"],
+        ),
+        // Before EIP-150 a frame can forward nearly all its gas, so recursion reaches the depth
+        // limit.
+        (
+            &hex!("600060006000600060003060645a03f100")[..],
+            &[][..],
+            SpecId::HOMESTEAD,
+            ["Max call depth exceeded", "max call depth exceeded"],
+        ),
+    ] {
+        let inspector = inspect_code(code, child, spec, TracingInspectorConfig::default_parity());
+        let (parity, geth) = frame_errors(&inspector);
+        assert_eq!(parity, [labels[0]], "{code:x?}");
+        assert_eq!(geth, [labels[1]], "{code:x?}");
+    }
+}
+
+#[test]
+fn create_nonce_overflow_is_a_failed_frame() {
+    // CREATE from an account whose nonce cannot be incremented, and from one whose can.
+    for nonce in [u64::MAX, u64::MAX - 1] {
+        let factory = Address::with_last_byte(0x42);
+        let mut db = CacheDB::<EmptyDB>::default();
+        db.insert_account_info(
+            factory,
+            AccountInfo {
+                nonce,
+                ..AccountInfo::default()
+                    .with_code(revm::bytecode::Bytecode::new_raw(hex!("5f5f5ff000").into()))
+            },
+        );
+        let mut evm = Context::mainnet().with_db(db).build_mainnet_with_inspector(
+            TracingInspector::new(TracingInspectorConfig::default_parity()),
+        );
+        evm.inspect_tx(TxEnv {
+            gas_limit: 1_000_000,
+            kind: TransactTo::Call(factory),
+            ..Default::default()
+        })
+        .unwrap();
+        let (parity, geth) = frame_errors(&evm.inspector);
+        let traces = evm.inspector.clone().into_parity_builder().into_transaction_traces();
+        assert!(traces[1].action.is_create());
+        if nonce == u64::MAX {
+            assert_eq!(parity, ["Nonce overflow"]);
+            assert_eq!(geth, ["nonce uint64 overflow"]);
+            assert!(traces[1].result.is_none());
+            // The creation returns its gas unspent.
+            let call = evm.inspector.geth_builder().geth_call_traces(Default::default(), 0);
+            assert_eq!(call.calls[0].gas_used, U256::ZERO);
+        } else {
+            assert!(parity.is_empty() && geth.is_empty());
+            assert!(traces[1].result.as_ref().is_some_and(|result| result.as_create().is_some()));
+        }
     }
 }
 

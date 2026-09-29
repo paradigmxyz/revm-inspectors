@@ -116,8 +116,8 @@ pub struct CallTrace {
     pub steps: Vec<CallTraceStep>,
     /// The deltas recorded for [`Self::steps`], in step order.
     ///
-    /// Only steps that write memory, make a call or gain gas have an entry, and only if
-    /// [`record_step_deltas`] is enabled.
+    /// Only steps that report memory or storage, make a call or gain gas have an entry, and only
+    /// if [`record_step_deltas`] is enabled.
     ///
     /// [`record_step_deltas`]: crate::tracing::TracingInspectorConfig::record_step_deltas
     #[cfg_attr(feature = "serde", serde(default))]
@@ -340,21 +340,21 @@ impl CallTraceNode {
     }
 
     /// Returns the `Output` for a parity trace
+    ///
+    /// A reverted creation reports its gas and revert data like a call, since no contract exists
+    /// at the address it would have created.
     pub fn parity_trace_output(&self) -> TraceOutput {
-        match self.kind() {
-            CallKind::Call
-            | CallKind::StaticCall
-            | CallKind::CallCode
-            | CallKind::DelegateCall
-            | CallKind::AuthCall => TraceOutput::Call(CallOutput {
-                gas_used: self.trace.gas_used,
-                output: self.trace.output.clone(),
-            }),
-            CallKind::Create | CallKind::Create2 => TraceOutput::Create(CreateOutput {
+        if self.kind().is_any_create() && !self.trace.is_revert() {
+            TraceOutput::Create(CreateOutput {
                 gas_used: self.trace.gas_used,
                 code: self.trace.output.clone(),
                 address: self.trace.address,
-            }),
+            })
+        } else {
+            TraceOutput::Call(CallOutput {
+                gas_used: self.trace.gas_used,
+                output: self.trace.output.clone(),
+            })
         }
     }
 
@@ -450,7 +450,11 @@ impl CallTraceNode {
                 call_frame.to = None;
             }
 
-            if !self.status().is_some_and(|status| status.is_revert()) {
+            // A revert, including the depth and balance prechecks, and a failed nonce precheck
+            // return their unused gas.
+            if !self.status().is_some_and(|status| {
+                status.is_revert() || status == InstructionResult::NonceOverflow
+            }) {
                 call_frame.gas_used = U256::from(self.trace.gas_limit);
                 call_frame.output = None;
             }
@@ -777,8 +781,8 @@ impl CallTraceStep {
 
 /// The deltas a [`CallTraceStep`] produced, as reported by parity's `vmTrace`.
 ///
-/// Recorded in [`CallTrace::step_deltas`] for the steps that write memory or storage, make a call
-/// or gain gas, when [`record_step_deltas`] is enabled.
+/// Recorded in [`CallTrace::step_deltas`] for the steps that report memory or storage, make a
+/// call or gain gas, when [`record_step_deltas`] is enabled.
 ///
 /// [`record_step_deltas`]: crate::tracing::TracingInspectorConfig::record_step_deltas
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -786,7 +790,7 @@ impl CallTraceStep {
 pub struct StepDelta {
     /// The index of the step in [`CallTrace::steps`].
     pub step: usize,
-    /// The memory written by the step, if any.
+    /// The memory the step wrote, or the word an `MLOAD` read, as it is after the step.
     pub memory: Option<MemoryDelta>,
     /// The storage written by an `SSTORE`, taken from its operands, so it is also set when the
     /// value does not change.
@@ -795,14 +799,14 @@ pub struct StepDelta {
     ///
     /// For all other steps the remaining gas after execution is `gas_remaining - gas_cost`.
     pub gas_remaining_after: Option<u64>,
-    /// The memory range the step writes, captured before execution and consumed once the write
-    /// is recorded.
+    /// The memory range the step reports, captured before execution and consumed once its
+    /// contents are recorded.
     #[cfg_attr(feature = "serde", serde(skip))]
     pub(crate) write_range: Option<Range<usize>>,
 }
 
 impl StepDelta {
-    /// Records the bytes the step wrote to `memory`, if a write range was captured.
+    /// Records the contents of the captured memory range after the step, if one was captured.
     pub(crate) fn record_memory_write(
         &mut self,
         memory: &[u8],
