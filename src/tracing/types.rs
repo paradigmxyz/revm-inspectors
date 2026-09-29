@@ -340,21 +340,21 @@ impl CallTraceNode {
     }
 
     /// Returns the `Output` for a parity trace
+    ///
+    /// A reverted creation reports its gas and revert data like a call, since no contract exists
+    /// at the address it would have created.
     pub fn parity_trace_output(&self) -> TraceOutput {
-        match self.kind() {
-            CallKind::Call
-            | CallKind::StaticCall
-            | CallKind::CallCode
-            | CallKind::DelegateCall
-            | CallKind::AuthCall => TraceOutput::Call(CallOutput {
-                gas_used: self.trace.gas_used,
-                output: self.trace.output.clone(),
-            }),
-            CallKind::Create | CallKind::Create2 => TraceOutput::Create(CreateOutput {
+        if self.kind().is_any_create() && !self.trace.is_revert() {
+            TraceOutput::Create(CreateOutput {
                 gas_used: self.trace.gas_used,
                 code: self.trace.output.clone(),
                 address: self.trace.address,
-            }),
+            })
+        } else {
+            TraceOutput::Call(CallOutput {
+                gas_used: self.trace.gas_used,
+                output: self.trace.output.clone(),
+            })
         }
     }
 
@@ -450,7 +450,11 @@ impl CallTraceNode {
                 call_frame.to = None;
             }
 
-            if !self.status().is_some_and(|status| status.is_revert()) {
+            // A revert, including the depth and balance prechecks, and a failed nonce precheck
+            // return their unused gas.
+            if !self.status().is_some_and(|status| {
+                status.is_revert() || status == InstructionResult::NonceOverflow
+            }) {
                 call_frame.gas_used = U256::from(self.trace.gas_limit);
                 call_frame.output = None;
             }
