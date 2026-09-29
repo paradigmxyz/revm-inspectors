@@ -945,15 +945,16 @@ impl CallInputExt for CallInputs {
     }
 }
 
-/// Returns the memory range the opcode writes, derived from its inputs on the stack.
+/// Returns the memory range whose contents after execution the opcode reports, derived from its
+/// inputs on the stack.
 ///
-/// Only writes are tracked: instructions that merely expand memory, like `MLOAD`, yield `None`.
+/// This is the range the opcode writes, or for `MLOAD` the word it reads, as in Parity's `vmTrace`.
 fn memory_write_range(op: u8, stack: &[U256]) -> Option<Range<usize>> {
     let back = |index: usize| {
         stack.get(stack.len().checked_sub(index + 1)?).and_then(|v| usize::try_from(*v).ok())
     };
     let (offset, size) = match op {
-        opcode::MSTORE => (back(0)?, 32),
+        opcode::MLOAD | opcode::MSTORE => (back(0)?, 32),
         opcode::MSTORE8 => (back(0)?, 1),
         opcode::CALLDATACOPY | opcode::CODECOPY | opcode::RETURNDATACOPY | opcode::MCOPY => {
             (back(0)?, back(2)?)
