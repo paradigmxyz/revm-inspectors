@@ -267,6 +267,82 @@ fn test_geth_calltracer_only_top_call_log_position() {
     assert_eq!(call_frame.logs[0].position, Some(0));
 }
 
+/// EIP-7708: a transfer log of a reverted call is rolled back and does not consume an index.
+#[test]
+fn test_geth_calltracer_log_index_eip7708_revert() {
+    // CALL 0x1111 with 1 wei, CALL 0x2222 with 1 wei, then LOG0
+    let code = hex!("5f5f5f5f60016111115af1505f5f5f5f60016122225af1505f5fa000");
+    let contract = address!("1000000000000000000000000000000000000001");
+    let caller = address!("1000000000000000000000000000000000000002");
+    let succeeds = address!("0000000000000000000000000000000000001111");
+    let reverts = address!("0000000000000000000000000000000000002222");
+
+    let context = Context::mainnet()
+        .with_db(CacheDB::<EmptyDB>::default())
+        .modify_cfg_chained(|cfg| cfg.spec = SpecId::AMSTERDAM)
+        .modify_db_chained(|db| {
+            db.insert_account_info(
+                contract,
+                AccountInfo {
+                    balance: U256::from(2),
+                    code: Some(Bytecode::new_raw(code.into())),
+                    ..Default::default()
+                },
+            );
+            db.insert_account_info(
+                succeeds,
+                AccountInfo {
+                    code: Some(Bytecode::new_raw(Bytes::from_static(&[opcode::STOP]))),
+                    ..Default::default()
+                },
+            );
+            db.insert_account_info(
+                reverts,
+                AccountInfo {
+                    code: Some(Bytecode::new_raw(Bytes::from_static(&[
+                        opcode::PUSH0,
+                        opcode::PUSH0,
+                        opcode::REVERT,
+                    ]))),
+                    ..Default::default()
+                },
+            );
+        });
+
+    let mut insp =
+        TracingInspector::new(TracingInspectorConfig::default_geth().set_record_logs(true));
+    let mut evm = context.build_mainnet().with_inspector(&mut insp);
+
+    let res = evm
+        .inspect_tx(TxEnv {
+            caller,
+            gas_limit: 1_000_000,
+            gas_price: 0,
+            kind: TransactTo::Call(contract),
+            data: Bytes::default(),
+            nonce: 0,
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(res.result.is_success(), "{res:#?}");
+    assert_eq!(res.result.logs().len(), 2);
+
+    let call_frame = insp
+        .with_transaction_gas_used(res.result.tx_gas_used())
+        .geth_builder()
+        .geth_call_traces(CallConfig::default().with_log(), res.result.tx_gas_used());
+
+    assert_eq!(call_frame.calls.len(), 2);
+    assert_eq!(call_frame.calls[0].logs.len(), 1);
+    assert_eq!(call_frame.calls[0].logs[0].address, Some(ETH_TRANSFER_LOG_ADDRESS));
+    assert_eq!(call_frame.calls[0].logs[0].index, Some(0));
+    assert!(call_frame.calls[1].error.is_some());
+    assert!(call_frame.calls[1].logs.is_empty());
+    assert_eq!(call_frame.logs.len(), 1);
+    assert_eq!(call_frame.logs[0].index, Some(1));
+    assert_eq!(call_frame.logs[0].position, Some(2));
+}
+
 #[test]
 fn test_geth_erc7562_tracer() {
     let code = hex!("6001600052602060002060005500");

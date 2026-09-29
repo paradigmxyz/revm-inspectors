@@ -254,6 +254,7 @@ impl TracingInspector {
     ///
     /// Log indices count all logs that took effect in the block, so this should be the number of
     /// logs emitted by the preceding transactions when tracing a transaction inside a block.
+    /// [`Self::fuse`] clears it, so set it again before each transaction.
     #[inline]
     pub fn set_next_log_index(&mut self, index: usize) {
         self.log_count = index;
