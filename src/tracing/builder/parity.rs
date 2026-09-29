@@ -467,12 +467,9 @@ where
             entry.balance = Delta::Removed(db_acc.balance);
             entry.nonce = Delta::Removed(U64::from(db_acc.nonce));
             entry.code = Delta::Removed(load_account_code(&db, &db_acc).unwrap_or_default());
-            // The state map contains accessed slots only; DatabaseRef cannot enumerate storage.
-            for (key, slot) in &changed_acc.storage {
-                if !slot.original_value.is_zero() {
-                    entry.storage.insert((*key).into(), Delta::Removed(slot.original_value.into()));
-                }
-            }
+            // Deletion wipes all storage, which the removed account implies, so no slot is
+            // listed: the state map holds only the slots this transaction accessed, and
+            // DatabaseRef cannot enumerate the rest.
             continue;
         }
 
