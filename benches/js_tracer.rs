@@ -16,13 +16,9 @@ use revm::{
     state::{AccountInfo, Bytecode},
     InspectEvm, MainBuilder, MainContext,
 };
-use revm_inspectors::tracing::js::JsInspector;
+use revm_inspectors::tracing::js::{JsInspector, JsInspectorInterrupt};
 use serde::Deserialize;
-use std::{
-    collections::BTreeMap,
-    hint::black_box,
-    sync::{atomic::AtomicBool, Arc},
-};
+use std::{collections::BTreeMap, hint::black_box};
 
 const CONTRACT_REPETITIONS: usize = 5_000;
 const RUNDLER_STYLE_REPETITIONS: u16 = 5_000;
@@ -254,7 +250,7 @@ fn run_trace_with_interrupt(
     script: &str,
     contract: &Bytes,
     helper_contract: Option<&Bytes>,
-    interrupt: Option<Arc<AtomicBool>>,
+    interrupt: Option<JsInspectorInterrupt>,
 ) -> serde_json::Value {
     let contract_address = Address::repeat_byte(0x01);
     let mut db = CacheDB::new(EmptyDB::default());
@@ -520,9 +516,9 @@ fn js_tracer_benches(c: &mut Criterion) {
 
     let no_step_script = "{ fault: function() {}, result: function() { return 0; } }";
     for (name, script, interrupt) in [
-        ("step_noop_interrupt", noop_script, Some(Arc::new(AtomicBool::new(false)))),
+        ("step_noop_interrupt", noop_script, Some(JsInspectorInterrupt::new())),
         ("no_step", no_step_script, None),
-        ("no_step_interrupt", no_step_script, Some(Arc::new(AtomicBool::new(false)))),
+        ("no_step_interrupt", no_step_script, Some(JsInspectorInterrupt::new())),
     ] {
         group.bench_function(name, |b| {
             b.iter_batched(

@@ -114,7 +114,7 @@ pub struct JsInspector {
     /// Total gas spent before the pending step, to compute the step's cost in `step_end`.
     gas_spent_before: u64,
     /// Optional cancellation signal shared with the caller.
-    interrupt: Option<Arc<AtomicBool>>,
+    interrupt: Option<JsInspectorInterrupt>,
 }
 
 impl core::fmt::Debug for JsInspector {
@@ -460,47 +460,43 @@ impl JsInspector {
         self.precompiles_registered = true
     }
 
-    /// Sets a shared flag that cooperatively interrupts JavaScript tracing.
+    /// Sets a shared handle that cooperatively interrupts JavaScript tracing.
     ///
-    /// Store `true` with [`Ordering::Relaxed`] from a timeout or cancellation handler to abort
-    /// execution with a revm custom error at the next inspection boundary. Keep the flag set for
-    /// the lifetime of the cancelled trace. [`Self::try_clone`] shares the flag and [`Self::fuse`]
-    /// does not reset it. Result collection also fails when the flag is set.
+    /// Call [`JsInspectorInterrupt::interrupt`] from a timeout or cancellation handler to abort
+    /// execution with a revm custom error at the next inspection boundary. [`Self::try_clone`]
+    /// shares the handle and [`Self::fuse`] does not reset it. Result collection also fails after
+    /// interruption.
     ///
-    /// The flag is checked even if the tracer has no `step` callback. Checking it does not clone
-    /// the `Arc` or synchronize any other data. Without a flag, no atomic loads are performed.
+    /// The handle is checked even if the tracer has no `step` callback. Checking it performs a
+    /// relaxed atomic load without cloning the handle. Without a handle, no atomic loads are
+    /// performed.
     ///
     /// This cannot preempt a running JavaScript callback, native operation or precompile. It does
     /// not bound memory usage or interrupt script evaluation and `setup` in the constructor.
     /// Boa's runtime limits still apply while JavaScript is running.
     ///
     /// ```
-    /// use revm_inspectors::tracing::js::JsInspector;
-    /// use std::sync::{
-    ///     atomic::{AtomicBool, Ordering},
-    ///     Arc,
-    /// };
+    /// use revm_inspectors::tracing::js::{JsInspector, JsInspectorInterrupt};
     ///
-    /// let interrupt = Arc::new(AtomicBool::new(false));
+    /// let interrupt = JsInspectorInterrupt::new();
     /// let inspector = JsInspector::new(
     ///     "{ fault: function() {}, result: function() {} }".into(),
     ///     serde_json::Value::Null,
     /// )?
     /// .with_interrupt(interrupt.clone());
     /// // The request's timeout or cancellation handler can signal the blocking execution.
-    /// interrupt.store(true, Ordering::Relaxed);
+    /// interrupt.interrupt();
     /// # Ok::<(), revm_inspectors::tracing::js::JsInspectorError>(())
     /// ```
     #[must_use]
-    pub fn with_interrupt(mut self, interrupt: Arc<AtomicBool>) -> Self {
+    pub fn with_interrupt(mut self, interrupt: JsInspectorInterrupt) -> Self {
         self.interrupt = Some(interrupt);
         self
     }
 
     #[inline]
     fn is_interrupted(&self) -> bool {
-        // The flag only communicates cancellation, not access to any other shared state.
-        self.interrupt.as_ref().is_some_and(|interrupt| interrupt.load(Ordering::Relaxed))
+        self.interrupt.as_ref().is_some_and(JsInspectorInterrupt::is_interrupted)
     }
 
     fn ensure_not_interrupted(&self) -> Result<(), JsInspectorError> {
@@ -761,6 +757,32 @@ where
             let frame_result = FrameResult { gas_used: 0, output: Bytes::new(), error: None };
             let _ = self.try_exit(frame_result);
         }
+    }
+}
+
+/// A shared handle for cooperatively interrupting a [`JsInspector`].
+///
+/// Clones share the same signal. Interruption is permanent and dropping a handle does not
+/// interrupt execution. The signal uses relaxed atomics and does not synchronize other data.
+#[derive(Clone, Debug, Default)]
+pub struct JsInspectorInterrupt(Arc<AtomicBool>);
+
+impl JsInspectorInterrupt {
+    /// Creates a handle that has not been interrupted.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Signals interruption to all inspectors sharing this handle.
+    #[inline]
+    pub fn interrupt(&self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+
+    /// Returns whether interruption has been requested.
+    #[inline]
+    pub fn is_interrupted(&self) -> bool {
+        self.0.load(Ordering::Relaxed)
     }
 }
 

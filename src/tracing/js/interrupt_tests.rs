@@ -18,7 +18,7 @@ const TARGET: Address = Address::with_last_byte(0x42);
 
 #[test]
 fn unset_interrupt_preserves_results() {
-    for interrupt in [None, Some(Arc::new(AtomicBool::new(false)))] {
+    for interrupt in [None, Some(JsInspectorInterrupt::default())] {
         let mut inspector = JsInspector::new(TRACER.into(), serde_json::Value::Null).unwrap();
         if let Some(interrupt) = interrupt {
             inspector = inspector.with_interrupt(interrupt);
@@ -49,9 +49,11 @@ fn pre_cancelled_calls_and_creates_abort() {
         TransactTo::Call(Address::with_last_byte(4)),
         TransactTo::Create,
     ] {
+        let interrupt = JsInspectorInterrupt::new();
+        interrupt.interrupt();
         let inspector = JsInspector::new(TRACER.into(), serde_json::Value::Null)
             .unwrap()
-            .with_interrupt(Arc::new(AtomicBool::new(true)));
+            .with_interrupt(interrupt);
         let (_, result) = run(inspector, &hex!("60015000"), kind);
         assert_interrupted(result);
     }
@@ -59,14 +61,14 @@ fn pre_cancelled_calls_and_creates_abort() {
 
 #[test]
 fn interrupt_stops_steps_without_js_step_callback() {
-    let interrupt = Arc::new(AtomicBool::new(false));
+    let interrupt = JsInspectorInterrupt::new();
     let mut inspector = JsInspector::new(TRACER.into(), serde_json::Value::Null)
         .unwrap()
         .with_interrupt(interrupt.clone());
     let mut context = revm::Context::mainnet();
     let mut interp = Interpreter::default();
     // Signal from another thread after the inspector has been created.
-    std::thread::spawn(move || interrupt.store(true, Ordering::Relaxed)).join().unwrap();
+    std::thread::spawn(move || interrupt.interrupt()).join().unwrap();
     inspector.step(&mut interp, &mut context);
     assert_eq!(
         interp.bytecode.action().as_ref().unwrap().instruction_result(),
@@ -119,7 +121,7 @@ fn interrupt_during_enter_and_exit_aborts() {
 
 #[test]
 fn interrupt_before_step_end_skips_callback_and_preserves_error() {
-    let interrupt = Arc::new(AtomicBool::new(false));
+    let interrupt = JsInspectorInterrupt::new();
     let mut inspector = JsInspector::new(
         "{step: function() { throw 'must not run'; }, fault: function() {}, result: function() {}}"
             .into(),
@@ -133,7 +135,7 @@ fn interrupt_before_step_end_skips_callback_and_preserves_error() {
     assert!(inspector.step_pending);
     interp.bytecode.set_action(InterpreterAction::new_halt(InstructionResult::Stop, interp.gas));
     context.error = Err(ContextError::Custom("original error".into()));
-    interrupt.store(true, Ordering::Relaxed);
+    interrupt.interrupt();
     inspector.step_end(&mut interp, &mut context);
     assert!(!inspector.step_pending);
     assert_eq!(context.error, Err(ContextError::Custom("original error".into())));
@@ -145,13 +147,13 @@ fn interrupt_before_step_end_skips_callback_and_preserves_error() {
 
 #[test]
 fn interrupt_survives_clone_and_fuse() {
-    let interrupt = Arc::new(AtomicBool::new(false));
+    let interrupt = JsInspectorInterrupt::new();
     let mut inspector = JsInspector::new(TRACER.into(), serde_json::Value::Null)
         .unwrap()
         .with_interrupt(interrupt.clone());
     let cloned = inspector.try_clone().unwrap();
     inspector.fuse().unwrap();
-    interrupt.store(true, Ordering::Relaxed);
+    interrupt.interrupt();
     assert!(matches!(inspector.fuse(), Err(JsInspectorError::Interrupted)));
     assert!(matches!(inspector.try_clone(), Err(JsInspectorError::Interrupted)));
     for inspector in [inspector, cloned] {
@@ -170,7 +172,7 @@ fn interrupt_rejects_result_collection() {
         let (mut inspector, result) = run(interruptible(script), &hex!("00"), TransactTo::Call(TARGET));
         let result = result.unwrap();
         if script == TRACER {
-            inspector.interrupt.as_ref().unwrap().store(true, Ordering::Relaxed);
+            inspector.interrupt.as_ref().unwrap().interrupt();
         }
         assert!(matches!(
             inspector.json_result(result, &TxEnv::default(), &revm::context::BlockEnv::default(), &EmptyDB::default()),
@@ -181,10 +183,10 @@ fn interrupt_rejects_result_collection() {
 
 /// An atomic flag contains no garbage-collected JavaScript values.
 #[derive(Trace, Finalize)]
-struct InterruptSignal(#[unsafe_ignore_trace] Arc<AtomicBool>);
+struct InterruptSignal(#[unsafe_ignore_trace] JsInspectorInterrupt);
 
 fn interruptible(script: &str) -> JsInspector {
-    let interrupt = Arc::new(AtomicBool::new(false));
+    let interrupt = JsInspectorInterrupt::new();
     let mut inspector = JsInspector::new(script.into(), serde_json::Value::Null)
         .unwrap()
         .with_interrupt(interrupt.clone());
@@ -195,7 +197,7 @@ fn interruptible(script: &str) -> JsInspector {
             0,
             NativeFunction::from_copy_closure_with_captures(
                 |_, _, signal, _| {
-                    signal.0.store(true, Ordering::Relaxed);
+                    signal.0.interrupt();
                     Ok(JsValue::undefined())
                 },
                 InterruptSignal(interrupt),
