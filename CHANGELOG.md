@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.44.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.44.1) - 2026-09-30
+
+### Bug Fixes
+
+- [parity] Report reverted creations without an address ([#533](https://github.com/paradigmxyz/revm-inspectors/issues/533))
+- [parity] Match vmTrace ops and subs to execution ([#532](https://github.com/paradigmxyz/revm-inspectors/issues/532))
+- [parity] Report no storage slots for a deleted account ([#530](https://github.com/paradigmxyz/revm-inspectors/issues/530))
+- [tracing] Return no code for empty code hashes ([#531](https://github.com/paradigmxyz/revm-inspectors/issues/531))
+
+### Dependencies
+
+- Bump gh-actions to d5402286 ([#535](https://github.com/paradigmxyz/revm-inspectors/issues/535))
+
+### Miscellaneous Tasks
+
+- Update gh-actions to ee2960a6 ([#534](https://github.com/paradigmxyz/revm-inspectors/issues/534))
+
 ## [0.44.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.44.0) - 2026-09-25
 
 ### Bug Fixes
@@ -37,6 +54,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Miscellaneous Tasks
 
+- Release 0.44.0
 - [ci] Migrate deny to gh-actions ([#529](https://github.com/paradigmxyz/revm-inspectors/issues/529))
 - [ci] Scan GitHub Actions workflows ([#517](https://github.com/paradigmxyz/revm-inspectors/issues/517))
 - [ci] Update gh-actions pins ([#516](https://github.com/paradigmxyz/revm-inspectors/issues/516))
