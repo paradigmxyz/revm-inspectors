@@ -15,17 +15,18 @@ use crate::tracing::{
 use alloc::{
     format,
     string::{String, ToString},
+    sync::Arc,
     vec::Vec,
 };
 use alloy_primitives::{Address, Bytes, U256};
-pub use boa_engine::vm::RuntimeLimits;
 use boa_engine::{js_string, Context, JsError, JsObject, JsResult, JsValue, Script, Source};
+use core::sync::atomic::{AtomicBool, Ordering};
 use revm::{
     bytecode::opcode,
     context::JournalTr,
     context_interface::{
         result::{ExecutionResult, HaltReasonTr, Output, ResultAndState},
-        Block, ContextTr, TransactTo, Transaction,
+        Block, ContextError, ContextTr, TransactTo, Transaction,
     },
     database::WrapDatabaseRef,
     inspector::JournalExt,
@@ -37,8 +38,13 @@ use revm::{
     DatabaseRef, Inspector,
 };
 
+pub use boa_engine::vm::RuntimeLimits;
+
 pub(crate) mod bindings;
 pub(crate) mod builtins;
+
+#[cfg(test)]
+mod interrupt_tests;
 
 /// The maximum number of iterations in a loop.
 ///
@@ -107,6 +113,8 @@ pub struct JsInspector {
     step_pending: bool,
     /// Total gas spent before the pending step, to compute the step's cost in `step_end`.
     gas_spent_before: u64,
+    /// Optional cancellation signal shared with the caller.
+    interrupt: Option<Arc<AtomicBool>>,
 }
 
 impl core::fmt::Debug for JsInspector {
@@ -199,6 +207,7 @@ impl JsInspector {
             precompiles_registered: false,
             step_pending: false,
             gas_spent_before: 0,
+            interrupt: None,
         })
     }
 
@@ -207,9 +216,13 @@ impl JsInspector {
         &self.config
     }
 
-    /// Creates a fresh inspector from the same code and config, resetting all execution state.
+    /// Creates a fresh inspector from the same code and config, sharing the interrupt flag.
     pub fn try_clone(&self) -> Result<Self, JsInspectorError> {
-        Self::new(self.code.clone(), self.config.clone())
+        self.ensure_not_interrupted()?;
+        let mut inspector = Self::new(self.code.clone(), self.config.clone())?;
+        self.ensure_not_interrupted()?;
+        inspector.interrupt = self.interrupt.clone();
+        Ok(inspector)
     }
 
     /// Resets the inspector to its initial state so it can be used for the next transaction.
@@ -219,8 +232,10 @@ impl JsInspector {
     /// state the previous tracer object may have modified, e.g. prototypes, is kept. Callback
     /// wrappers are recreated so their own properties do not carry over between transactions.
     pub fn fuse(&mut self) -> Result<(), JsInspectorError> {
+        self.ensure_not_interrupted()?;
         let JsTracerObject { obj, result_fn, fault_fn, enter_fn, exit_fn, step_fn } =
             JsTracerObject::evaluate(&self.script, &self.config, &mut self.ctx)?;
+        self.ensure_not_interrupted()?;
         // Callback objects are mutable JS objects: replacing their Rust state does not remove
         // user-defined properties or restore overwritten methods. Rebuild them once per
         // transaction, while retaining the parsed script and reusing wrappers within a transaction.
@@ -283,7 +298,9 @@ impl JsInspector {
         <DB as DatabaseRef>::Error: core::fmt::Display,
     {
         let result = self.result(res, tx, block, db)?;
-        Ok(to_serde_value(result, &mut self.ctx)?)
+        let result = to_serde_value(result, &mut self.ctx)?;
+        self.ensure_not_interrupted()?;
+        Ok(result)
     }
 
     /// Calls the result function and returns the result.
@@ -299,6 +316,7 @@ impl JsInspector {
         DB: DatabaseRef,
         <DB as DatabaseRef>::Error: core::fmt::Display,
     {
+        self.ensure_not_interrupted()?;
         let ResultAndState { result, state } = res;
         let mut db = WrapDatabaseRef(db);
 
@@ -354,9 +372,11 @@ impl JsInspector {
             error,
         };
         let ctx = ctx.into_js_object(&mut self.ctx)?;
-        Ok(self.reusable_db.with_scope(&state, &mut db, || {
+        let result = self.reusable_db.with_scope(&state, &mut db, || {
             self.result_fn.call(&self.this, &[ctx.into(), self.reusable_db.value()], &mut self.ctx)
-        })?)
+        });
+        self.ensure_not_interrupted()?;
+        Ok(result?)
     }
 
     fn try_enter(&mut self, frame: CallFrame) -> JsResult<()> {
@@ -439,14 +459,100 @@ impl JsInspector {
 
         self.precompiles_registered = true
     }
+
+    /// Sets a shared flag that cooperatively interrupts JavaScript tracing.
+    ///
+    /// Store `true` with [`Ordering::Relaxed`] from a timeout or cancellation handler to abort
+    /// execution with a revm custom error at the next inspection boundary. Keep the flag set for
+    /// the lifetime of the cancelled trace. [`Self::try_clone`] shares the flag and [`Self::fuse`]
+    /// does not reset it. Result collection also fails when the flag is set.
+    ///
+    /// The flag is checked even if the tracer has no `step` callback. Checking it does not clone
+    /// the `Arc` or synchronize any other data. Without a flag, no atomic loads are performed.
+    ///
+    /// This cannot preempt a running JavaScript callback, native operation or precompile. It does
+    /// not bound memory usage or interrupt script evaluation and `setup` in the constructor.
+    /// Boa's runtime limits still apply while JavaScript is running.
+    ///
+    /// ```
+    /// use revm_inspectors::tracing::js::JsInspector;
+    /// use std::sync::{
+    ///     atomic::{AtomicBool, Ordering},
+    ///     Arc,
+    /// };
+    ///
+    /// let interrupt = Arc::new(AtomicBool::new(false));
+    /// let inspector = JsInspector::new(
+    ///     "{ fault: function() {}, result: function() {} }".into(),
+    ///     serde_json::Value::Null,
+    /// )?
+    /// .with_interrupt(interrupt.clone());
+    /// // The request's timeout or cancellation handler can signal the blocking execution.
+    /// interrupt.store(true, Ordering::Relaxed);
+    /// # Ok::<(), revm_inspectors::tracing::js::JsInspectorError>(())
+    /// ```
+    #[must_use]
+    pub fn with_interrupt(mut self, interrupt: Arc<AtomicBool>) -> Self {
+        self.interrupt = Some(interrupt);
+        self
+    }
+
+    #[inline]
+    fn is_interrupted(&self) -> bool {
+        // The flag only communicates cancellation, not access to any other shared state.
+        self.interrupt.as_ref().is_some_and(|interrupt| interrupt.load(Ordering::Relaxed))
+    }
+
+    fn ensure_not_interrupted(&self) -> Result<(), JsInspectorError> {
+        if self.is_interrupted() {
+            return Err(JsInspectorError::Interrupted);
+        }
+        Ok(())
+    }
+
+    #[inline]
+    fn check_interrupt(&self, context: &mut impl ContextTr) -> bool {
+        if !self.is_interrupted() {
+            return false;
+        }
+        if context.error().is_ok() {
+            *context.error() = Err(ContextError::Custom(JsInspectorError::Interrupted.to_string()));
+        }
+        true
+    }
+
+    fn interrupt_result(
+        &self,
+        context: &mut impl ContextTr,
+        gas_limit: u64,
+    ) -> Option<InterpreterResult> {
+        self.check_interrupt(context).then(|| InterpreterResult {
+            result: InstructionResult::FatalExternalError,
+            output: Bytes::new(),
+            gas: Gas::new(gas_limit),
+        })
+    }
+
+    #[inline]
+    fn check_and_halt(&mut self, context: &mut impl ContextTr, interp: &mut Interpreter) -> bool {
+        if !self.check_interrupt(context) {
+            return false;
+        }
+        self.step_pending = false;
+        // Replace pending CALL/RETURN actions too, so cancellation cannot be caught by the EVM.
+        interp.bytecode.action().take();
+        interp.bytecode.reset_action();
+        interp.halt_fatal();
+        true
+    }
 }
 
 impl<CTX> Inspector<CTX> for JsInspector
 where
     CTX: ContextTr<Journal: JournalExt>,
 {
-    fn step(&mut self, interp: &mut Interpreter, _context: &mut CTX) {
-        if self.step_fn.is_none() {
+    fn step(&mut self, interp: &mut Interpreter, context: &mut CTX) {
+        if self.check_and_halt(context, interp) || self.step_fn.is_none() {
             return;
         }
 
@@ -468,6 +574,9 @@ where
     }
 
     fn step_end(&mut self, interp: &mut Interpreter, context: &mut CTX) {
+        if self.check_and_halt(context, interp) {
+            return;
+        }
         let Some(step_fn) = &self.step_fn else {
             return;
         };
@@ -508,6 +617,10 @@ where
             )
         });
 
+        if self.check_and_halt(context, interp) {
+            return;
+        }
+
         // Only set revert if the opcode didn't already set an action (e.g. STOP/RETURN).
         // If the opcode completed successfully, we can't revert it after the fact.
         if !is_revert && res.is_err() && interp.bytecode.action().is_none() {
@@ -518,6 +631,9 @@ where
     }
 
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
+        if let Some(result) = self.interrupt_result(context, inputs.gas_limit) {
+            return Some(CallOutcome::new(result, inputs.return_memory_offset.clone()));
+        }
         self.register_precompiles(context);
 
         // determine contract and caller based on the call scheme
@@ -538,6 +654,7 @@ where
             inputs.gas_limit,
         );
 
+        let mut result = None;
         if self.can_call_enter() {
             let call = self.active_call();
             let frame = CallFrame {
@@ -545,18 +662,18 @@ where
                 kind: call.kind,
                 gas: inputs.gas_limit,
             };
-            if let Err(err) = self.try_enter(frame) {
-                return Some(CallOutcome::new(
-                    js_error_to_revert(err),
-                    inputs.return_memory_offset.clone(),
-                ));
-            }
+            result = self.try_enter(frame).err().map(js_error_to_revert);
         }
 
-        None
+        self.interrupt_result(context, inputs.gas_limit)
+            .or(result)
+            .map(|result| CallOutcome::new(result, inputs.return_memory_offset.clone()))
     }
 
-    fn call_end(&mut self, _context: &mut CTX, _inputs: &CallInputs, outcome: &mut CallOutcome) {
+    fn call_end(&mut self, context: &mut CTX, _inputs: &CallInputs, outcome: &mut CallOutcome) {
+        if self.check_interrupt(context) {
+            return;
+        }
         if self.can_call_exit() {
             let frame_result = FrameResult {
                 gas_used: outcome.result.gas.total_gas_spent(),
@@ -569,9 +686,13 @@ where
         }
 
         self.pop_call();
+        self.check_interrupt(context);
     }
 
     fn create(&mut self, context: &mut CTX, inputs: &mut CreateInputs) -> Option<CreateOutcome> {
+        if let Some(result) = self.interrupt_result(context, inputs.gas_limit()) {
+            return Some(CreateOutcome::new(result, None));
+        }
         self.register_precompiles(context);
 
         let nonce = context.journal_mut().load_account(inputs.caller()).unwrap().info.nonce;
@@ -585,24 +706,28 @@ where
             inputs.gas_limit(),
         );
 
+        let mut result = None;
         if self.can_call_enter() {
             let call = self.active_call();
             let frame =
                 CallFrame { contract: call.contract.clone(), kind: call.kind, gas: call.gas_limit };
-            if let Err(err) = self.try_enter(frame) {
-                return Some(CreateOutcome::new(js_error_to_revert(err), None));
-            }
+            result = self.try_enter(frame).err().map(js_error_to_revert);
         }
 
-        None
+        self.interrupt_result(context, inputs.gas_limit())
+            .or(result)
+            .map(|result| CreateOutcome::new(result, None))
     }
 
     fn create_end(
         &mut self,
-        _context: &mut CTX,
+        context: &mut CTX,
         _inputs: &CreateInputs,
         outcome: &mut CreateOutcome,
     ) {
+        if self.check_interrupt(context) {
+            return;
+        }
         if self.can_call_exit() {
             let frame_result = FrameResult {
                 gas_used: outcome.result.gas.total_gas_spent(),
@@ -615,9 +740,13 @@ where
         }
 
         self.pop_call();
+        self.check_interrupt(context);
     }
 
     fn selfdestruct(&mut self, _contract: Address, _target: Address, _value: U256) {
+        if self.is_interrupted() {
+            return;
+        }
         // This is exempt from the root call constraint, because selfdestruct is treated as a
         // new scope that is entered and immediately exited.
         if self.enter_fn.is_some() {
@@ -628,7 +757,7 @@ where
         }
 
         // exit with empty frame result ref <https://github.com/ethereum/go-ethereum/blob/0004c6b229b787281760b14fb9460ffd9c2496f1/core/vm/instructions.go#L829-L829>
-        if self.exit_fn.is_some() {
+        if !self.is_interrupted() && self.exit_fn.is_some() {
             let frame_result = FrameResult { gas_used: 0, output: Bytes::new(), error: None };
             let _ = self.try_exit(frame_result);
         }
@@ -739,6 +868,10 @@ pub enum JsInspectorError {
     /// Invalid JSON configuration encountered.
     #[error("invalid JSON config: {0}")]
     InvalidJsonConfig(JsError),
+
+    /// Tracing was cancelled through the shared interrupt flag.
+    #[error("JavaScript tracing interrupted")]
+    Interrupted,
 }
 
 /// Converts a JavaScript error into a [InstructionResult::Revert] [InterpreterResult].

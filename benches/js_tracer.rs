@@ -18,7 +18,11 @@ use revm::{
 };
 use revm_inspectors::tracing::js::JsInspector;
 use serde::Deserialize;
-use std::{collections::BTreeMap, hint::black_box};
+use std::{
+    collections::BTreeMap,
+    hint::black_box,
+    sync::{atomic::AtomicBool, Arc},
+};
 
 const CONTRACT_REPETITIONS: usize = 5_000;
 const RUNDLER_STYLE_REPETITIONS: u16 = 5_000;
@@ -243,6 +247,15 @@ fn mainnet_aa_tx_env() -> TxEnv {
 }
 
 fn run_trace(script: &str, contract: &Bytes, helper_contract: Option<&Bytes>) -> serde_json::Value {
+    run_trace_with_interrupt(script, contract, helper_contract, None)
+}
+
+fn run_trace_with_interrupt(
+    script: &str,
+    contract: &Bytes,
+    helper_contract: Option<&Bytes>,
+    interrupt: Option<Arc<AtomicBool>>,
+) -> serde_json::Value {
     let contract_address = Address::repeat_byte(0x01);
     let mut db = CacheDB::new(EmptyDB::default());
 
@@ -264,7 +277,10 @@ fn run_trace(script: &str, contract: &Bytes, helper_contract: Option<&Bytes>) ->
         );
     }
 
-    let inspector = JsInspector::new(script.to_owned(), serde_json::Value::Null).unwrap();
+    let mut inspector = JsInspector::new(script.to_owned(), serde_json::Value::Null).unwrap();
+    if let Some(interrupt) = interrupt {
+        inspector = inspector.with_interrupt(interrupt);
+    }
     let mut evm = revm::Context::mainnet()
         .modify_cfg_chained(|cfg| cfg.spec = SpecId::CANCUN)
         .with_db(db)
@@ -501,6 +517,23 @@ fn js_tracer_benches(c: &mut Criterion) {
             BatchSize::SmallInput,
         );
     });
+
+    let no_step_script = "{ fault: function() {}, result: function() { return 0; } }";
+    for (name, script, interrupt) in [
+        ("step_noop_interrupt", noop_script, Some(Arc::new(AtomicBool::new(false)))),
+        ("no_step", no_step_script, None),
+        ("no_step_interrupt", no_step_script, Some(Arc::new(AtomicBool::new(false)))),
+    ] {
+        group.bench_function(name, |b| {
+            b.iter_batched(
+                || (contract.clone(), interrupt.clone()),
+                |(contract, interrupt)| {
+                    black_box(run_trace_with_interrupt(script, &contract, None, interrupt));
+                },
+                BatchSize::SmallInput,
+            );
+        });
+    }
 
     group.finish();
 }
