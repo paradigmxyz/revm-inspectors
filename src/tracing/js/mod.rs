@@ -220,7 +220,6 @@ impl JsInspector {
     pub fn try_clone(&self) -> Result<Self, JsInspectorError> {
         self.ensure_not_interrupted()?;
         let mut inspector = Self::new(self.code.clone(), self.config.clone())?;
-        self.ensure_not_interrupted()?;
         inspector.interrupt = self.interrupt.clone();
         Ok(inspector)
     }
@@ -235,7 +234,6 @@ impl JsInspector {
         self.ensure_not_interrupted()?;
         let JsTracerObject { obj, result_fn, fault_fn, enter_fn, exit_fn, step_fn } =
             JsTracerObject::evaluate(&self.script, &self.config, &mut self.ctx)?;
-        self.ensure_not_interrupted()?;
         // Callback objects are mutable JS objects: replacing their Rust state does not remove
         // user-defined properties or restore overwritten methods. Rebuild them once per
         // transaction, while retaining the parsed script and reusing wrappers within a transaction.
