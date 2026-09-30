@@ -181,6 +181,26 @@ fn interrupt_rejects_result_collection() {
     }
 }
 
+#[test]
+fn drop_guard_interrupts_when_request_future_is_dropped() {
+    let interrupt = JsInspectorInterrupt::new();
+    let inspector = JsInspector::new(TRACER.into(), serde_json::Value::Null)
+        .unwrap()
+        .with_interrupt(interrupt.clone());
+    let guard = interrupt.drop_guard();
+    let request = async move {
+        let _guard = guard;
+        core::future::pending::<()>().await;
+    };
+    // Ordinary handles can be dropped without interrupting the worker.
+    drop(interrupt);
+    assert!(!inspector.is_interrupted());
+    // The guard also covers a request cancelled before its first poll.
+    drop(request);
+    let (_, result) = run(inspector, &hex!("60015000"), TransactTo::Call(TARGET));
+    assert_interrupted(result);
+}
+
 /// An atomic flag contains no garbage-collected JavaScript values.
 #[derive(Trace, Finalize)]
 struct InterruptSignal(#[unsafe_ignore_trace] JsInspectorInterrupt);

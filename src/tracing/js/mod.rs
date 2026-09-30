@@ -764,6 +764,7 @@ where
 ///
 /// Clones share the same signal. Interruption is permanent and dropping a handle does not
 /// interrupt execution. The signal uses relaxed atomics and does not synchronize other data.
+/// Use [`Self::drop_guard`] to interrupt execution when the caller is dropped.
 #[derive(Clone, Debug, Default)]
 pub struct JsInspectorInterrupt(Arc<AtomicBool>);
 
@@ -783,6 +784,39 @@ impl JsInspectorInterrupt {
     #[inline]
     pub fn is_interrupted(&self) -> bool {
         self.0.load(Ordering::Relaxed)
+    }
+
+    /// Creates an owned guard that interrupts execution when dropped.
+    ///
+    /// The guard shares this handle's signal. Keep it in the request future while the inspector
+    /// runs on a blocking worker, so dropping the request also interrupts tracing. Create the
+    /// guard before moving it into the future to cover cancellation before the first poll.
+    ///
+    /// ```
+    /// use revm_inspectors::tracing::js::JsInspectorInterrupt;
+    ///
+    /// let interrupt = JsInspectorInterrupt::new();
+    /// let guard = interrupt.drop_guard();
+    /// assert!(!interrupt.is_interrupted());
+    /// drop(guard);
+    /// assert!(interrupt.is_interrupted());
+    /// ```
+    pub fn drop_guard(&self) -> JsInspectorInterruptGuard {
+        JsInspectorInterruptGuard(self.clone())
+    }
+}
+
+/// A guard that signals its shared interrupt when dropped.
+///
+/// Created by [`JsInspectorInterrupt::drop_guard`]. Dropping any guard interrupts all inspectors
+/// sharing the signal, even if other handles or guards remain alive.
+#[derive(Debug)]
+#[must_use = "the guard interrupts tracing immediately if it is not retained"]
+pub struct JsInspectorInterruptGuard(JsInspectorInterrupt);
+
+impl Drop for JsInspectorInterruptGuard {
+    fn drop(&mut self) {
+        self.0.interrupt();
     }
 }
 
