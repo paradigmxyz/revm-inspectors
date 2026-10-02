@@ -607,7 +607,7 @@ where
             let frame_result = FrameResult {
                 gas_used: outcome.result.gas.total_gas_spent(),
                 output: outcome.result.output.clone(),
-                error: None,
+                error: utils::fmt_error_msg(outcome.result.result, TraceStyle::Geth),
             };
             if let Err(err) = self.try_exit(frame_result) {
                 outcome.result = js_error_to_revert(err);

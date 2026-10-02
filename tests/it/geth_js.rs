@@ -1,14 +1,16 @@
 //! Geth Js tracer tests
 
 use crate::utils::deploy_contract;
-use alloy_primitives::{address, hex, Address};
+use alloy_primitives::{address, hex, Address, Bytes};
 use revm::{
+    bytecode::Bytecode,
     context::TxEnv,
     context_interface::{ContextTr, TransactTo},
     database::CacheDB,
     database_interface::EmptyDB,
     inspector::InspectorEvmTr,
     primitives::hardfork::SpecId,
+    state::AccountInfo,
     Context, InspectEvm, MainBuilder, MainContext,
 };
 use revm_inspectors::tracing::js::JsInspector;
@@ -207,4 +209,55 @@ fn test_geth_jstracer_proxy_contract() {
     let (context, insp) = evm.ctx_inspector();
     let result = insp.json_result(res, context.tx(), context.block(), context.db_ref()).unwrap();
     assert_eq!(result, json!([{"event": "Transfer", "token": proxy_addr, "caller": deployer}]));
+}
+
+#[test]
+fn test_geth_jstracer_create_exit_error() {
+    let tracer = r#"{
+        errors: [],
+        fault: function() {},
+        enter: function() {},
+        exit: function(frame) { this.errors.push(frame.getError() || null); },
+        result: function() { return this.errors; }
+    }"#;
+    let factory = address!("0000000000000000000000000000000000001000");
+
+    for factory_code in
+        [hex!("365f5f37365f5ff05000").as_slice(), hex!("365f5f375f365f5ff55000").as_slice()]
+    {
+        for (init_code, expected_error) in [
+            (hex!("00").as_slice(), None),
+            (hex!("5f5ffd").as_slice(), Some("execution reverted")),
+            (hex!("5b5f56").as_slice(), Some("out of gas")),
+            (hex!("fe").as_slice(), Some("invalid opcode: INVALID")),
+        ] {
+            let mut db = CacheDB::new(EmptyDB::default());
+            db.insert_account_info(
+                factory,
+                AccountInfo::default()
+                    .with_code(Bytecode::new_raw(Bytes::copy_from_slice(factory_code))),
+            );
+            let insp = JsInspector::new(tracer.to_string(), serde_json::Value::Null).unwrap();
+            let mut evm = Context::mainnet()
+                .with_db(db)
+                .modify_cfg_chained(|cfg| cfg.spec = SpecId::CANCUN)
+                .build_mainnet()
+                .with_inspector(insp);
+            let res = evm
+                .inspect_tx(TxEnv {
+                    caller: Address::ZERO,
+                    gas_limit: 100_000,
+                    kind: TransactTo::Call(factory),
+                    data: Bytes::copy_from_slice(init_code),
+                    ..Default::default()
+                })
+                .unwrap();
+            assert!(res.result.is_success());
+
+            let (context, insp) = evm.ctx_inspector();
+            let result =
+                insp.json_result(res, context.tx(), context.block(), context.db_ref()).unwrap();
+            assert_eq!(result, json!([expected_error]));
+        }
+    }
 }
