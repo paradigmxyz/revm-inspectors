@@ -56,9 +56,8 @@ impl MuxInspector {
             #[allow(unreachable_patterns)]
             match builtin {
                 GethDebugBuiltInTracerType::FourByteTracer => {
-                    if tracer_config.is_some() {
-                        return Err(Error::UnexpectedConfig(builtin));
-                    }
+                    // Takes no config: whatever is passed is ignored, as it is when this tracer
+                    // runs outside `muxTracer`.
                     four_byte = Some(FourByteInspector::default());
                 }
                 GethDebugBuiltInTracerType::CallTracer => {
@@ -79,15 +78,11 @@ impl MuxInspector {
                     configs.push((builtin, TraceConfig::PreState(prestate_config)));
                 }
                 GethDebugBuiltInTracerType::NoopTracer => {
-                    if tracer_config.is_some() {
-                        return Err(Error::UnexpectedConfig(builtin));
-                    }
+                    // Takes no config, see `FourByteTracer` above.
                     configs.push((builtin, TraceConfig::Noop));
                 }
                 GethDebugBuiltInTracerType::StateGasTracer => {
-                    if tracer_config.is_some() {
-                        return Err(Error::UnexpectedConfig(builtin));
-                    }
+                    // Takes no config, see `FourByteTracer` above.
                     configs.push((builtin, TraceConfig::StateGas));
                 }
                 GethDebugBuiltInTracerType::FlatCallTracer => {

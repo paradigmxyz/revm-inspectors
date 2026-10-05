@@ -393,6 +393,44 @@ fn test_geth_eip8037_fields_follow_fork() {
     }
 }
 
+/// Tracers that take no config ignore whatever config `muxTracer` passes them, as they do when
+/// run on their own.
+#[test]
+fn test_geth_mux_config_free_tracers_ignore_config() {
+    let configs = [
+        None,
+        Some(GethDebugTracerConfig(serde_json::json!({}))),
+        Some(GethDebugTracerConfig(serde_json::json!({ "onlyTopCall": true }))),
+        Some(GethDebugTracerConfig(serde_json::json!("garbage"))),
+    ];
+    for tracer in [
+        GethDebugBuiltInTracerType::FourByteTracer,
+        GethDebugBuiltInTracerType::NoopTracer,
+        GethDebugBuiltInTracerType::StateGasTracer,
+    ] {
+        for config in &configs {
+            let standalone = GethDebugTracingOptions {
+                tracer: Some(GethDebugTracerType::BuiltInTracer(tracer)),
+                tracer_config: config.clone().unwrap_or_default(),
+                ..Default::default()
+            };
+            assert!(
+                DebugInspector::new(standalone).is_ok(),
+                "standalone {tracer:?} must accept config {config:?}"
+            );
+
+            let mux_config = MuxConfig(HashMap::from_iter([(
+                GethDebugTracerType::BuiltInTracer(tracer),
+                config.clone(),
+            )]));
+            assert!(
+                MuxInspector::try_from_config(mux_config).is_ok(),
+                "{tracer:?} inside muxTracer must accept config {config:?}"
+            );
+        }
+    }
+}
+
 #[test]
 fn test_geth_mux_tracer() {
     /*
