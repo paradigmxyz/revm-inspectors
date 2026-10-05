@@ -73,27 +73,54 @@ pub(crate) fn register_builtins(ctx: &mut Context) -> JsResult<()> {
     // Add toJSON method and geth-compatible polyfill shims to BigInt prototype.
     //
     // Geth's JS tracer uses the BigInteger.js polyfill (peterolson/BigInteger.js) which exposes
-    // a global `bigInt` (camelCase) function returning objects with methods like `.equals()`,
-    // `.toJSNumber()`, `.plus()`, `.minus()`, etc. Reth uses Boa's native BigInt which lacks
-    // these methods. We add shims so geth-compatible tracers (including geth's built-in
-    // call_tracer_legacy.js) work unmodified.
+    // a global `bigInt` (camelCase) function returning objects with arithmetic methods and
+    // number-valued `valueOf()`. Reth uses Boa's native BigInt, so add the methods used by
+    // geth's bundled JS tracers and support their radix constructor calls.
     //
     // See: https://github.com/ethereum/go-ethereum/blob/master/eth/tracers/js/bigint.go
-    ctx.eval(Source::from_bytes(
+    let geth_big_int = ctx.eval(Source::from_bytes(
         br#"
 BigInt.prototype.toJSON = function() { return this.toString(); };
-BigInt.prototype.equals = function(other) { return this == other; };
+BigInt.prototype.equals = function(other) { return BigInt(BigInt.prototype.toString.call(this)) === BigInt(other); };
 BigInt.prototype.toJSNumber = function() { return Number(this); };
-BigInt.prototype.plus = function(other) { return this + BigInt(other); };
-BigInt.prototype.minus = function(other) { return this - BigInt(other); };
+BigInt.prototype.valueOf = function() { return Number(BigInt.prototype.toString.call(this)); };
+BigInt.prototype.add = function(other) { return BigInt(BigInt.prototype.toString.call(this)) + BigInt(other); };
+BigInt.prototype.subtract = function(other) { return BigInt(BigInt.prototype.toString.call(this)) - BigInt(other); };
+BigInt.prototype.plus = BigInt.prototype.add;
+BigInt.prototype.minus = BigInt.prototype.subtract;
+(function(value, radix) {
+    if (radix === undefined || Number(radix) === 10) {
+        return value === undefined ? 0n : BigInt(value);
+    }
+    const base = Number(radix);
+    if (!Number.isInteger(base) || base < 2 || base > 36) {
+        throw new RangeError('Unsupported bigInt radix: ' + radix);
+    }
+    const input = String(value).toLowerCase();
+    const negative = input[0] === '-';
+    const start = negative ? 1 : 0;
+    if (start === input.length) {
+        throw new Error('Invalid integer: ' + input);
+    }
+    let result = 0n;
+    for (let i = start; i < input.length; i++) {
+        const code = input.charCodeAt(i);
+        const digit = code >= 48 && code <= 57 ? code - 48 : code - 87;
+        if (digit < 0 || digit >= base) {
+            throw new Error(input[i] + ' is not a valid digit in base ' + base);
+        }
+        result = result * BigInt(base) + BigInt(digit);
+    }
+    return negative ? -result : result;
+})
 "#,
     ))?;
     // Create global 'bigint' alias for native BigInt constructor (lowercase for compatibility)
-    ctx.register_global_property(js_string!("bigint"), big_int.clone(), Attribute::all())?;
+    ctx.register_global_property(js_string!("bigint"), big_int, Attribute::all())?;
     // Create global 'bigInt' alias (camelCase) for geth BigInteger.js polyfill compatibility.
     // Geth's goja engine runs `var bigInt = function(){...}()` at global scope, making `bigInt`
     // the standard way to construct big integers in geth JS tracers.
-    ctx.register_global_property(js_string!("bigInt"), big_int, Attribute::all())?;
+    ctx.register_global_property(js_string!("bigInt"), geth_big_int, Attribute::all())?;
     ctx.register_global_builtin_callable(
         js_string!("toHex"),
         1,
@@ -669,6 +696,60 @@ mod tests {
         let result =
             ctx.eval(Source::from_bytes(b"bigInt(10).minus(bigInt(3)).toString()")).unwrap();
         assert_eq!(result.to_string(&mut ctx).unwrap().to_std_string().unwrap(), "7");
+    }
+
+    #[test]
+    fn test_bigint_geth_arithmetic_and_value_of() {
+        let mut ctx = Context::default();
+        register_builtins(&mut ctx).unwrap();
+
+        let result = ctx
+            .eval(Source::from_bytes(b"bigInt('9007199254740993').add(2).subtract(1).toString()"))
+            .unwrap();
+        assert_eq!(
+            result.to_string(&mut ctx).unwrap().to_std_string().unwrap(),
+            "9007199254740994"
+        );
+
+        let result =
+            ctx.eval(Source::from_bytes(b"BigInt(7).add('3').subtract(2).toString()")).unwrap();
+        assert_eq!(result.to_string(&mut ctx).unwrap().to_std_string().unwrap(), "8");
+
+        let result = ctx
+            .eval(Source::from_bytes(
+                b"[typeof 42n.valueOf(), 42n.valueOf(), Object(7n).valueOf()]",
+            ))
+            .unwrap();
+        assert_eq!(
+            result.to_json(&mut ctx).unwrap().unwrap(),
+            serde_json::json!(["number", 42.0, 7.0])
+        );
+    }
+
+    #[test]
+    fn test_bigint_geth_radix_constructor() {
+        let mut ctx = Context::default();
+        register_builtins(&mut ctx).unwrap();
+
+        let result = ctx.eval(Source::from_bytes(
+            b"[bigInt('ff', 16).toString(), bigInt('-101', 2).toString(), bigInt('z', 36).toString(), bigInt().toString()]",
+        )).unwrap();
+        assert_eq!(
+            result.to_json(&mut ctx).unwrap().unwrap(),
+            serde_json::json!(["255", "-5", "35", "0"])
+        );
+
+        let result = ctx
+            .eval(Source::from_bytes(
+                b"bigInt('ffffffffffffffffffffffffffffffff', 16).toString(16)",
+            ))
+            .unwrap();
+        assert_eq!(
+            result.to_string(&mut ctx).unwrap().to_std_string().unwrap(),
+            "ffffffffffffffffffffffffffffffff"
+        );
+
+        assert!(ctx.eval(Source::from_bytes(b"bigInt('fg', 16)")).is_err());
     }
 
     #[test]
