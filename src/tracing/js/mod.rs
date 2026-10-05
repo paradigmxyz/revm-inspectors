@@ -4,7 +4,7 @@ use crate::tracing::{
     config::TraceStyle,
     js::{
         bindings::{
-            CallFrame, Contract, FrameResult, JsEvmContext, OpcodeNames, PreStep,
+            CallFrame, Contract, FrameKind, FrameResult, JsEvmContext, OpcodeNames, PreStep,
             ReusableCallFrame, ReusableEvmDb, ReusableFrameResult, ReusableStepLog, StepInfo,
         },
         builtins::{register_builtins, to_serde_value, PrecompileList},
@@ -325,8 +325,11 @@ impl JsInspector {
             }
         };
 
-        if let TransactTo::Call(target) = tx.kind() {
-            to = Some(target);
+        match tx.kind() {
+            TransactTo::Call(target) => to = Some(target),
+            // A failed creation has no output address, but its target is still determined by the
+            // sender and nonce; report it rather than `null`.
+            TransactTo::Create => to = to.or_else(|| Some(tx.caller().create(tx.nonce()))),
         }
 
         let ctx = JsEvmContext {
@@ -528,7 +531,9 @@ where
             _ => (inputs.caller, inputs.target_address),
         };
 
-        let value = inputs.transfer_value().unwrap_or_default();
+        // A delegate call transfers nothing but inherits its parent's value, which revm keeps as
+        // the apparent value; `transfer_value` alone would report it as zero.
+        let value = inputs.transfer_value().or_else(|| inputs.apparent_value()).unwrap_or_default();
         self.push_call(
             contract,
             inputs.input_data(context),
@@ -542,7 +547,7 @@ where
             let call = self.active_call();
             let frame = CallFrame {
                 contract: call.contract.clone(),
-                kind: call.kind,
+                kind: FrameKind::Call(call.kind),
                 gas: inputs.gas_limit,
             };
             if let Err(err) = self.try_enter(frame) {
@@ -587,8 +592,11 @@ where
 
         if self.can_call_enter() {
             let call = self.active_call();
-            let frame =
-                CallFrame { contract: call.contract.clone(), kind: call.kind, gas: call.gas_limit };
+            let frame = CallFrame {
+                contract: call.contract.clone(),
+                kind: FrameKind::Call(call.kind),
+                gas: call.gas_limit,
+            };
             if let Err(err) = self.try_enter(frame) {
                 return Some(CreateOutcome::new(js_error_to_revert(err), None));
             }
@@ -617,13 +625,23 @@ where
         self.pop_call();
     }
 
-    fn selfdestruct(&mut self, _contract: Address, _target: Address, _value: U256) {
+    fn selfdestruct(&mut self, contract: Address, target: Address, value: U256) {
         // This is exempt from the root call constraint, because selfdestruct is treated as a
         // new scope that is entered and immediately exited.
         if self.enter_fn.is_some() {
-            let call = self.active_call();
-            let frame =
-                CallFrame { contract: call.contract.clone(), kind: call.kind, gas: call.gas_limit };
+            // The frame describes the destruction itself: the destroyed contract sends its balance
+            // to the beneficiary, with no input and no gas. Reusing the enclosing call's frame
+            // reported the outer caller and callee instead.
+            let frame = CallFrame {
+                contract: Contract {
+                    caller: contract,
+                    contract: target,
+                    value,
+                    input: Bytes::new(),
+                },
+                kind: FrameKind::SelfDestruct,
+                gas: 0,
+            };
             let _ = self.try_enter(frame);
         }
 
@@ -1439,5 +1457,119 @@ mod tests {
         assert_eq!(obj["stackPeek"], json!("1"));
         assert_eq!(obj["value"], json!("0"));
         assert_eq!(obj["balance"], json!("0"));
+    }
+
+    /// Runs a tracer over `tx` against `db`, returning the tracer's result.
+    fn trace_tx(code: &str, db: CacheDB<EmptyDB>, tx: TxEnv) -> serde_json::Value {
+        let insp = JsInspector::new(code.to_string(), serde_json::Value::Null).unwrap();
+        let mut evm = revm::Context::mainnet()
+            .modify_cfg_chained(|cfg| cfg.spec = SpecId::CANCUN)
+            .with_db(db)
+            .build_mainnet_with_inspector(insp);
+        let res = evm.inspect_tx(tx).expect("pass without error");
+        let (ctx, inspector) = evm.ctx_inspector();
+        let tx = ctx.tx().clone();
+        let block = ctx.block().clone();
+        inspector.json_result(res, &tx, &block, ctx.db_mut()).unwrap()
+    }
+
+    fn funded_db() -> CacheDB<EmptyDB> {
+        let mut db = CacheDB::new(EmptyDB::default());
+        db.insert_account_info(
+            Address::ZERO,
+            AccountInfo { balance: U256::from(1e18), ..Default::default() },
+        );
+        db
+    }
+
+    #[test]
+    fn test_selfdestruct_frame_describes_the_destruction() {
+        let contract = Address::repeat_byte(0xaa);
+        let beneficiary = Address::repeat_byte(0xcc);
+        let mut db = funded_db();
+        // PUSH20 <beneficiary>, SELFDESTRUCT
+        let mut code = vec![0x73];
+        code.extend_from_slice(beneficiary.as_slice());
+        code.push(0xff);
+        db.insert_account_info(
+            contract,
+            AccountInfo {
+                balance: U256::from(5),
+                code: Some(Bytecode::new_legacy(code.into())),
+                ..Default::default()
+            },
+        );
+
+        let tracer = r#"{f:[],step:function(){},fault:function(){},enter:function(fr){this.f.push([fr.getType(),toHex(fr.getFrom()),toHex(fr.getTo()),fr.getValue().toString(),fr.getGas(),toHex(fr.getInput())])},exit:function(){},result:function(){return this.f}}"#;
+        let res = trace_tx(
+            tracer,
+            db,
+            TxEnv { gas_limit: 1_000_000, kind: TransactTo::Call(contract), ..Default::default() },
+        );
+        assert_eq!(
+            res,
+            json!([[
+                "SELFDESTRUCT",
+                format!("{contract:#x}"),
+                format!("{beneficiary:#x}"),
+                "5",
+                0,
+                "0x"
+            ]])
+        );
+    }
+
+    #[test]
+    fn test_delegate_call_frame_reports_the_inherited_value() {
+        let outer = Address::repeat_byte(0x01);
+        let target = Address::repeat_byte(0x02);
+        let mut db = funded_db();
+        // PUSH1 0 x4, PUSH20 <target>, GAS, DELEGATECALL, STOP
+        let mut code = hex!("6000600060006000").to_vec();
+        code.push(0x73);
+        code.extend_from_slice(target.as_slice());
+        code.extend_from_slice(&hex!("5af400"));
+        db.insert_account_info(
+            outer,
+            AccountInfo { code: Some(Bytecode::new_legacy(code.into())), ..Default::default() },
+        );
+        db.insert_account_info(
+            target,
+            AccountInfo {
+                code: Some(Bytecode::new_legacy(hex!("00").into())),
+                ..Default::default()
+            },
+        );
+
+        let tracer = r#"{f:[],step:function(){},fault:function(){},enter:function(fr){this.f.push([fr.getType(),fr.getValue().toString()])},exit:function(){},result:function(){return this.f}}"#;
+        let res = trace_tx(
+            tracer,
+            db,
+            TxEnv {
+                gas_limit: 1_000_000,
+                value: U256::from(7),
+                kind: TransactTo::Call(outer),
+                ..Default::default()
+            },
+        );
+        assert_eq!(res, json!([["DELEGATECALL", "7"]]));
+    }
+
+    #[test]
+    fn test_ctx_to_is_set_for_a_failed_creation() {
+        // Init code that reverts immediately: PUSH1 0, PUSH1 0, REVERT.
+        let tracer = r#"{step:function(){},fault:function(){},result:function(ctx){return {to:toHex(ctx.to),err:ctx.error}}}"#;
+        let res = trace_tx(
+            tracer,
+            funded_db(),
+            TxEnv {
+                gas_limit: 1_000_000,
+                kind: TransactTo::Create,
+                data: hex!("60006000fd").into(),
+                ..Default::default()
+            },
+        );
+        assert_eq!(res["to"], json!(format!("{:#x}", Address::ZERO.create(0))));
+        assert_eq!(res["err"], json!("execution reverted"));
     }
 }
