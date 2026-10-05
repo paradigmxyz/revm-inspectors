@@ -1087,9 +1087,13 @@ mod tests {
             fault: function() {},
             result: function() { return this.res }
         }"#;
-        let contract = hex!("60ff60005300"); // PUSH1, 0xff, PUSH1, 0x00, MSTORE8, STOP
-        let res = run_trace(code, Some(contract.into()), false);
-        assert_eq!(res, json!([]));
+        // PUSH1 0xff, PUSH1 0x00, MSTORE8, STOP
+        let contract = hex!("60ff60005300");
+        // At MSTORE8 memory is still empty, so slice(0, 2) zero-pads; at STOP it reads the byte
+        // MSTORE8 wrote. go-ethereum pads out-of-bounds reads rather than erroring, so neither
+        // slice throws and execution runs to completion.
+        let res = run_trace(code, Some(contract.into()), true);
+        assert_eq!(res, json!([{"0": 0, "1": 0}, {"0": 255, "1": 0}]));
     }
 
     #[test]
@@ -1439,5 +1443,22 @@ mod tests {
         assert_eq!(obj["stackPeek"], json!("1"));
         assert_eq!(obj["value"], json!("0"));
         assert_eq!(obj["balance"], json!("0"));
+    }
+
+    #[test]
+    fn test_memory_slice_zero_pads_out_of_bounds() {
+        // Read 32 bytes of still-empty memory on the first step. go-ethereum zero-pads rather
+        // than erroring, so the slice has length 32.
+        let code = r#"{r:null,step:function(log){if(this.r!==null)return;this.r='len='+log.memory.slice(0,32).length},fault:function(){},result:function(){return this.r}}"#;
+        let res = run_trace(code, Some(hex!("600160015500").into()), true);
+        assert_eq!(res, json!("len=32"));
+    }
+
+    #[test]
+    fn test_memory_slice_padding_has_a_limit() {
+        // Padding beyond the 1 MiB limit is rejected.
+        let code = r#"{r:null,step:function(log){if(this.r!==null)return;try{log.memory.slice(0, 1024*1024 + 1);this.r='ok'}catch(e){this.r='threw'}},fault:function(){},result:function(){return this.r}}"#;
+        let res = run_trace(code, Some(hex!("600160015500").into()), true);
+        assert_eq!(res, json!("threw"));
     }
 }
