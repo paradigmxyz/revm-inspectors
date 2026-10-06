@@ -309,7 +309,10 @@ pub(crate) fn to_bigint(value: U256) -> JsValue {
     } else if let Ok(value) = u128::try_from(value) {
         JsBigInt::from(value)
     } else {
-        JsBigInt::from(num_bigint::BigInt::from(value))
+        JsBigInt::from(num_bigint::BigInt::from_bytes_le(
+            num_bigint::Sign::Plus,
+            &value.to_le_bytes::<32>(),
+        ))
     };
     big.into()
 }
