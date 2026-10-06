@@ -172,6 +172,9 @@ impl MuxInspector {
                         inspector
                             .clone()
                             .into_parity_builder()
+                            // The root `gas` is the transaction's gas limit, so `gasUsed` must be
+                            // the transaction's gas used as well.
+                            .with_transaction_gas_used(result.result.tx_gas_used())
                             .into_localized_transaction_traces(tx_info)
                             .into()
                     } else {

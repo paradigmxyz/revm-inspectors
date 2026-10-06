@@ -652,6 +652,55 @@ fn test_geth_mux_call_tracer_matches_standalone() {
     assert_eq!(muxed.gas_used, standalone.gas_used);
 }
 
+/// Inside `muxTracer`, `flatCallTracer`'s root frame is transaction-level in both fields: `gas` is
+/// the transaction's gas limit and `gasUsed` the transaction's gas used.
+#[test]
+fn test_geth_mux_flat_call_tracer_root_frame_is_transaction_level() {
+    use alloy_rpc_types_trace::parity::Action;
+
+    let account = address!("1000000000000000000000000000000000000001");
+    let gas_limit = 1_000_000;
+    let context =
+        Context::mainnet().with_db(CacheDB::<EmptyDB>::default()).modify_db_chained(|db| {
+            db.insert_account_info(
+                account,
+                AccountInfo {
+                    // PUSH1 1, PUSH1 0, MSTORE, STOP
+                    code: Some(Bytecode::new_raw(hex!("600160005200").into())),
+                    ..Default::default()
+                },
+            );
+        });
+    let flat_type = GethDebugTracerType::BuiltInTracer(GethDebugBuiltInTracerType::FlatCallTracer);
+    let mux_config = MuxConfig(HashMap::from_iter([(
+        flat_type.clone(),
+        Some(GethDebugTracerConfig(serde_json::to_value(FlatCallConfig::default()).unwrap())),
+    )]));
+    let mut inspector =
+        DebugInspector::new(GethDebugTracingOptions::mux_tracer(mux_config)).unwrap();
+    let mut evm = context.build_mainnet().with_inspector(&mut inspector);
+    let res = evm
+        .inspect_tx(TxEnv { gas_limit, kind: TransactTo::Call(account), ..Default::default() })
+        .unwrap();
+    assert!(res.result.is_success(), "{res:#?}");
+    let tx_gas_used = res.result.tx_gas_used();
+    let (ctx, inspector) = evm.ctx_inspector();
+    let tx_env = ctx.tx().clone();
+    let block_env = ctx.block().clone();
+    let GethTrace::MuxTracer(frame) =
+        inspector.get_result(None, &tx_env, &block_env, &res, ctx.db_mut()).unwrap()
+    else {
+        panic!("expected MuxTracer")
+    };
+    let GethTrace::FlatCallTracer(flat) = &frame.0[&flat_type] else {
+        panic!("expected FlatCallTracer inside the mux frame")
+    };
+    let root = &flat[0].trace;
+    let Action::Call(action) = &root.action else { panic!("expected a call action") };
+    assert_eq!(action.gas, gas_limit);
+    assert_eq!(root.result.as_ref().expect("root call has a result").gas_used(), tx_gas_used);
+}
+
 #[test]
 fn test_geth_inspector_reset() {
     let insp = TracingInspector::new(TracingInspectorConfig::default_geth());
