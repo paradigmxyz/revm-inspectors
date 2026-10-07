@@ -5,12 +5,12 @@ use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::geth::{
     mux::{MuxConfig, MuxFrame},
     CallConfig, FlatCallConfig, FourByteFrame, GethDebugBuiltInTracerType, GethDebugTracerType,
-    GethTrace, NoopFrame, PreStateConfig, StateGasTrace,
+    NoopFrame, PreStateConfig, StateGasTrace,
 };
 use revm::{
     context_interface::{
         result::{HaltReasonTr, ResultAndState},
-        ContextTr, Transaction,
+        ContextTr,
     },
     handler::FrameResult,
     inspector::JournalExt,
@@ -121,45 +121,16 @@ impl MuxInspector {
         db: &DB,
         tx_info: TransactionInfo,
     ) -> Result<MuxFrame, DB::Error> {
-        self.try_into_mux_frame_inner(result, db, tx_info, |inspector, config| {
-            inspector
-                .geth_builder()
-                .geth_call_traces_with_result_gas(config, *result.result.gas())
-                .into()
-        })
-    }
-
-    /// Convert this inspector into a mux frame, including calls that halt during runtime gas
-    /// charging before revm invokes the call/create hooks.
-    pub fn try_into_mux_frame_with_transaction<DB: DatabaseRef>(
-        &self,
-        result: &ResultAndState<impl HaltReasonTr>,
-        db: &DB,
-        tx_info: TransactionInfo,
-        tx: &impl Transaction,
-    ) -> Result<MuxFrame, DB::Error> {
-        self.try_into_mux_frame_inner(result, db, tx_info, |inspector, config| {
-            inspector
-                .geth_builder()
-                .geth_call_traces_with_transaction(config, tx, &result.result)
-                .into()
-        })
-    }
-
-    fn try_into_mux_frame_inner<DB: DatabaseRef>(
-        &self,
-        result: &ResultAndState<impl HaltReasonTr>,
-        db: &DB,
-        tx_info: TransactionInfo,
-        call_trace: impl Fn(&TracingInspector, CallConfig) -> GethTrace,
-    ) -> Result<MuxFrame, DB::Error> {
         let mut frame = HashMap::with_capacity_and_hasher(self.configs.len(), Default::default());
 
         for (tracer_type, config) in &self.configs {
             let trace = match config {
                 TraceConfig::Call(call_config) => {
                     if let Some(inspector) = &self.tracing {
-                        call_trace(inspector, *call_config)
+                        inspector
+                            .geth_builder()
+                            .geth_call_traces_with_result_gas(*call_config, *result.result.gas())
+                            .into()
                     } else {
                         continue;
                     }
@@ -207,6 +178,13 @@ impl MuxInspector {
         }
 
         Ok(MuxFrame(frame))
+    }
+
+    /// Sets the root gas limit for tracers sharing the tracing inspector.
+    pub(crate) fn set_transaction_gas_limit(&mut self, gas_limit: u64) {
+        if let Some(inspector) = &mut self.tracing {
+            inspector.set_transaction_gas_limit(gas_limit);
+        }
     }
 }
 
