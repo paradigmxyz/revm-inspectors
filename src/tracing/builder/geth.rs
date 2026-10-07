@@ -244,7 +244,7 @@ impl<'a> GethTraceBuilder<'a> {
                 input: tx.input().clone(),
                 value: Some(tx.value()),
                 typ: if tx.kind().is_create() { "CREATE" } else { "CALL" }.into(),
-                error: Some("runtime: out of gas".into()),
+                error: Some("out of gas".into()),
                 ..Default::default()
             };
         }

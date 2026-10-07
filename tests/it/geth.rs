@@ -10,7 +10,11 @@ use alloy_rpc_types_trace::geth::{
 use revm::{
     bytecode::{opcode, Bytecode},
     context::TxEnv,
-    context_interface::{result::ResultGas, ContextTr, TransactTo},
+    context_interface::{
+        result::ResultGas,
+        transaction::{Authorization, RecoveredAuthority, RecoveredAuthorization, TransactionType},
+        ContextTr, TransactTo,
+    },
     database::CacheDB,
     database_interface::EmptyDB,
     handler::EvmTr,
@@ -1669,7 +1673,7 @@ fn test_geth_runtime_out_of_gas() {
                         "input": tx.data,
                         "value": "0x1",
                         "type": if kind.is_create() { "CREATE" } else { "CALL" },
-                        "error": "runtime: out of gas",
+                        "error": "out of gas",
                     });
                     if kind.is_call() {
                         expected["to"] = serde_json::json!(recipient);
@@ -1725,4 +1729,82 @@ fn test_geth_execution_out_of_gas_is_not_runtime_out_of_gas() {
     let trace = inspector.get_result(None, &tx, &block, &res, ctx.db_mut()).unwrap();
     let GethTrace::CallTracer(frame) = trace else { panic!("expected call trace") };
     assert_eq!(frame.error.as_deref(), Some("out of gas"));
+}
+
+#[test]
+fn test_geth_authorization_runtime_out_of_gas() {
+    let caller = address!("1000000000000000000000000000000000000001");
+    let recipient = address!("1000000000000000000000000000000000000002");
+    let authority = address!("1000000000000000000000000000000000000003");
+    let delegate = address!("1000000000000000000000000000000000000004");
+    for funded in [false, true] {
+        for options in [
+            serde_json::json!({ "tracer": "callTracer" }),
+            serde_json::json!({
+                "tracer": "muxTracer",
+                "tracerConfig": { "callTracer": {} },
+            }),
+        ] {
+            let context = Context::mainnet()
+                .with_db(CacheDB::<EmptyDB>::default())
+                .modify_cfg_chained(|cfg| {
+                    cfg.set_spec_and_mainnet_gas_params(SpecId::AMSTERDAM);
+                })
+                .modify_db_chained(|db| {
+                    db.insert_account_info(
+                        caller,
+                        AccountInfo::from_balance(U256::from(1_000_000)),
+                    );
+                    if funded {
+                        db.insert_account_info(authority, AccountInfo::from_balance(U256::ONE));
+                    }
+                    db.insert_account_info(
+                        delegate,
+                        AccountInfo {
+                            code: Some(Bytecode::new_raw(hex!("00").into())),
+                            ..Default::default()
+                        },
+                    );
+                });
+            let authorization = RecoveredAuthorization::new_unchecked(
+                Authorization { chain_id: U256::ONE, address: delegate, nonce: 0 },
+                RecoveredAuthority::Valid(authority),
+            );
+            let tx = TxEnv::builder()
+                .caller(caller)
+                .kind(TxKind::Call(recipient))
+                .gas_limit(30_000)
+                .data(hex!("01020304").into())
+                .tx_type(Some(TransactionType::Eip7702 as u8))
+                .authorization_list_recovered(vec![authorization])
+                .build_fill();
+            let mut inspector =
+                DebugInspector::new(serde_json::from_value(options.clone()).unwrap()).unwrap();
+            let mut evm = context.build_mainnet().with_inspector(&mut inspector);
+            let res = evm.inspect_tx(tx).unwrap();
+            assert!(res.result.is_halt(), "{res:?}");
+            assert_eq!(res.result.tx_gas_used(), 30_000);
+            let (ctx, inspector) = evm.ctx_inspector();
+            let tx = ctx.tx().clone();
+            let block = ctx.block().clone();
+            let trace = inspector.get_result(None, &tx, &block, &res, ctx.db_mut()).unwrap();
+            let mut frame = serde_json::to_value(trace).unwrap();
+            if options["tracer"] == "muxTracer" {
+                frame = frame["callTracer"].take();
+            }
+            assert_eq!(
+                frame,
+                serde_json::json!({
+                    "from": caller,
+                    "to": recipient,
+                    "gas": "0x7530",
+                    "gasUsed": "0x7530",
+                    "input": "0x01020304",
+                    "value": "0x0",
+                    "type": "CALL",
+                    "error": "out of gas",
+                })
+            );
+        }
+    }
 }
