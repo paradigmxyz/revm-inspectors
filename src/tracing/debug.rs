@@ -235,7 +235,7 @@ impl DebugInspector {
                 inspector.set_transaction_caller(tx_env.caller());
                 inspector
                     .geth_builder()
-                    .geth_call_traces_with_result_gas(*config, *res.result.gas())
+                    .geth_call_traces_with_transaction(*config, tx_env, &res.result)
                     .into()
             }
             Self::PreStateTracer(inspector, config) => {
@@ -255,7 +255,7 @@ impl DebugInspector {
             }
             .into(),
             Self::Mux(inspector, _) => inspector
-                .try_into_mux_frame(res, db, tx_info)
+                .try_into_mux_frame_with_transaction(res, db, tx_info, tx_env)
                 .map_err(DebugInspectorError::Database)?
                 .into(),
             Self::FlatCallTracer(inspector) => {

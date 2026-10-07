@@ -15,8 +15,13 @@ use alloy_rpc_types_trace::geth::{
 };
 use revm::{
     bytecode::opcode,
-    context_interface::result::{HaltReasonTr, ResultAndState, ResultGas},
-    primitives::{hardfork::SpecId, KECCAK_EMPTY},
+    context_interface::{
+        result::{
+            ExecutionResult, HaltReason, HaltReasonTr, OutOfGasError, ResultAndState, ResultGas,
+        },
+        Transaction,
+    },
+    primitives::{hardfork::SpecId, TxKind, KECCAK_EMPTY},
     state::{AccountInfo, EvmState},
     DatabaseRef,
 };
@@ -212,6 +217,39 @@ impl<'a> GethTraceBuilder<'a> {
     /// Generate a geth-style call trace with EIP-8037 transaction gas accounting.
     pub fn geth_call_traces_with_result_gas(&self, opts: CallConfig, gas: ResultGas) -> CallFrame {
         self.geth_call_traces_inner(opts, gas.tx_gas_used(), Some(gas))
+    }
+
+    /// Generate a call trace using the transaction and its execution result.
+    ///
+    /// EIP-2780 runtime gas charges can halt before revm invokes the call/create hooks. In that
+    /// case, reconstruct the root from the transaction rather than returning the unpopulated node.
+    pub fn geth_call_traces_with_transaction(
+        &self,
+        opts: CallConfig,
+        tx: &impl Transaction,
+        result: &ExecutionResult<impl HaltReasonTr>,
+    ) -> CallFrame {
+        let runtime_oog = self.nodes.first().is_none_or(|node| node.trace.status.is_none())
+            && matches!(result, ExecutionResult::Halt { reason, .. }
+                if *reason == HaltReason::OutOfGas(OutOfGasError::Basic).into());
+        if runtime_oog {
+            return CallFrame {
+                from: tx.caller(),
+                to: match tx.kind() {
+                    TxKind::Call(to) => Some(to),
+                    TxKind::Create => None,
+                },
+                gas: U256::from(tx.gas_limit()),
+                gas_used: U256::from(result.tx_gas_used()),
+                input: tx.input().clone(),
+                value: Some(tx.value()),
+                typ: if tx.kind().is_create() { "CREATE" } else { "CALL" }.into(),
+                error: Some("runtime: out of gas".into()),
+                ..Default::default()
+            };
+        }
+
+        self.geth_call_traces_with_result_gas(opts, *result.gas())
     }
 
     fn geth_call_traces_inner(

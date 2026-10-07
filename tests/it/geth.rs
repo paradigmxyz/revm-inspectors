@@ -1609,3 +1609,120 @@ fn test_geth_opcode_limit_end_to_end() {
         assert_eq!(run(json!({ "tracer": "callTracer", "limit": 2 })).0, calls);
     }
 }
+
+#[test]
+fn test_geth_runtime_out_of_gas() {
+    let caller = address!("1000000000000000000000000000000000000001");
+    let recipient = address!("1000000000000000000000000000000000000002");
+    let options = [
+        serde_json::json!({ "tracer": "callTracer" }),
+        serde_json::json!({
+            "tracer": "callTracer",
+            "tracerConfig": { "onlyTopCall": true, "withLog": true },
+        }),
+        serde_json::json!({
+            "tracer": "muxTracer",
+            "tracerConfig": { "callTracer": {} },
+        }),
+    ];
+    for spec in [SpecId::OSAKA, SpecId::AMSTERDAM] {
+        for kind in [TxKind::Call(recipient), TxKind::Create] {
+            for options in &options {
+                let context = Context::mainnet()
+                    .with_db(CacheDB::<EmptyDB>::default())
+                    .modify_cfg_chained(|cfg| cfg.set_spec_and_mainnet_gas_params(spec))
+                    .modify_db_chained(|db| {
+                        db.insert_account_info(
+                            caller,
+                            AccountInfo::from_balance(U256::from(1_000_000)),
+                        );
+                    });
+                let mut inspector =
+                    DebugInspector::new(serde_json::from_value(options.clone()).unwrap()).unwrap();
+                let mut evm = context.build_mainnet().with_inspector(&mut inspector);
+                let res = evm
+                    .inspect_tx(TxEnv {
+                        caller,
+                        kind,
+                        value: U256::ONE,
+                        gas_limit: 200_000,
+                        data: if kind.is_create() { Bytes::new() } else { hex!("0102").into() },
+                        ..Default::default()
+                    })
+                    .unwrap();
+                let runtime_oog = spec == SpecId::AMSTERDAM;
+                assert_eq!(res.result.is_halt(), runtime_oog, "{res:?}");
+                let (ctx, inspector) = evm.ctx_inspector();
+                let tx = ctx.tx().clone();
+                let block = ctx.block().clone();
+                let trace = inspector.get_result(None, &tx, &block, &res, ctx.db_mut()).unwrap();
+                let mut frame = serde_json::to_value(trace).unwrap();
+                if options["tracer"] == "muxTracer" {
+                    frame = frame["callTracer"].take();
+                }
+                if runtime_oog {
+                    assert_eq!(res.result.tx_gas_used(), tx.gas_limit);
+                    let mut expected = serde_json::json!({
+                        "from": caller,
+                        "gas": "0x30d40",
+                        "gasUsed": "0x30d40",
+                        "input": tx.data,
+                        "value": "0x1",
+                        "type": if kind.is_create() { "CREATE" } else { "CALL" },
+                        "error": "runtime: out of gas",
+                    });
+                    if kind.is_call() {
+                        expected["to"] = serde_json::json!(recipient);
+                    }
+                    assert_eq!(frame, expected);
+                } else {
+                    assert!(res.result.is_success());
+                    assert_eq!(frame.get("error"), None);
+                    assert_eq!(
+                        frame["to"],
+                        serde_json::json!(if kind.is_create() {
+                            caller.create(0)
+                        } else {
+                            recipient
+                        })
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn test_geth_execution_out_of_gas_is_not_runtime_out_of_gas() {
+    let recipient = address!("1000000000000000000000000000000000000002");
+    let context = Context::mainnet()
+        .with_db(CacheDB::<EmptyDB>::default())
+        .modify_cfg_chained(|cfg| cfg.set_spec_and_mainnet_gas_params(SpecId::AMSTERDAM))
+        .modify_db_chained(|db| {
+            // JUMPDEST PUSH1 0 JUMP loops until execution gas is exhausted.
+            db.insert_account_info(
+                recipient,
+                AccountInfo {
+                    code: Some(Bytecode::new_raw(hex!("5b600056").into())),
+                    ..Default::default()
+                },
+            );
+        });
+    let mut inspector =
+        DebugInspector::new(GethDebugTracingOptions::call_tracer(CallConfig::default())).unwrap();
+    let mut evm = context.build_mainnet().with_inspector(&mut inspector);
+    let res = evm
+        .inspect_tx(TxEnv {
+            kind: TxKind::Call(recipient),
+            gas_limit: 50_000,
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(res.result.is_halt());
+    let (ctx, inspector) = evm.ctx_inspector();
+    let tx = ctx.tx().clone();
+    let block = ctx.block().clone();
+    let trace = inspector.get_result(None, &tx, &block, &res, ctx.db_mut()).unwrap();
+    let GethTrace::CallTracer(frame) = trace else { panic!("expected call trace") };
+    assert_eq!(frame.error.as_deref(), Some("out of gas"));
+}
