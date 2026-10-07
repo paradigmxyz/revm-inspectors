@@ -249,7 +249,9 @@ impl<'a> GethTraceBuilder<'a> {
             };
         }
 
-        self.geth_call_traces_with_result_gas(opts, *result.gas())
+        let mut frame = self.geth_call_traces_with_result_gas(opts, *result.gas());
+        frame.gas = U256::from(tx.gas_limit());
+        frame
     }
 
     fn geth_call_traces_inner(

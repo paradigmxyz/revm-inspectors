@@ -1664,6 +1664,7 @@ fn test_geth_runtime_out_of_gas() {
                 if options["tracer"] == "muxTracer" {
                     frame = frame["callTracer"].take();
                 }
+                assert_eq!(frame["gas"], serde_json::json!(U256::from(tx.gas_limit)));
                 if runtime_oog {
                     assert_eq!(res.result.tx_gas_used(), tx.gas_limit);
                     let mut expected = serde_json::json!({
@@ -1809,4 +1810,41 @@ fn test_geth_authorization_runtime_out_of_gas() {
             );
         }
     }
+}
+
+#[test]
+fn test_geth_mux_root_gas_at_state_gas_boundary() {
+    let caller = address!("1000000000000000000000000000000000000001");
+    let recipient = address!("1000000000000000000000000000000000000002");
+    let context = Context::mainnet()
+        .with_db(CacheDB::<EmptyDB>::default())
+        .modify_cfg_chained(|cfg| cfg.set_spec_and_mainnet_gas_params(SpecId::AMSTERDAM))
+        .modify_db_chained(|db| {
+            db.insert_account_info(caller, AccountInfo::from_balance(U256::from(1_000_000)));
+        });
+    let options = serde_json::json!({
+        "tracer": "muxTracer",
+        "tracerConfig": { "callTracer": {} },
+    });
+    let mut inspector = DebugInspector::new(serde_json::from_value(options).unwrap()).unwrap();
+    let mut evm = context.build_mainnet().with_inspector(&mut inspector);
+    let res = evm
+        .inspect_tx(TxEnv {
+            caller,
+            kind: TxKind::Call(recipient),
+            value: U256::ONE,
+            gas_limit: 204_600,
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(res.result.is_success(), "{res:?}");
+    assert_eq!(res.result.tx_gas_used(), 204_600);
+    let (ctx, inspector) = evm.ctx_inspector();
+    let tx = ctx.tx().clone();
+    let block = ctx.block().clone();
+    let trace = inspector.get_result(None, &tx, &block, &res, ctx.db_mut()).unwrap();
+    let frame = serde_json::to_value(trace).unwrap();
+    assert_eq!(frame["callTracer"]["gas"], serde_json::json!(U256::from(tx.gas_limit)));
+    assert_eq!(frame["callTracer"]["gasUsed"], serde_json::json!(U256::from(204_600)));
+    assert_eq!(frame["callTracer"].get("error"), None);
 }
