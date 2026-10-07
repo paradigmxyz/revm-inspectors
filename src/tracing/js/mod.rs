@@ -115,6 +115,10 @@ pub struct JsInspector {
     gas_spent_before: u64,
     /// Optional cancellation signal shared with the caller.
     interrupt: Option<JsInspectorInterrupt>,
+    /// The [`InstructionResult`] the root call ended with, captured when it exits. `ctx.error` is
+    /// built from it, since the halt reason handed to [`Self::result`] is a generic type whose
+    /// only usable view is its `Debug` output.
+    root_instruction_result: Option<InstructionResult>,
 }
 
 impl core::fmt::Debug for JsInspector {
@@ -208,6 +212,7 @@ impl JsInspector {
             step_pending: false,
             gas_spent_before: 0,
             interrupt: None,
+            root_instruction_result: None,
         })
     }
 
@@ -261,6 +266,7 @@ impl JsInspector {
         self.precompiles_registered = false;
         self.step_pending = false;
         self.gas_spent_before = 0;
+        self.root_instruction_result = None;
         Ok(())
     }
 
@@ -336,8 +342,14 @@ impl JsInspector {
                 error = Some("execution reverted".to_string());
                 output_bytes = Some(output);
             }
-            ExecutionResult::Halt { reason, .. } => {
-                error = Some(format!("execution halted: {reason:?}"));
+            ExecutionResult::Halt { .. } => {
+                // Use the phrase the root frame reports elsewhere, not the halt reason's `Debug`
+                // output, which is a Rust type name.
+                error = Some(
+                    self.root_instruction_result
+                        .and_then(|res| utils::fmt_error_msg(res, TraceStyle::Geth))
+                        .unwrap_or_else(|| "execution halted".to_string()),
+                );
             }
         };
 
@@ -665,6 +677,9 @@ where
     }
 
     fn call_end(&mut self, context: &mut CTX, _inputs: &CallInputs, outcome: &mut CallOutcome) {
+        if self.is_root_call_active() {
+            self.root_instruction_result = Some(outcome.result.result);
+        }
         if self.check_interrupt(context) {
             return;
         }
@@ -719,6 +734,9 @@ where
         _inputs: &CreateInputs,
         outcome: &mut CreateOutcome,
     ) {
+        if self.is_root_call_active() {
+            self.root_instruction_result = Some(outcome.result.result);
+        }
         if self.check_interrupt(context) {
             return;
         }
@@ -1596,6 +1614,79 @@ mod tests {
             assert_eq!(counts, json!({"log": 1, "db": 1, "enter": 1, "exit": 1}));
             inspector.fuse().unwrap();
         }
+    }
+
+    /// `ctx.error` for a halting execution is the phrase the root frame reports elsewhere, not the
+    /// halt reason's Rust type name such as `OutOfGas(Basic)` or `StackUnderflow`.
+    #[test]
+    fn test_ctx_error_is_a_stable_phrase() {
+        let code =
+            r#"{step:function(){},fault:function(){},result:function(ctx){return ctx.error}}"#;
+
+        // PUSH1 0xff, JUMP: an invalid jump destination.
+        assert_eq!(
+            run_trace(code, Some(hex!("60ff56").into()), false),
+            json!("invalid jump destination")
+        );
+        // ADD with an empty stack.
+        assert_eq!(run_trace(code, Some(hex!("01").into()), false), json!("stack underflow"));
+        // The designated invalid instruction.
+        assert_eq!(
+            run_trace(code, Some(hex!("fe").into()), false),
+            json!("invalid opcode: INVALID")
+        );
+    }
+
+    /// `fuse` clears the recorded root result, so a later transaction that halts without running a
+    /// frame (e.g. an OP deposit rejected before execution) does not report the previous
+    /// transaction's error.
+    #[test]
+    fn test_ctx_error_does_not_leak_across_fuse() {
+        use revm::context_interface::result::{HaltReason, ResultGas};
+
+        let code =
+            r#"{step:function(){},fault:function(){},result:function(ctx){return ctx.error}}"#;
+        let addr = Address::repeat_byte(0x01);
+        let mut db = CacheDB::new(EmptyDB::default());
+        db.insert_account_info(
+            addr,
+            AccountInfo {
+                // PUSH1 0xff, JUMP: an invalid jump destination.
+                code: Some(Bytecode::new_legacy(hex!("60ff56").into())),
+                ..Default::default()
+            },
+        );
+        let insp = JsInspector::new(code.to_string(), serde_json::Value::Null).unwrap();
+        let mut evm = revm::Context::mainnet().with_db(db).build_mainnet_with_inspector(insp);
+        let res = evm
+            .inspect_tx(TxEnv {
+                gas_limit: 1_000_000,
+                kind: TransactTo::Call(addr),
+                ..Default::default()
+            })
+            .unwrap();
+        let (ctx, inspector) = evm.ctx_inspector();
+        let tx = ctx.tx().clone();
+        let block = ctx.block().clone();
+        assert_eq!(
+            inspector.json_result(res, &tx, &block, ctx.db_mut()).unwrap(),
+            json!("invalid jump destination")
+        );
+
+        inspector.fuse().unwrap();
+        // A halt for which no frame ran, so no root result was recorded.
+        let halted = ResultAndState {
+            result: ExecutionResult::Halt {
+                reason: HaltReason::InvalidFEOpcode,
+                gas: ResultGas::default(),
+                logs: Vec::new(),
+            },
+            state: Default::default(),
+        };
+        assert_eq!(
+            inspector.json_result(halted, &tx, &block, ctx.db_mut()).unwrap(),
+            json!("execution halted")
+        );
     }
 
     #[test]
