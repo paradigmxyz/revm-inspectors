@@ -1729,6 +1729,8 @@ fn test_geth_execution_out_of_gas_is_not_runtime_out_of_gas() {
     let trace = inspector.get_result(None, &tx, &block, &res, ctx.db_mut()).unwrap();
     let GethTrace::CallTracer(frame) = trace else { panic!("expected call trace") };
     assert_eq!(frame.error.as_deref(), Some("out of gas"));
+    assert_eq!(frame.execution_gas_used, Some(U256::from(50_000)));
+    assert_eq!(frame.state_gas_used, Some(U256::ZERO));
 }
 
 #[test]
