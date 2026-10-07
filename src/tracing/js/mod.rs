@@ -940,18 +940,17 @@ struct CallStackItem {
     gas_limit: u64,
 }
 
-/// Rebuilds `err` as a native error of the same kind whose message is the original one followed
-/// by `suffix`, e.g. `Error: boom    in server-side tracer function 'step'`.
+/// Appends `suffix` to the message of `err`, e.g. `Error: boom    in server-side tracer function
+/// 'step'`.
 ///
-/// Boa prints a native error's source position and a backtrace after its message, and wrapping
-/// `err` in a fresh `Error` would print a second kind (`Error: Error: boom`). go-ethereum reports a
-/// failing hook as a single line led by the error's own kind, so only the kind and the message
-/// are kept; Boa still appends the position of the rebuilt error itself, e.g. ` (native)`. A
-/// runtime limit is reported as a `RangeError`, the kind JavaScript engines use for an
-/// exhausted call stack. A script may throw any value, not just an `Error`; such a value becomes
-/// the message of a plain `Error`.
+/// The message is changed on the error itself, so its kind and source position are kept and
+/// only the backtrace, which Boa prints across further lines, is dropped. Wrapping `err` in a
+/// fresh `Error` instead would print a second kind (`Error: Error: boom`). A runtime limit, which
+/// Boa raises as an engine error rather than a JS one, is reported as a `RangeError`, the kind JS
+/// engines use for an exhausted call stack. A script may throw any value, not just an `Error`;
+/// such a value becomes the message of a plain `Error`.
 fn with_message_suffix(err: JsError, suffix: &str, ctx: &mut Context) -> JsError {
-    use boa_engine::{error::EngineError, JsNativeErrorKind as Kind};
+    use boa_engine::error::EngineError;
 
     match err.as_engine() {
         Some(EngineError::RuntimeLimit(limit)) => {
@@ -970,17 +969,8 @@ fn with_message_suffix(err: JsError, suffix: &str, ctx: &mut Context) -> JsError
             .unwrap_or_else(|| err.to_string());
         return JsNativeError::error().with_message(format!("{thrown}{suffix}")).into();
     };
-    let rebuilt = match native.kind() {
-        Kind::Aggregate(errors) => JsNativeError::aggregate(errors.clone()),
-        Kind::Eval => JsNativeError::eval(),
-        Kind::Range => JsNativeError::range(),
-        Kind::Reference => JsNativeError::reference(),
-        Kind::Syntax => JsNativeError::syntax(),
-        Kind::Type => JsNativeError::typ(),
-        Kind::Uri => JsNativeError::uri(),
-        _ => JsNativeError::error(),
-    };
-    rebuilt.with_message(format!("{}{suffix}", native.message())).into()
+    let message = format!("{}{suffix}", native.message());
+    native.with_message(message).into()
 }
 
 /// Error variants that can occur during JavaScript inspection.
@@ -1781,7 +1771,7 @@ mod tests {
 
     #[test]
     fn test_hook_error_keeps_the_error_kind() {
-        // The thrown error's own kind leads the message, without Boa's position or backtrace.
+        // The thrown error's own kind leads the message, on one line without Boa's backtrace.
         let cases = [
             ("null.x", "TypeError: cannot convert 'null' or 'undefined' to object"),
             ("throw 'plain'", "Error: plain"),
