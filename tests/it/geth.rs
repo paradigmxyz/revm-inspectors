@@ -1700,38 +1700,47 @@ fn test_geth_runtime_out_of_gas() {
 #[test]
 fn test_geth_execution_out_of_gas_is_not_runtime_out_of_gas() {
     let recipient = address!("1000000000000000000000000000000000000002");
-    let context = Context::mainnet()
-        .with_db(CacheDB::<EmptyDB>::default())
-        .modify_cfg_chained(|cfg| cfg.set_spec_and_mainnet_gas_params(SpecId::AMSTERDAM))
-        .modify_db_chained(|db| {
-            // JUMPDEST PUSH1 0 JUMP loops until execution gas is exhausted.
-            db.insert_account_info(
-                recipient,
-                AccountInfo {
-                    code: Some(Bytecode::new_raw(hex!("5b600056").into())),
-                    ..Default::default()
-                },
-            );
-        });
-    let mut inspector =
-        DebugInspector::new(GethDebugTracingOptions::call_tracer(CallConfig::default())).unwrap();
-    let mut evm = context.build_mainnet().with_inspector(&mut inspector);
-    let res = evm
-        .inspect_tx(TxEnv {
-            kind: TxKind::Call(recipient),
-            gas_limit: 50_000,
-            ..Default::default()
-        })
-        .unwrap();
-    assert!(res.result.is_halt());
-    let (ctx, inspector) = evm.ctx_inspector();
-    let tx = ctx.tx().clone();
-    let block = ctx.block().clone();
-    let trace = inspector.get_result(None, &tx, &block, &res, ctx.db_mut()).unwrap();
-    let GethTrace::CallTracer(frame) = trace else { panic!("expected call trace") };
-    assert_eq!(frame.error.as_deref(), Some("out of gas"));
-    assert_eq!(frame.execution_gas_used, Some(U256::from(50_000)));
-    assert_eq!(frame.state_gas_used, Some(U256::ZERO));
+    for spec in [SpecId::OSAKA, SpecId::AMSTERDAM] {
+        let context = Context::mainnet()
+            .with_db(CacheDB::<EmptyDB>::default())
+            .modify_cfg_chained(|cfg| cfg.set_spec_and_mainnet_gas_params(spec))
+            .modify_db_chained(|db| {
+                // JUMPDEST PUSH1 0 JUMP loops until execution gas is exhausted.
+                db.insert_account_info(
+                    recipient,
+                    AccountInfo {
+                        code: Some(Bytecode::new_raw(hex!("5b600056").into())),
+                        ..Default::default()
+                    },
+                );
+            });
+        let mut inspector =
+            DebugInspector::new(GethDebugTracingOptions::call_tracer(CallConfig::default()))
+                .unwrap();
+        let mut evm = context.build_mainnet().with_inspector(&mut inspector);
+        let res = evm
+            .inspect_tx(TxEnv {
+                kind: TxKind::Call(recipient),
+                gas_limit: 50_000,
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(res.result.is_halt());
+        let (ctx, inspector) = evm.ctx_inspector();
+        let DebugInspector::CallTracer(inner, _) = &*inspector else {
+            panic!("expected call tracer");
+        };
+        assert!(inner.traces().nodes()[0].trace.status.is_some());
+        let tx = ctx.tx().clone();
+        let block = ctx.block().clone();
+        let trace = inspector.get_result(None, &tx, &block, &res, ctx.db_mut()).unwrap();
+        let GethTrace::CallTracer(frame) = trace else { panic!("expected call trace") };
+        assert_eq!(frame.to, Some(recipient));
+        assert_eq!(frame.error.as_deref(), Some("out of gas"));
+        let amsterdam = spec == SpecId::AMSTERDAM;
+        assert_eq!(frame.execution_gas_used, amsterdam.then_some(U256::from(50_000)));
+        assert_eq!(frame.state_gas_used, amsterdam.then_some(U256::ZERO));
+    }
 }
 
 #[test]

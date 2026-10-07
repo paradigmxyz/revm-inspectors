@@ -229,6 +229,8 @@ impl<'a> GethTraceBuilder<'a> {
         tx: &impl Transaction,
         result: &ExecutionResult<impl HaltReasonTr>,
     ) -> CallFrame {
+        // Pre-frame halts leave the inspector's spec_id unset because no call/create or
+        // initialize_interp hook ran. Detect them from the result and unpopulated root.
         let runtime_oog = self.nodes.first().is_none_or(|node| node.trace.status.is_none())
             && matches!(result, ExecutionResult::Halt { reason, .. }
                 if *reason == HaltReason::OutOfGas(OutOfGasError::Basic).into());
