@@ -399,10 +399,9 @@ impl JsInspector {
     /// their own error types treat it as the JavaScript failure it is.
     fn record_hook_error(&mut self, hook: &'static str, err: JsError) {
         if self.hook_error.is_none() {
-            let message = format!("{err}    in server-side tracer function '{hook}'");
-            self.hook_error = Some(JsInspectorError::JsError(JsError::from_native(
-                JsNativeError::error().with_message(message),
-            )));
+            let suffix = format!("    in server-side tracer function '{hook}'");
+            let err = with_message_suffix(err, &suffix, &mut self.ctx);
+            self.hook_error = Some(JsInspectorError::JsError(err));
         }
     }
 
@@ -939,6 +938,49 @@ struct CallStackItem {
     contract: Contract,
     kind: CallKind,
     gas_limit: u64,
+}
+
+/// Rebuilds `err` as a native error of the same kind whose message is the original one followed
+/// by `suffix`, e.g. `Error: boom    in server-side tracer function 'step'`.
+///
+/// Boa prints a native error's source position and a backtrace after its message, and wrapping
+/// `err` in a fresh `Error` would print a second kind (`Error: Error: boom`). go-ethereum reports a
+/// failing hook as a single line led by the error's own kind, so only the kind and the message
+/// are kept; Boa still appends the position of the rebuilt error itself, e.g. ` (native)`. A
+/// runtime limit is reported as a `RangeError`, the kind JavaScript engines use for an
+/// exhausted call stack. A script may throw any value, not just an `Error`; such a value becomes
+/// the message of a plain `Error`.
+fn with_message_suffix(err: JsError, suffix: &str, ctx: &mut Context) -> JsError {
+    use boa_engine::{error::EngineError, JsNativeErrorKind as Kind};
+
+    match err.as_engine() {
+        Some(EngineError::RuntimeLimit(limit)) => {
+            return JsNativeError::range().with_message(format!("{limit}{suffix}")).into();
+        }
+        Some(engine) => {
+            return JsNativeError::error().with_message(format!("{engine}{suffix}")).into();
+        }
+        None => {}
+    }
+    let Ok(native) = err.try_native(ctx) else {
+        let thrown = err
+            .as_opaque()
+            .and_then(|value| value.to_string(ctx).ok())
+            .map(|s| s.to_std_string_escaped())
+            .unwrap_or_else(|| err.to_string());
+        return JsNativeError::error().with_message(format!("{thrown}{suffix}")).into();
+    };
+    let rebuilt = match native.kind() {
+        Kind::Aggregate(errors) => JsNativeError::aggregate(errors.clone()),
+        Kind::Eval => JsNativeError::eval(),
+        Kind::Range => JsNativeError::range(),
+        Kind::Reference => JsNativeError::reference(),
+        Kind::Syntax => JsNativeError::syntax(),
+        Kind::Type => JsNativeError::typ(),
+        Kind::Uri => JsNativeError::uri(),
+        _ => JsNativeError::error(),
+    };
+    rebuilt.with_message(format!("{}{suffix}", native.message())).into()
 }
 
 /// Error variants that can occur during JavaScript inspection.
@@ -1734,7 +1776,28 @@ mod tests {
             .json_result(res, &tx, &block, ctx.db_mut())
             .expect_err("a thrown hook must surface as an error, not a result");
         let msg = err.to_string();
-        assert!(msg.contains("boom"), "{msg}");
-        assert!(msg.contains("in server-side tracer function 'step'"), "{msg}");
+        assert!(msg.starts_with("Error: boom    in server-side tracer function 'step'"), "{msg}");
+    }
+
+    #[test]
+    fn test_hook_error_keeps_the_error_kind() {
+        // The thrown error's own kind leads the message, without Boa's position or backtrace.
+        let cases = [
+            ("null.x", "TypeError: cannot convert 'null' or 'undefined' to object"),
+            ("throw 'plain'", "Error: plain"),
+            (
+                "while (true) {}",
+                "RangeError: reached the maximum number of iteration loops on this execution",
+            ),
+        ];
+        for (body, expected) in cases {
+            let code = format!(
+                "{{step: function() {{ {body}; }}, fault: function() {{}}, result: function() {{ return null }}}}"
+            );
+            let err = run_trace_err(&code, None, false);
+            let expected = format!("{expected}    in server-side tracer function 'step'");
+            assert!(err.starts_with(&expected), "{err}");
+            assert!(!err.contains('\n'), "{err}");
+        }
     }
 }
