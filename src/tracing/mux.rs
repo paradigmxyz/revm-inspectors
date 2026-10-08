@@ -114,28 +114,6 @@ impl MuxInspector {
         Ok(MuxInspector { four_byte, tracing, configs })
     }
 
-    /// Manually set the gas limit of the root trace.
-    ///
-    /// Forwards to [`TracingInspector::set_transaction_gas_limit`], so that the wrapped tracers
-    /// report the same root frame as when they run on their own.
-    #[inline]
-    pub fn set_transaction_gas_limit(&mut self, gas_limit: u64) {
-        if let Some(inspector) = &mut self.tracing {
-            inspector.set_transaction_gas_limit(gas_limit);
-        }
-    }
-
-    /// Manually set the caller address of the root trace.
-    ///
-    /// Forwards to [`TracingInspector::set_transaction_caller`], for the same reason as
-    /// [`Self::set_transaction_gas_limit`].
-    #[inline]
-    pub fn set_transaction_caller(&mut self, caller: Address) {
-        if let Some(inspector) = &mut self.tracing {
-            inspector.set_transaction_caller(caller);
-        }
-    }
-
     /// Try converting this [MuxInspector] into a [MuxFrame].
     pub fn try_into_mux_frame<DB: DatabaseRef>(
         &self,
@@ -203,6 +181,20 @@ impl MuxInspector {
         }
 
         Ok(MuxFrame(frame))
+    }
+
+    /// Sets the root gas limit for tracers sharing the tracing inspector.
+    pub(crate) fn set_transaction_gas_limit(&mut self, gas_limit: u64) {
+        if let Some(inspector) = &mut self.tracing {
+            inspector.set_transaction_gas_limit(gas_limit);
+        }
+    }
+
+    /// Sets the root caller for tracers sharing the tracing inspector.
+    pub(crate) fn set_transaction_caller(&mut self, caller: Address) {
+        if let Some(inspector) = &mut self.tracing {
+            inspector.set_transaction_caller(caller);
+        }
     }
 }
 
