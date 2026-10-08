@@ -45,10 +45,44 @@ pub(crate) fn fmt_error_msg(res: InstructionResult, kind: TraceStyle) -> Option<
         InstructionResult::InvalidOperandOOG => {
             if kind.is_parity() { "Out of gas" } else { "out of gas: invalid operand" }.to_string()
         }
-        InstructionResult::OpcodeNotFound => {
+        InstructionResult::CreateContractSizeLimit => {
+            if kind.is_parity() { "Out of gas" } else { "max code size exceeded" }.to_string()
+        }
+        InstructionResult::CreateInitCodeSizeLimit => {
+            if kind.is_parity() { "Out of gas" } else { "max initcode size exceeded" }.to_string()
+        }
+        InstructionResult::OpcodeNotFound | InstructionResult::NotActivated => {
             if kind.is_parity() { "Bad instruction" } else { "invalid opcode" }.to_string()
         }
+        InstructionResult::StackUnderflow => {
+            if kind.is_parity() { "Stack underflow" } else { "stack underflow" }.to_string()
+        }
         InstructionResult::StackOverflow => "Out of stack".to_string(),
+        InstructionResult::StateChangeDuringStaticCall
+        | InstructionResult::CallNotAllowedInsideStatic => {
+            if kind.is_parity() { "Mutable Call In Static Context" } else { "write protection" }
+                .to_string()
+        }
+        InstructionResult::OutOfOffset => {
+            if kind.is_parity() { "Out of bounds" } else { "return data out of bounds" }.to_string()
+        }
+        InstructionResult::CreateContractStartingWithEF => {
+            if kind.is_parity() { "Invalid code" } else { "invalid code: must not begin with 0xef" }
+                .to_string()
+        }
+        InstructionResult::CreateCollision => if kind.is_parity() {
+            "Contract address collision"
+        } else {
+            "contract address collision"
+        }
+        .to_string(),
+        InstructionResult::NonceOverflow => {
+            if kind.is_parity() { "Nonce overflow" } else { "nonce uint64 overflow" }.to_string()
+        }
+        InstructionResult::CallTooDeep => {
+            if kind.is_parity() { "Max call depth exceeded" } else { "max call depth exceeded" }
+                .to_string()
+        }
         InstructionResult::InvalidJump => {
             if kind.is_parity() { "Bad jump destination" } else { "invalid jump destination" }
                 .to_string()
@@ -103,13 +137,14 @@ pub(crate) fn load_account_code<DB: DatabaseRef>(
     db: DB,
     db_acc: &revm::state::AccountInfo,
 ) -> Option<Bytes> {
-    db_acc.code.as_ref().map(|code| code.original_bytes()).or_else(|| {
-        if db_acc.code_hash == KECCAK_EMPTY {
-            None
-        } else {
-            db.code_by_hash_ref(db_acc.code_hash).ok().map(|code| code.original_bytes())
-        }
-    })
+    if db_acc.code_hash == KECCAK_EMPTY {
+        return None;
+    }
+    db_acc
+        .code
+        .as_ref()
+        .map(|code| code.original_bytes())
+        .or_else(|| db.code_by_hash_ref(db_acc.code_hash).ok().map(|code| code.original_bytes()))
 }
 
 /// Returns a non-empty revert reason if the output is a revert/error.

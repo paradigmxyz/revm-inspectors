@@ -13,6 +13,8 @@ mod geth_js;
 #[cfg(feature = "std")]
 mod inputs;
 #[cfg(feature = "std")]
+mod limits;
+#[cfg(feature = "std")]
 mod otterscan;
 #[cfg(feature = "std")]
 mod parity;

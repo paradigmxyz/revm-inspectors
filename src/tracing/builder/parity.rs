@@ -4,12 +4,16 @@ use crate::tracing::{
     TracingInspectorConfig,
 };
 use alloc::{string::ToString, vec, vec::Vec};
-use alloy_primitives::{map::HashSet, Address, U256, U64};
+use alloy_primitives::{
+    map::{HashMap, HashSet},
+    Address, Bytes, U64,
+};
 use alloy_rpc_types_eth::TransactionInfo;
 use alloy_rpc_types_trace::parity::*;
 use core::iter::Peekable;
 use revm::{
     context_interface::result::{ExecutionResult, HaltReasonTr, ResultAndState},
+    interpreter::InstructionResult,
     primitives::hardfork::SpecId,
     state::{Account, EvmState},
     DatabaseRef,
@@ -286,6 +290,15 @@ impl ParityTraceBuilder {
         let mut child_idx_stack = Vec::with_capacity(self.nodes.len());
         let mut sub_stack = Vec::with_capacity(self.nodes.len());
 
+        // Excluded precompile calls are recorded without being attached to their parent, in call
+        // order.
+        let mut precompiles = HashMap::<usize, Vec<&CallTraceNode>>::default();
+        for node in self.nodes.iter().filter(|node| node.is_precompile()) {
+            if let Some(parent) = node.parent {
+                precompiles.entry(parent).or_default().push(node);
+            }
+        }
+
         let mut current = start;
         let mut child_idx: usize = 0;
 
@@ -304,25 +317,31 @@ impl ParityTraceBuilder {
                     // in call order; those of earlier siblings stay queued for their parents.
                     let mut children =
                         sub_stack.split_off(sub_stack.len() - current.children.len());
+                    let mut precompiles =
+                        precompiles.remove(&current.idx).unwrap_or_default().into_iter();
 
                     // A child is recorded right after the step that called it, so a call step
-                    // without a following child, like an excluded precompile call, has no
-                    // subtrace.
+                    // without a following child either halted or called an excluded precompile.
                     let mut ordering = current.ordering.iter().peekable();
                     let mut deltas = current.trace.step_deltas.iter().peekable();
                     while let Some(member) = ordering.next() {
                         let TraceMemberOrder::Step(step_idx) = *member else { continue };
                         let step = &current.trace.steps[step_idx];
                         let delta = deltas.next_if(|delta| delta.step == step_idx);
-                        let maybe_sub_call = if step.is_call_like_op() {
-                            ordering
-                                .next_if(|next| matches!(next, TraceMemberOrder::Call(_)))
-                                .and_then(|next| match next {
-                                    TraceMemberOrder::Call(child) => {
-                                        children.get_mut(*child).and_then(Option::take)
-                                    }
-                                    _ => None,
-                                })
+                        if !began_executing(step, current.trace.bytecode.as_ref()) {
+                            continue;
+                        }
+                        let maybe_sub_call = if step.is_call_like_op() && !step.is_error() {
+                            match ordering.next_if(|next| matches!(next, TraceMemberOrder::Call(_)))
+                            {
+                                Some(TraceMemberOrder::Call(child)) => {
+                                    children.get_mut(*child).and_then(Option::take)
+                                }
+                                _ => precompiles
+                                    .next()
+                                    .filter(|node| entered_frame(node))
+                                    .map(|_| VmTrace::default()),
+                            }
                         } else {
                             None
                         };
@@ -332,7 +351,8 @@ impl ParityTraceBuilder {
 
                     match current.parent {
                         Some(parent) => {
-                            sub_stack.push(Some(VmTrace {
+                            // A call or creation that failed its precheck entered no frame.
+                            sub_stack.push(entered_frame(current).then(|| VmTrace {
                                 code: current.trace.bytecode.clone().unwrap_or_default(),
                                 ops: instructions,
                             }));
@@ -358,11 +378,6 @@ impl ParityTraceBuilder {
         delta: Option<&StepDelta>,
         maybe_sub_call: Option<VmTrace>,
     ) -> VmInstruction {
-        let maybe_storage = step.storage_change.as_ref().map(|storage_change| StorageDelta {
-            key: storage_change.key,
-            val: storage_change.value,
-        });
-
         // A halted step has no effects to report, while a `REVERT` executes like any other step.
         let halted = step.status.is_some_and(|status| status.is_halt());
         let maybe_execution = (!halted).then(|| VmExecutedOperation {
@@ -371,7 +386,7 @@ impl ParityTraceBuilder {
                 .unwrap_or_else(|| step.gas_remaining.saturating_sub(step.gas_cost)),
             push: step.push_stack.clone().unwrap_or_default().into(),
             mem: delta.and_then(|delta| delta.memory.clone()),
-            store: maybe_storage,
+            store: delta.and_then(|delta| delta.store),
         });
 
         VmInstruction {
@@ -383,6 +398,44 @@ impl ParityTraceBuilder {
             idx: None,
         }
     }
+}
+
+/// Returns whether a step began executing, as opposed to an operation that was rejected before
+/// execution, such as an undefined opcode or a stack underflow, or the implicit `STOP` past the end
+/// of the bytecode, if it was recorded.
+///
+/// revm charges an operation's static gas before these checks, so an operation that would be
+/// rejected but cannot pay its static gas halts out of gas instead and is kept.
+fn began_executing(step: &CallTraceStep, bytecode: Option<&Bytes>) -> bool {
+    let rejected = matches!(
+        step.status,
+        Some(
+            InstructionResult::OpcodeNotFound
+                | InstructionResult::InvalidFEOpcode
+                | InstructionResult::NotActivated
+                | InstructionResult::InvalidImmediateEncoding
+                | InstructionResult::StackUnderflow
+                | InstructionResult::StackOverflow
+        )
+    );
+    !rejected && bytecode.is_none_or(|code| step.pc < code.len())
+}
+
+/// Returns whether a call or creation entered its frame and so has a subtrace, which it does
+/// unless it failed the call depth, balance or nonce precheck.
+///
+/// A creation whose address collides counts as entered, since it consumes its gas like a frame
+/// that failed, although revm runs no interpreter for it.
+fn entered_frame(node: &CallTraceNode) -> bool {
+    !matches!(
+        node.status(),
+        Some(
+            InstructionResult::CallTooDeep
+                | InstructionResult::OutOfFunds
+                | InstructionResult::OverflowPayment
+                | InstructionResult::NonceOverflow
+        )
+    )
 }
 
 /// An iterator for [TransactionTrace]s
@@ -463,6 +516,7 @@ where
             continue;
         }
 
+        let existed = db_acc.is_some();
         let db_acc = db_acc.unwrap_or_default();
         let entry = state_diff.entry(addr).or_default();
 
@@ -471,29 +525,23 @@ where
             entry.balance = Delta::Removed(db_acc.balance);
             entry.nonce = Delta::Removed(U64::from(db_acc.nonce));
             entry.code = Delta::Removed(load_account_code(&db, &db_acc).unwrap_or_default());
-            // The state map contains accessed slots only; DatabaseRef cannot enumerate storage.
-            for (key, slot) in &changed_acc.storage {
-                if !slot.original_value.is_zero() {
-                    entry.storage.insert((*key).into(), Delta::Removed(slot.original_value.into()));
-                }
-            }
+            // Deletion wipes all storage, which the removed account implies, so no slot is
+            // listed: the state map holds only the slots this transaction accessed, and
+            // DatabaseRef cannot enumerate the rest.
             continue;
         }
 
-        // we check if this account was created during the transaction
-        // where the smart contract was not touched before being created (no balance)
-        if changed_acc.is_created() && db_acc.balance == U256::ZERO {
-            // This only applies to newly created accounts without balance
-            // A non existing touched account (e.g. `to` that does not exist) is excluded here
+        // An absent prestate account is added if it has nonempty final state or
+        // the EVM marked it created (which can preserve an empty account).
+        if !existed && (changed_acc.is_created() || !changed_acc.is_empty()) {
             entry.balance = Delta::Added(changed_acc.info.balance);
             entry.nonce = Delta::Added(U64::from(changed_acc.info.nonce));
 
-            // accounts without code are marked as added
+            // Empty code is still marked as added for a new account.
             let account_code = load_account_code(&db, &changed_acc.info).unwrap_or_default();
             entry.code = Delta::Added(account_code);
 
-            // new storage values are marked as added,
-            // however we're filtering changed here to avoid adding entries for the zero value
+            // Only changed slots are added; unchanged zero-valued slots are omitted.
             for (key, slot) in changed_acc.storage.iter().filter(|(_, slot)| slot.is_changed()) {
                 entry.storage.insert((*key).into(), Delta::Added(slot.present_value.into()));
             }
