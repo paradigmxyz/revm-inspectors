@@ -54,7 +54,8 @@ pub const LOOP_ITERATION_LIMIT: u64 = 200_000;
 /// The recursion limit for function calls.
 ///
 /// Once exceeded, the function will throw an error.
-pub const RECURSION_LIMIT: usize = 10_000;
+/// Kept below Boa's default because recursive accessors also consume native stack space.
+pub const RECURSION_LIMIT: usize = 128;
 
 /// A javascript inspector that will delegate inspector functions to javascript functions
 ///
@@ -275,7 +276,8 @@ impl JsInspector {
 
     /// Applies the runtime limits to the JS context.
     ///
-    /// By default
+    /// Increasing the recursion limit can overflow the native stack when tracing code uses
+    /// recursive property accessors.
     pub fn set_runtime_limits(&mut self, limits: RuntimeLimits) {
         self.ctx.set_runtime_limits(limits);
     }
@@ -995,6 +997,7 @@ mod tests {
     use super::*;
 
     use alloy_primitives::{bytes, hex, Address};
+    use boa_engine::error::{EngineError, RuntimeLimitError};
     use revm::{
         context::TxEnv,
         database::CacheDB,
@@ -1722,5 +1725,44 @@ mod tests {
         // A clean STOP does not fault.
         let res = run_trace(code, Some(hex!("00").into()), true);
         assert_eq!(res["faults"], json!(0), "a clean stop must not fault: {res}");
+    }
+
+    #[test]
+    fn test_runtime_limits() {
+        let inspector = JsInspector::new(
+            "{fault: function() {}, result: function() {}}".into(),
+            serde_json::Value::Null,
+        )
+        .unwrap();
+        assert_eq!(inspector.ctx.runtime_limits().recursion_limit(), RECURSION_LIMIT);
+        assert_eq!(inspector.ctx.runtime_limits().loop_iteration_limit(), LOOP_ITERATION_LIMIT);
+    }
+
+    #[test]
+    fn test_accessor_recursion_limit() {
+        std::thread::Builder::new()
+            .stack_size(2 * 1024 * 1024)
+            .spawn(|| {
+                for setup in [
+                    "const obj = {get x() {return this.x;}}; obj.x;",
+                    "const obj = {set x(value) {this.x = value;}}; obj.x = 1;",
+                    "async function* f() {} f().return({get then() {this.then;}});",
+                ] {
+                    let code = format!(
+                        "{{setup: function() {{{setup}}}, fault: function() {{}}, result: function() {{}}}}"
+                    );
+                    let error = JsInspector::new(code, serde_json::Value::Null).unwrap_err();
+                    let JsInspectorError::SetupCallFailed(error) = error else {
+                        panic!("unexpected error: {error}");
+                    };
+                    assert!(matches!(
+                        error.as_engine(),
+                        Some(EngineError::RuntimeLimit(RuntimeLimitError::Recursion))
+                    ));
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap();
     }
 }

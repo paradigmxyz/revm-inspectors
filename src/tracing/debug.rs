@@ -254,10 +254,13 @@ impl DebugInspector {
                 gas_refund: res.result.gas().final_refunded(),
             }
             .into(),
-            Self::Mux(inspector, _) => inspector
-                .try_into_mux_frame(res, db, tx_info)
-                .map_err(DebugInspectorError::Database)?
-                .into(),
+            Self::Mux(inspector, _) => {
+                inspector.set_transaction_gas_limit(tx_env.gas_limit());
+                inspector
+                    .try_into_mux_frame(res, db, tx_info)
+                    .map_err(DebugInspectorError::Database)?
+                    .into()
+            }
             Self::FlatCallTracer(inspector) => {
                 inspector.set_transaction_gas_limit(tx_env.gas_limit());
                 inspector.set_transaction_caller(tx_env.caller());
