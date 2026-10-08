@@ -242,6 +242,10 @@ impl<'a> GethTraceBuilder<'a> {
         }
 
         if opts.only_top_call.unwrap_or_default() {
+            // no subcall frames are collected, so logs have no position relative to them
+            for log in &mut root_call_frame.logs {
+                log.position = Some(0);
+            }
             return root_call_frame;
         }
 
