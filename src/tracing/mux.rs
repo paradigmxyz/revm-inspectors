@@ -179,6 +179,13 @@ impl MuxInspector {
 
         Ok(MuxFrame(frame))
     }
+
+    /// Sets the root gas limit for tracers sharing the tracing inspector.
+    pub(crate) fn set_transaction_gas_limit(&mut self, gas_limit: u64) {
+        if let Some(inspector) = &mut self.tracing {
+            inspector.set_transaction_gas_limit(gas_limit);
+        }
+    }
 }
 
 impl<CTX> Inspector<CTX> for MuxInspector
