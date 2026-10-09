@@ -748,7 +748,10 @@ impl MemoryView {
         Ok(AlignedVec::from_iter(
             0,
             range.map(|i| {
-                if patch.contains(&i) {
+                if i >= self.len {
+                    // Beyond the pre-execution memory, which the EVM reads as zero.
+                    0
+                } else if patch.contains(&i) {
                     self.patch[i - self.patch_offset]
                 } else {
                     post.get(i).copied().unwrap_or_default()
@@ -834,10 +837,24 @@ fn build_step_memory_object(state: Shared<StepLogState>, ctx: &mut Context) -> J
     });
     let slice = state_fn(ctx, state.clone(), 2, |state, args, ctx| {
         let len = state.borrow().memory.len();
-        let start = parse_memory_index(args.get_or_undefined(0), "start", len, ctx)?;
-        let end = parse_memory_index(args.get_or_undefined(1), "end", len, ctx)?;
-        if end < start || end > len {
+        let start = parse_memory_offset(args.get_or_undefined(0), "start", ctx)?;
+        let end = parse_memory_offset(args.get_or_undefined(1), "end", ctx)?;
+        if end == start {
+            return uint8_array_from_block(AlignedVec::from_iter(0, core::iter::empty()), ctx);
+        }
+        if end < start {
             return Err(memory_out_of_bounds_error(len, start, end.saturating_sub(start)));
+        }
+        // Reading past the end of memory is not an error: the EVM's memory is conceptually
+        // infinite and zero-filled, so the gap is zero-padded, up to a cap on how much padding a
+        // single read may request.
+        if end > len {
+            let padding = end - len;
+            if padding > MEMORY_PAD_LIMIT {
+                return Err(type_error(format!(
+                    "reached limit for padding memory slice: {padding}"
+                )));
+            }
         }
         let bytes = state.borrow().memory.bytes(start..end)?;
         uint8_array_from_block(bytes, ctx)
@@ -899,6 +916,10 @@ fn invalid_memory_index_error(name: &str, index: impl core::fmt::Display) -> JsE
     type_error(format!("invalid memory {name}: {index}"))
 }
 
+/// Maximum number of zero bytes a single `memory.slice` call may pad past the end of memory,
+/// matching go-ethereum's `memoryPadLimit`.
+const MEMORY_PAD_LIMIT: usize = 1024 * 1024;
+
 fn memory_out_of_bounds_error(len: usize, offset: usize, size: usize) -> JsError {
     type_error(format!(
         "tracer accessed out of bound memory: available {len}, offset {offset}, size {size}"
@@ -911,6 +932,19 @@ fn parse_memory_index(
     len: usize,
     ctx: &mut Context,
 ) -> JsResult<usize> {
+    let index = parse_memory_offset(value, name, ctx)?;
+    if index > len {
+        return Err(invalid_memory_index_error(name, index));
+    }
+    Ok(index)
+}
+
+/// Parses a memory offset without bounding it to the current memory length.
+///
+/// `slice` accepts offsets past the end of memory and zero-pads the gap, so the length check that
+/// [`parse_memory_index`] applies is left to the caller. Negative and non-finite inputs are
+/// rejected here, before the saturating `as usize` cast could turn them into a valid-looking index.
+fn parse_memory_offset(value: &JsValue, name: &str, ctx: &mut Context) -> JsResult<usize> {
     if value.is_undefined() {
         return Err(invalid_memory_index_error(name, "undefined"));
     }
@@ -919,18 +953,14 @@ fn parse_memory_index(
             return Err(invalid_memory_index_error(name, index));
         }
     }
-    let index = if let Some(index) = value.as_bigint() {
+    if let Some(index) = value.as_bigint() {
         // Boa's `ToIndex` rejects BigInt, but stack-derived tracer values are BigInt.
         let index = index.to_string();
-        index.parse::<usize>().map_err(|_| invalid_memory_index_error(name, &index))?
+        index.parse::<usize>().map_err(|_| invalid_memory_index_error(name, &index))
     } else {
         let index = value.to_index(ctx)?;
-        usize::try_from(index).map_err(|_| invalid_memory_index_error(name, index))?
-    };
-    if index > len {
-        return Err(invalid_memory_index_error(name, index));
+        usize::try_from(index).map_err(|_| invalid_memory_index_error(name, index))
     }
-    Ok(index)
 }
 
 /// Represents the contract object
