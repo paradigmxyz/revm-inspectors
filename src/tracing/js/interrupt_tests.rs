@@ -181,6 +181,29 @@ fn interrupt_rejects_result_collection() {
     }
 }
 
+/// A hook error recorded before the interrupt is reported instead of the interrupt: once a hook
+/// throws the remaining hooks are skipped, so the error is what ended the trace.
+#[test]
+fn hook_error_takes_precedence_over_a_later_interrupt() {
+    let script = "{step: function() { throw new Error('boom'); }, fault: function() {}, result: function() { return 42; }}";
+    let (mut inspector, result) =
+        run(interruptible(script), &hex!("60015000"), TransactTo::Call(TARGET));
+    let result = result.unwrap();
+    inspector.interrupt.as_ref().unwrap().interrupt();
+    let err = inspector
+        .json_result(
+            result,
+            &TxEnv::default(),
+            &revm::context::BlockEnv::default(),
+            &EmptyDB::default(),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(&err, JsInspectorError::JsError(_)) && err.to_string().contains("boom"),
+        "{err}"
+    );
+}
+
 #[test]
 fn drop_guard_interrupts_when_request_future_is_dropped() {
     let interrupt = JsInspectorInterrupt::new();

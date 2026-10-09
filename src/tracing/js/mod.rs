@@ -19,7 +19,9 @@ use alloc::{
     vec::Vec,
 };
 use alloy_primitives::{Address, Bytes, U256};
-use boa_engine::{js_string, Context, JsError, JsObject, JsResult, JsValue, Script, Source};
+use boa_engine::{
+    js_string, Context, JsError, JsNativeError, JsObject, JsResult, JsValue, Script, Source,
+};
 use core::sync::atomic::{AtomicBool, Ordering};
 use revm::{
     bytecode::opcode,
@@ -114,6 +116,10 @@ pub struct JsInspector {
     step_pending: bool,
     /// Total gas spent before the pending step, to compute the step's cost in `step_end`.
     gas_spent_before: u64,
+    /// The first error thrown by one of the tracer's hooks, if any. Mirrors go-ethereum's
+    /// `jsTracer.err`: once a hook throws, the remaining hooks are skipped and [`Self::result`]
+    /// reports the error instead of a trace that silently omits whatever the hook did not record.
+    hook_error: Option<JsInspectorError>,
     /// Optional cancellation signal shared with the caller.
     interrupt: Option<JsInspectorInterrupt>,
 }
@@ -208,6 +214,7 @@ impl JsInspector {
             precompiles_registered: false,
             step_pending: false,
             gas_spent_before: 0,
+            hook_error: None,
             interrupt: None,
         })
     }
@@ -262,6 +269,7 @@ impl JsInspector {
         self.precompiles_registered = false;
         self.step_pending = false;
         self.gas_spent_before = 0;
+        self.hook_error = None;
         Ok(())
     }
 
@@ -316,6 +324,13 @@ impl JsInspector {
         DB: DatabaseRef,
         <DB as DatabaseRef>::Error: core::fmt::Display,
     {
+        // A hook that threw leaves the trace half-built, so report the failure instead of a
+        // result that silently omits whatever the hook did not record. Rebuilt rather than taken,
+        // so asking for the result twice answers the same way.
+        if let Some(JsInspectorError::JsError(err)) = &self.hook_error {
+            return Err(JsInspectorError::JsError(err.clone()));
+        }
+
         self.ensure_not_interrupted()?;
         let ResultAndState { result, state } = res;
         let mut db = WrapDatabaseRef(db);
@@ -377,6 +392,24 @@ impl JsInspector {
         });
         self.ensure_not_interrupted()?;
         Ok(result?)
+    }
+
+    /// Records the first error thrown by a tracer hook, tagged with the hook's name.
+    ///
+    /// Later errors are dropped: the first one explains the rest. The hook name goes into the
+    /// message rather than a dedicated error variant so callers mapping [`JsInspectorError`] onto
+    /// their own error types treat it as the JavaScript failure it is.
+    fn record_hook_error(&mut self, hook: &'static str, err: JsError) {
+        if self.hook_error.is_none() {
+            let suffix = format!("    in server-side tracer function '{hook}'");
+            let err = with_message_suffix(err, &suffix, &mut self.ctx);
+            self.hook_error = Some(JsInspectorError::JsError(err));
+        }
+    }
+
+    /// Whether a hook has already thrown, in which case the remaining hooks are skipped.
+    const fn hook_errored(&self) -> bool {
+        self.hook_error.is_some()
     }
 
     fn try_enter(&mut self, frame: CallFrame) -> JsResult<()> {
@@ -548,7 +581,7 @@ where
     CTX: ContextTr<Journal: JournalExt>,
 {
     fn step(&mut self, interp: &mut Interpreter, context: &mut CTX) {
-        if self.check_and_halt(context, interp) || self.step_fn.is_none() {
+        if self.check_and_halt(context, interp) || self.step_fn.is_none() || self.hook_errored() {
             return;
         }
 
@@ -577,6 +610,9 @@ where
             return;
         };
         if !core::mem::take(&mut self.step_pending) {
+            return;
+        }
+        if self.hook_errored() {
             return;
         }
 
@@ -612,6 +648,10 @@ where
                 },
             )
         });
+
+        if let Err(err) = &res {
+            self.record_hook_error(if is_revert { "fault" } else { "step" }, err.clone());
+        }
 
         if self.check_and_halt(context, interp) {
             return;
@@ -651,14 +691,17 @@ where
         );
 
         let mut result = None;
-        if self.can_call_enter() {
+        if self.can_call_enter() && !self.hook_errored() {
             let call = self.active_call();
             let frame = CallFrame {
                 contract: call.contract.clone(),
                 kind: call.kind,
                 gas: inputs.gas_limit,
             };
-            result = self.try_enter(frame).err().map(js_error_to_revert);
+            if let Err(err) = self.try_enter(frame) {
+                self.record_hook_error("enter", err.clone());
+                result = Some(js_error_to_revert(err));
+            }
         }
 
         self.interrupt_result(context, inputs.gas_limit)
@@ -670,13 +713,14 @@ where
         if self.check_interrupt(context) {
             return;
         }
-        if self.can_call_exit() {
+        if self.can_call_exit() && !self.hook_errored() {
             let frame_result = FrameResult {
                 gas_used: outcome.result.gas.total_gas_spent(),
                 output: outcome.result.output.clone(),
                 error: utils::fmt_error_msg(outcome.result.result, TraceStyle::Geth),
             };
             if let Err(err) = self.try_exit(frame_result) {
+                self.record_hook_error("exit", err.clone());
                 outcome.result = js_error_to_revert(err);
             }
         }
@@ -703,11 +747,14 @@ where
         );
 
         let mut result = None;
-        if self.can_call_enter() {
+        if self.can_call_enter() && !self.hook_errored() {
             let call = self.active_call();
             let frame =
                 CallFrame { contract: call.contract.clone(), kind: call.kind, gas: call.gas_limit };
-            result = self.try_enter(frame).err().map(js_error_to_revert);
+            if let Err(err) = self.try_enter(frame) {
+                self.record_hook_error("enter", err.clone());
+                result = Some(js_error_to_revert(err));
+            }
         }
 
         self.interrupt_result(context, inputs.gas_limit())
@@ -724,13 +771,14 @@ where
         if self.check_interrupt(context) {
             return;
         }
-        if self.can_call_exit() {
+        if self.can_call_exit() && !self.hook_errored() {
             let frame_result = FrameResult {
                 gas_used: outcome.result.gas.total_gas_spent(),
                 output: outcome.result.output.clone(),
                 error: utils::fmt_error_msg(outcome.result.result, TraceStyle::Geth),
             };
             if let Err(err) = self.try_exit(frame_result) {
+                self.record_hook_error("exit", err.clone());
                 outcome.result = js_error_to_revert(err);
             }
         }
@@ -745,17 +793,21 @@ where
         }
         // This is exempt from the root call constraint, because selfdestruct is treated as a
         // new scope that is entered and immediately exited.
-        if self.enter_fn.is_some() {
+        if self.enter_fn.is_some() && !self.hook_errored() {
             let call = self.active_call();
             let frame =
                 CallFrame { contract: call.contract.clone(), kind: call.kind, gas: call.gas_limit };
-            let _ = self.try_enter(frame);
+            if let Err(err) = self.try_enter(frame) {
+                self.record_hook_error("enter", err);
+            }
         }
 
         // exit with empty frame result ref <https://github.com/ethereum/go-ethereum/blob/0004c6b229b787281760b14fb9460ffd9c2496f1/core/vm/instructions.go#L829-L829>
-        if !self.is_interrupted() && self.exit_fn.is_some() {
+        if !self.is_interrupted() && self.exit_fn.is_some() && !self.hook_errored() {
             let frame_result = FrameResult { gas_used: 0, output: Bytes::new(), error: None };
-            let _ = self.try_exit(frame_result);
+            if let Err(err) = self.try_exit(frame_result) {
+                self.record_hook_error("exit", err);
+            }
         }
     }
 }
@@ -890,6 +942,39 @@ struct CallStackItem {
     gas_limit: u64,
 }
 
+/// Appends `suffix` to the message of `err`, e.g. `Error: boom    in server-side tracer function
+/// 'step'`.
+///
+/// The message is changed on the error itself, so its kind and source position are kept and
+/// only the backtrace, which Boa prints across further lines, is dropped. Wrapping `err` in a
+/// fresh `Error` instead would print a second kind (`Error: Error: boom`). A runtime limit, which
+/// Boa raises as an engine error rather than a JS one, is reported as a `RangeError`, the kind JS
+/// engines use for an exhausted call stack. A script may throw any value, not just an `Error`;
+/// such a value becomes the message of a plain `Error`.
+fn with_message_suffix(err: JsError, suffix: &str, ctx: &mut Context) -> JsError {
+    use boa_engine::error::EngineError;
+
+    match err.as_engine() {
+        Some(EngineError::RuntimeLimit(limit)) => {
+            return JsNativeError::range().with_message(format!("{limit}{suffix}")).into();
+        }
+        Some(engine) => {
+            return JsNativeError::error().with_message(format!("{engine}{suffix}")).into();
+        }
+        None => {}
+    }
+    let Ok(native) = err.try_native(ctx) else {
+        let thrown = err
+            .as_opaque()
+            .and_then(|value| value.to_string(ctx).ok())
+            .map(|s| s.to_std_string_escaped())
+            .unwrap_or_else(|| err.to_string());
+        return JsNativeError::error().with_message(format!("{thrown}{suffix}")).into();
+    };
+    let message = format!("{}{suffix}", native.message());
+    native.with_message(message).into()
+}
+
 /// Error variants that can occur during JavaScript inspection.
 #[derive(Debug, thiserror::Error)]
 pub enum JsInspectorError {
@@ -984,6 +1069,20 @@ mod tests {
 
     // Helper function to run a trace and return the result
     fn run_trace(code: &str, contract: Option<Bytes>, success: bool) -> serde_json::Value {
+        try_run_trace(code, contract, success).unwrap()
+    }
+
+    /// Like [`run_trace`] but expects the trace to fail (e.g. a hook threw) and returns the error
+    /// message.
+    fn run_trace_err(code: &str, contract: Option<Bytes>, success: bool) -> String {
+        try_run_trace(code, contract, success).expect_err("expected the trace to fail").to_string()
+    }
+
+    fn try_run_trace(
+        code: &str,
+        contract: Option<Bytes>,
+        success: bool,
+    ) -> Result<serde_json::Value, JsInspectorError> {
         let addr = Address::repeat_byte(0x01);
         let mut db = CacheDB::new(EmptyDB::default());
 
@@ -1025,7 +1124,7 @@ mod tests {
         let (ctx, inspector) = evm.ctx_inspector();
         let tx = ctx.tx().clone();
         let block = ctx.block().clone();
-        inspector.json_result(res, &tx, &block, ctx.db_mut()).unwrap()
+        inspector.json_result(res, &tx, &block, ctx.db_mut())
     }
 
     #[test]
@@ -1048,8 +1147,8 @@ mod tests {
             fault: function() {},
             result: function() { return this.depths; }
         }"#;
-        let res = run_trace(code, None, false);
-        assert_eq!(res.as_array().unwrap().len(), 0);
+        let err = run_trace_err(code, None, false);
+        assert!(err.contains("in server-side tracer function 'step'"), "{err}");
     }
 
     #[test]
@@ -1060,8 +1159,8 @@ mod tests {
             fault: function() {},
             result: function() { return this.depths; }
         }"#;
-        let res = run_trace(code, None, false);
-        assert_eq!(res.as_array().unwrap().len(), 0);
+        let err = run_trace_err(code, None, false);
+        assert!(err.contains("in server-side tracer function 'step'"), "{err}");
     }
 
     #[test]
@@ -1072,8 +1171,8 @@ mod tests {
             fault: function() {},
             result: function() { return this.depths; }
         }"#;
-        let res = run_trace(code, None, false);
-        assert_eq!(res.as_array().unwrap().len(), 0);
+        let err = run_trace_err(code, None, false);
+        assert!(err.contains("in server-side tracer function 'step'"), "{err}");
     }
 
     #[test]
@@ -1096,8 +1195,8 @@ mod tests {
             fault: function() {},
             result: function() { return this.depths; }
         }"#;
-        let res = run_trace(code, None, false);
-        assert_eq!(res.as_array().unwrap().len(), 0);
+        let err = run_trace_err(code, None, false);
+        assert!(err.contains("in server-side tracer function 'step'"), "{err}");
     }
 
     #[test]
@@ -1108,8 +1207,8 @@ mod tests {
             fault: function() {},
             result: function() { return this.depths; }
         }"#;
-        let res = run_trace(code, None, false);
-        assert_eq!(res.as_array().unwrap().len(), 0);
+        let err = run_trace_err(code, None, false);
+        assert!(err.contains("in server-side tracer function 'step'"), "{err}");
     }
 
     #[test]
@@ -1120,8 +1219,8 @@ mod tests {
             fault: function() {},
             result: function() { return this.depths; }
         }"#;
-        let res = run_trace(code, None, false);
-        assert_eq!(res.as_array().unwrap().len(), 0);
+        let err = run_trace_err(code, None, false);
+        assert!(err.contains("in server-side tracer function 'step'"), "{err}");
     }
 
     #[test]
@@ -1132,8 +1231,8 @@ mod tests {
             fault: function() {},
             result: function() { return this.depths; }
         }"#;
-        let res = run_trace(code, None, false);
-        assert_eq!(res.as_array().unwrap().len(), 0);
+        let err = run_trace_err(code, None, false);
+        assert!(err.contains("in server-side tracer function 'step'"), "{err}");
     }
 
     #[test]
@@ -1144,8 +1243,8 @@ mod tests {
             fault: function() {},
             result: function() { return this.depths; }
         }"#;
-        let res = run_trace(code, None, false);
-        assert_eq!(res.as_array().unwrap().len(), 0);
+        let err = run_trace_err(code, None, false);
+        assert!(err.contains("in server-side tracer function 'step'"), "{err}");
     }
 
     #[test]
@@ -1156,8 +1255,8 @@ mod tests {
             fault: function() {},
             result: function() { return this.depths; }
         }"#;
-        let res = run_trace(code, None, false);
-        assert_eq!(res.as_array().unwrap().len(), 0);
+        let err = run_trace_err(code, None, false);
+        assert!(err.contains("in server-side tracer function 'step'"), "{err}");
     }
 
     #[test]
@@ -1168,8 +1267,8 @@ mod tests {
             fault: function() {},
             result: function() { return this.depths; }
         }"#;
-        let res = run_trace(code, None, false);
-        assert_eq!(res.as_array().unwrap().len(), 0);
+        let err = run_trace_err(code, None, false);
+        assert!(err.contains("in server-side tracer function 'step'"), "{err}");
     }
 
     #[test]
@@ -1278,8 +1377,8 @@ mod tests {
             result: function() { return this.res }
         }"#;
         let contract = hex!("60ff60005300"); // PUSH1, 0xff, PUSH1, 0x00, MSTORE8, STOP
-        let res = run_trace(code, Some(contract.into()), false);
-        assert_eq!(res, json!([]));
+        let err = run_trace_err(code, Some(contract.into()), false);
+        assert!(err.contains("in server-side tracer function 'step'"), "{err}");
     }
 
     #[test]
@@ -1294,8 +1393,8 @@ mod tests {
             fault: function() {},
             result: function() { return this.res }
         }"#;
-        let res = run_trace(code, None, true);
-        assert_eq!(res, json!([]));
+        let err = run_trace_err(code, None, true);
+        assert!(err.contains("in server-side tracer function 'step'"), "{err}");
     }
 
     #[test]
@@ -1629,6 +1728,70 @@ mod tests {
         assert_eq!(obj["stackPeek"], json!("1"));
         assert_eq!(obj["value"], json!("0"));
         assert_eq!(obj["balance"], json!("0"));
+    }
+
+    #[test]
+    fn test_hook_error_is_reported_instead_of_result() {
+        // Every `step` throws; geth reports the error rather than the tracer's `result`.
+        let code = r#"{step:function(){throw new Error('boom')},fault:function(){},result:function(){return 'unreachable'}}"#;
+
+        let addr = Address::repeat_byte(0x01);
+        let mut db = CacheDB::new(EmptyDB::default());
+        db.insert_account_info(
+            Address::ZERO,
+            AccountInfo { balance: U256::from(1e18), ..Default::default() },
+        );
+        db.insert_account_info(
+            addr,
+            AccountInfo {
+                code: Some(Bytecode::new_legacy(hex!("6001600100").into())),
+                ..Default::default()
+            },
+        );
+
+        let insp = JsInspector::new(code.to_string(), serde_json::Value::Null).unwrap();
+        let mut evm = revm::Context::mainnet()
+            .modify_cfg_chained(|cfg| cfg.spec = SpecId::CANCUN)
+            .with_db(db)
+            .build_mainnet_with_inspector(insp);
+        let res = evm
+            .inspect_tx(TxEnv {
+                gas_price: 1024,
+                gas_limit: 1_000_000,
+                kind: TransactTo::Call(addr),
+                ..Default::default()
+            })
+            .expect("pass without error");
+        let (ctx, inspector) = evm.ctx_inspector();
+        let tx = ctx.tx().clone();
+        let block = ctx.block().clone();
+        let err = inspector
+            .json_result(res, &tx, &block, ctx.db_mut())
+            .expect_err("a thrown hook must surface as an error, not a result");
+        let msg = err.to_string();
+        assert!(msg.starts_with("Error: boom    in server-side tracer function 'step'"), "{msg}");
+    }
+
+    #[test]
+    fn test_hook_error_keeps_the_error_kind() {
+        // The thrown error's own kind leads the message, on one line without Boa's backtrace.
+        let cases = [
+            ("null.x", "TypeError: cannot convert 'null' or 'undefined' to object"),
+            ("throw 'plain'", "Error: plain"),
+            (
+                "while (true) {}",
+                "RangeError: reached the maximum number of iteration loops on this execution",
+            ),
+        ];
+        for (body, expected) in cases {
+            let code = format!(
+                "{{step: function() {{ {body}; }}, fault: function() {{}}, result: function() {{ return null }}}}"
+            );
+            let err = run_trace_err(&code, None, false);
+            let expected = format!("{expected}    in server-side tracer function 'step'");
+            assert!(err.starts_with(&expected), "{err}");
+            assert!(!err.contains('\n'), "{err}");
+        }
     }
 
     #[test]
