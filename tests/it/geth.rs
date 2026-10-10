@@ -393,6 +393,110 @@ fn test_geth_eip8037_fields_follow_fork() {
     }
 }
 
+/// Tracers that take no config ignore whatever config `muxTracer` passes them, as they do when
+/// run on their own.
+#[test]
+fn test_geth_mux_config_free_tracers_ignore_config() {
+    let configs = [
+        None,
+        Some(GethDebugTracerConfig(serde_json::json!({}))),
+        Some(GethDebugTracerConfig(serde_json::json!({ "onlyTopCall": true }))),
+        Some(GethDebugTracerConfig(serde_json::json!("garbage"))),
+    ];
+    for tracer in [
+        GethDebugBuiltInTracerType::FourByteTracer,
+        GethDebugBuiltInTracerType::NoopTracer,
+        GethDebugBuiltInTracerType::StateGasTracer,
+    ] {
+        for config in &configs {
+            let standalone = GethDebugTracingOptions {
+                tracer: Some(GethDebugTracerType::BuiltInTracer(tracer)),
+                tracer_config: config.clone().unwrap_or_default(),
+                ..Default::default()
+            };
+            assert!(
+                DebugInspector::new(standalone).is_ok(),
+                "standalone {tracer:?} must accept config {config:?}"
+            );
+
+            let mux_config = MuxConfig(HashMap::from_iter([(
+                GethDebugTracerType::BuiltInTracer(tracer),
+                config.clone(),
+            )]));
+            assert!(
+                MuxInspector::try_from_config(mux_config).is_ok(),
+                "{tracer:?} inside muxTracer must accept config {config:?}"
+            );
+        }
+    }
+}
+
+/// A `null` sub-tracer config inside `muxTracer` selects the tracer's default config, as a `null`
+/// `tracerConfig` does when the tracer runs on its own.
+#[test]
+fn test_geth_mux_null_config_is_default() {
+    for tracer in [
+        GethDebugBuiltInTracerType::CallTracer,
+        GethDebugBuiltInTracerType::PreStateTracer,
+        GethDebugBuiltInTracerType::FlatCallTracer,
+    ] {
+        let standalone = GethDebugTracingOptions {
+            tracer: Some(GethDebugTracerType::BuiltInTracer(tracer)),
+            tracer_config: GethDebugTracerConfig::default(),
+            ..Default::default()
+        };
+        assert!(DebugInspector::new(standalone).is_ok(), "standalone {tracer:?} must accept null");
+
+        let mux_config =
+            MuxConfig(HashMap::from_iter([(GethDebugTracerType::BuiltInTracer(tracer), None)]));
+        assert!(
+            MuxInspector::try_from_config(mux_config).is_ok(),
+            "{tracer:?} inside muxTracer must accept null"
+        );
+    }
+
+    fn run_mux(config: Option<GethDebugTracerConfig>) -> GethTrace {
+        let account = address!("1000000000000000000000000000000000000001");
+        let context =
+            Context::mainnet().with_db(CacheDB::<EmptyDB>::default()).modify_db_chained(|db| {
+                db.insert_account_info(
+                    account,
+                    AccountInfo {
+                        // PUSH1 1, PUSH1 0, SSTORE, STOP
+                        code: Some(Bytecode::new_raw(hex!("600160005500").into())),
+                        ..Default::default()
+                    },
+                );
+            });
+        let mux_config = MuxConfig(HashMap::from_iter(
+            [
+                GethDebugBuiltInTracerType::CallTracer,
+                GethDebugBuiltInTracerType::PreStateTracer,
+                GethDebugBuiltInTracerType::FlatCallTracer,
+            ]
+            .map(|tracer| (GethDebugTracerType::BuiltInTracer(tracer), config.clone())),
+        ));
+        let mut inspector =
+            DebugInspector::new(GethDebugTracingOptions::mux_tracer(mux_config)).unwrap();
+        let mut evm = context.build_mainnet().with_inspector(&mut inspector);
+        let res = evm
+            .inspect_tx(TxEnv {
+                gas_limit: 1_000_000,
+                kind: TransactTo::Call(account),
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(res.result.is_success(), "{res:#?}");
+        let (ctx, inspector) = evm.ctx_inspector();
+        let tx_env = ctx.tx().clone();
+        let block_env = ctx.block().clone();
+        inspector.get_result(None, &tx_env, &block_env, &res, ctx.db_mut()).unwrap()
+    }
+
+    // `null` yields the same result as an empty config, i.e. the default config.
+    assert_eq!(run_mux(None), run_mux(Some(GethDebugTracerConfig(serde_json::json!({})))));
+}
+
 #[test]
 fn test_geth_mux_tracer() {
     /*
