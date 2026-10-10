@@ -322,7 +322,11 @@ impl ReusableCallFrame {
         });
         let get_gas = state_fn(ctx, state.clone(), 0, |state, _, _| Ok(state.borrow().gas.into()));
         let get_type = state_fn(ctx, state.clone(), 0, |state, _, _| {
-            Ok(call_kind_js_string(state.borrow().kind).into())
+            Ok(match state.borrow().kind {
+                FrameKind::Call(kind) => call_kind_js_string(kind),
+                FrameKind::SelfDestruct => js_string!("SELFDESTRUCT"),
+            }
+            .into())
         });
 
         object.set(js_string!("getFrom"), get_from, false, ctx)?;
@@ -784,7 +788,7 @@ struct CallFrameState {
     value: U256,
     input: Bytes,
     gas: u64,
-    kind: CallKind,
+    kind: FrameKind,
 }
 
 #[derive(Debug, Default)]
@@ -952,8 +956,26 @@ pub(crate) struct FrameResult {
 /// Represents the call frame object for enter functions
 pub(crate) struct CallFrame {
     pub(crate) contract: Contract,
-    pub(crate) kind: CallKind,
+    pub(crate) kind: FrameKind,
     pub(crate) gas: u64,
+}
+
+/// The type an `enter` frame reports through `getType()`.
+///
+/// A selfdestruct is reported as its own frame, but it has no [`CallKind`]: that enum is public and
+/// matched by the non-JS tracers, where a selfdestruct is not a call, so it is kept out of it.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum FrameKind {
+    /// A call or create frame.
+    Call(CallKind),
+    /// The scope go-ethereum enters and immediately exits for `SELFDESTRUCT`.
+    SelfDestruct,
+}
+
+impl Default for FrameKind {
+    fn default() -> Self {
+        Self::Call(CallKind::default())
+    }
 }
 
 /// The `ctx` object that represents the context in which the transaction is executed.
