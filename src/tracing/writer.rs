@@ -322,37 +322,45 @@ impl<W: Write> TraceWriter<W> {
         let log_style = self.log_style();
         self.write_branch()?;
 
-        if let Some(name) = log.decoded_name() {
+        let name = log.decoded_name();
+
+        // A known event with decoded params renders as `emit Name(p: v, ...)`.
+        if let (Some(name), Some(params)) = (name, log.decoded_params()) {
             write!(self.writer, "emit {name}({log_style}")?;
-            if let Some(params) = log.decoded_params() {
-                for (i, (param_name, value)) in params.iter().enumerate() {
-                    if i > 0 {
-                        self.writer.write_all(b", ")?;
-                    }
-                    write!(self.writer, "{param_name}: {value}")?;
+            for (i, (param_name, value)) in params.iter().enumerate() {
+                if i > 0 {
+                    self.writer.write_all(b", ")?;
                 }
+                write!(self.writer, "{param_name}: {value}")?;
             }
             writeln!(self.writer, "{log_style:#})")?;
-        } else {
-            for (i, topic) in log.raw_log.topics().iter().enumerate() {
-                if i == 0 {
-                    self.writer.write_all(b" emit topic 0")?;
-                } else {
-                    self.write_pipes()?;
-                    write!(self.writer, "       topic {i}")?;
-                }
-                writeln!(self.writer, ": {log_style}{topic}{log_style:#}")?;
-            }
-
-            if !log.raw_log.topics().is_empty() {
-                self.write_pipes()?;
-            }
-            writeln!(
-                self.writer,
-                "          data: {log_style}{data}{log_style:#}",
-                data = log.raw_log.data
-            )?;
+            return Ok(());
         }
+
+        // Otherwise show the raw topics and data. When the event name is known but its data could
+        // not be decoded (for example non-ABI-encoded data emitted via inline assembly), keep the
+        // name so it is not lost; unknown events keep `emit topic 0` on the branch line.
+        if let Some(name) = name {
+            writeln!(self.writer, "emit {name}")?;
+        }
+        for (i, topic) in log.raw_log.topics().iter().enumerate() {
+            if i == 0 && name.is_none() {
+                self.writer.write_all(b" emit topic 0")?;
+            } else {
+                self.write_pipes()?;
+                write!(self.writer, "       topic {i}")?;
+            }
+            writeln!(self.writer, ": {log_style}{topic}{log_style:#}")?;
+        }
+
+        if !log.raw_log.topics().is_empty() {
+            self.write_pipes()?;
+        }
+        writeln!(
+            self.writer,
+            "          data: {log_style}{data}{log_style:#}",
+            data = log.raw_log.data
+        )?;
 
         Ok(())
     }
