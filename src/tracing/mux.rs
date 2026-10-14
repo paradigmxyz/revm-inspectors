@@ -56,44 +56,38 @@ impl MuxInspector {
             #[allow(unreachable_patterns)]
             match builtin {
                 GethDebugBuiltInTracerType::FourByteTracer => {
-                    if tracer_config.is_some() {
-                        return Err(Error::UnexpectedConfig(builtin));
-                    }
+                    // Takes no config: whatever is passed is ignored, as it is when this tracer
+                    // runs outside `muxTracer`.
                     four_byte = Some(FourByteInspector::default());
                 }
                 GethDebugBuiltInTracerType::CallTracer => {
-                    let call_config =
-                        tracer_config.ok_or(Error::MissingConfig(builtin))?.into_call_config()?;
+                    // A `null` config selects the default config, as it does when this tracer runs
+                    // outside `muxTracer`.
+                    let call_config = tracer_config.unwrap_or_default().into_call_config()?;
 
                     inspector_config
                         .merge(TracingInspectorConfig::from_geth_call_config(&call_config));
                     configs.push((builtin, TraceConfig::Call(call_config)));
                 }
                 GethDebugBuiltInTracerType::PreStateTracer => {
-                    let prestate_config = tracer_config
-                        .ok_or(Error::MissingConfig(builtin))?
-                        .into_pre_state_config()?;
+                    let prestate_config =
+                        tracer_config.unwrap_or_default().into_pre_state_config()?;
 
                     inspector_config
                         .merge(TracingInspectorConfig::from_geth_prestate_config(&prestate_config));
                     configs.push((builtin, TraceConfig::PreState(prestate_config)));
                 }
                 GethDebugBuiltInTracerType::NoopTracer => {
-                    if tracer_config.is_some() {
-                        return Err(Error::UnexpectedConfig(builtin));
-                    }
+                    // Takes no config, see `FourByteTracer` above.
                     configs.push((builtin, TraceConfig::Noop));
                 }
                 GethDebugBuiltInTracerType::StateGasTracer => {
-                    if tracer_config.is_some() {
-                        return Err(Error::UnexpectedConfig(builtin));
-                    }
+                    // Takes no config, see `FourByteTracer` above.
                     configs.push((builtin, TraceConfig::StateGas));
                 }
                 GethDebugBuiltInTracerType::FlatCallTracer => {
-                    let flatcall_config = tracer_config
-                        .ok_or(Error::MissingConfig(builtin))?
-                        .into_flat_call_config()?;
+                    let flatcall_config =
+                        tracer_config.unwrap_or_default().into_flat_call_config()?;
 
                     inspector_config
                         .merge(TracingInspectorConfig::from_flat_call_config(&flatcall_config));
