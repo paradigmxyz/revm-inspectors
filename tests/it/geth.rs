@@ -621,6 +621,55 @@ fn test_geth_inspector_reset() {
     );
 }
 
+/// `flatCallTracer` reports its root frame at transaction level, like `callTracer`: `gas` is the
+/// transaction's gas limit and `gasUsed` the transaction's gas used, intrinsic cost included.
+#[test]
+fn test_geth_flat_call_tracer_root_frame_is_transaction_level() {
+    use alloy_rpc_types_trace::parity::Action;
+
+    let account = address!("1000000000000000000000000000000000000001");
+    let gas_limit = 1_000_000;
+
+    let trace = |opts: GethDebugTracingOptions| -> (GethTrace, u64) {
+        let context =
+            Context::mainnet().with_db(CacheDB::<EmptyDB>::default()).modify_db_chained(|db| {
+                db.insert_account_info(
+                    account,
+                    AccountInfo {
+                        // PUSH1 1, PUSH1 0, MSTORE, STOP
+                        code: Some(Bytecode::new_raw(hex!("600160005200").into())),
+                        ..Default::default()
+                    },
+                );
+            });
+        let mut inspector = DebugInspector::new(opts).unwrap();
+        let mut evm = context.build_mainnet().with_inspector(&mut inspector);
+        let res = evm
+            .inspect_tx(TxEnv { gas_limit, kind: TransactTo::Call(account), ..Default::default() })
+            .unwrap();
+        assert!(res.result.is_success(), "{res:#?}");
+        let (ctx, inspector) = evm.ctx_inspector();
+        let tx_env = ctx.tx().clone();
+        let block_env = ctx.block().clone();
+        let trace = inspector.get_result(None, &tx_env, &block_env, &res, ctx.db_mut()).unwrap();
+        (trace, res.result.tx_gas_used())
+    };
+
+    let (call, tx_gas_used) = trace(GethDebugTracingOptions::call_tracer(CallConfig::default()));
+    let GethTrace::CallTracer(call) = call else { panic!("expected CallTracer, got {call:?}") };
+    assert_eq!(call.gas, U256::from(gas_limit));
+    assert_eq!(call.gas_used, U256::from(tx_gas_used));
+
+    let (flat, _) = trace(GethDebugTracingOptions::default().with_tracer(
+        GethDebugTracerType::BuiltInTracer(GethDebugBuiltInTracerType::FlatCallTracer),
+    ));
+    let GethTrace::FlatCallTracer(flat) = flat else { panic!("expected FlatCallTracer") };
+    let root = &flat[0].trace;
+    let Action::Call(action) = &root.action else { panic!("expected a call action") };
+    assert_eq!(action.gas, gas_limit);
+    assert_eq!(root.result.as_ref().expect("root call has a result").gas_used(), tx_gas_used);
+}
+
 #[test]
 fn test_geth_calltracer_top_call_reverting() {
     /*
