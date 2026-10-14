@@ -256,6 +256,7 @@ impl DebugInspector {
             .into(),
             Self::Mux(inspector, _) => {
                 inspector.set_transaction_gas_limit(tx_env.gas_limit());
+                inspector.set_transaction_caller(tx_env.caller());
                 inspector
                     .try_into_mux_frame(res, db, tx_info)
                     .map_err(DebugInspectorError::Database)?
