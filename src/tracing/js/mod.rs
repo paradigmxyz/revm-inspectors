@@ -114,6 +114,9 @@ pub struct JsInspector {
     step_pending: bool,
     /// Total gas spent before the pending step, to compute the step's cost in `step_end`.
     gas_spent_before: u64,
+    /// The active frame's own refund counter as of its last step, used to seed a child frame's
+    /// [`CallStackItem::enclosing_refund`].
+    last_frame_refund: i64,
     /// Optional cancellation signal shared with the caller.
     interrupt: Option<JsInspectorInterrupt>,
 }
@@ -208,6 +211,7 @@ impl JsInspector {
             precompiles_registered: false,
             step_pending: false,
             gas_spent_before: 0,
+            last_frame_refund: 0,
             interrupt: None,
         })
     }
@@ -262,6 +266,7 @@ impl JsInspector {
         self.precompiles_registered = false;
         self.step_pending = false;
         self.gas_spent_before = 0;
+        self.last_frame_refund = 0;
         Ok(())
     }
 
@@ -436,11 +441,18 @@ impl JsInspector {
         caller: Address,
         gas_limit: u64,
     ) -> &CallStackItem {
+        // The call and create hooks do not see the parent's interpreter, so the parent's own
+        // counter is taken from its last step.
+        let enclosing_refund = self
+            .call_stack
+            .last()
+            .map_or(0, |parent| parent.enclosing_refund + self.last_frame_refund);
         let call = CallStackItem {
             id: self.next_call_id,
             contract: Contract { caller, contract, value, input },
             kind,
             gas_limit,
+            enclosing_refund,
         };
         self.next_call_id += 1;
         self.call_stack.push(call);
@@ -548,7 +560,11 @@ where
     CTX: ContextTr<Journal: JournalExt>,
 {
     fn step(&mut self, interp: &mut Interpreter, context: &mut CTX) {
-        if self.check_and_halt(context, interp) || self.step_fn.is_none() {
+        if self.check_and_halt(context, interp) {
+            return;
+        }
+        self.last_frame_refund = interp.gas.refunded();
+        if self.step_fn.is_none() {
             return;
         }
 
@@ -563,7 +579,6 @@ where
             pc: interp.bytecode.pc() as u64,
             op: interp.bytecode.opcode(),
             gas_remaining: interp.gas.remaining(),
-            refund: interp.gas.refunded() as u64,
             stack: interp.stack.data(),
             memory: &memory,
         });
@@ -587,8 +602,14 @@ where
         let cost = interp.gas.total_gas_spent().saturating_sub(self.gas_spent_before);
         let depth = context.journal_ref().depth() as u64;
         let call = self.call_stack.last().expect("call stack is empty");
+        // Read after the opcode ran: go-ethereum meters an opcode's dynamic gas, which applies an
+        // SSTORE's refund, before it calls `OnOpcode`, so the step reports the counter including
+        // that opcode's own refund change.
+        let refund = call.enclosing_refund + interp.gas.refunded();
+        debug_assert!(refund >= 0, "transaction-wide refund counter went negative: {refund}");
         let info = StepInfo {
             cost,
+            refund: refund.max(0) as u64,
             depth,
             error: if is_revert { result.map(|result| format!("{result:?}")) } else { None },
             op: is_revert.then_some(opcode::REVERT),
@@ -888,6 +909,12 @@ struct CallStackItem {
     contract: Contract,
     kind: CallKind,
     gas_limit: u64,
+    /// The transaction-wide refund counter when this frame began.
+    ///
+    /// revm keeps a refund counter per frame, starting at zero, and merges a child's into its
+    /// parent only when the child succeeds. Adding this to the frame's own counter gives the
+    /// single transaction-wide counter go-ethereum exposes.
+    enclosing_refund: i64,
 }
 
 /// Error variants that can occur during JavaScript inspection.
@@ -1629,6 +1656,105 @@ mod tests {
         assert_eq!(obj["stackPeek"], json!("1"));
         assert_eq!(obj["value"], json!("0"));
         assert_eq!(obj["balance"], json!("0"));
+    }
+
+    /// Runs `outer` with slot 0 of every listed account preset to 1, returning one
+    /// `depth:op:refund` entry per step.
+    fn refund_steps(accounts: &[(Address, Vec<u8>)], outer: Address) -> Vec<String> {
+        let mut db = CacheDB::new(EmptyDB::default());
+        db.insert_account_info(
+            Address::ZERO,
+            AccountInfo { balance: U256::from(1e18), ..Default::default() },
+        );
+        for (addr, code) in accounts {
+            db.insert_account_info(
+                *addr,
+                AccountInfo {
+                    code: Some(Bytecode::new_legacy(code.clone().into())),
+                    ..Default::default()
+                },
+            );
+            db.insert_account_storage(*addr, U256::ZERO, U256::from(1)).unwrap();
+        }
+        let code = r#"{r:[],step:function(log){this.r.push(log.getDepth()+':'+log.op.toString()+':'+log.getRefund())},fault:function(){},result:function(){return this.r}}"#;
+        let insp = JsInspector::new(code.to_string(), serde_json::Value::Null).unwrap();
+        let mut evm = revm::Context::mainnet()
+            .modify_cfg_chained(|cfg| cfg.spec = SpecId::CANCUN)
+            .with_db(db)
+            .build_mainnet_with_inspector(insp);
+        let res = evm
+            .inspect_tx(TxEnv {
+                gas_limit: 1_000_000,
+                kind: TransactTo::Call(outer),
+                ..Default::default()
+            })
+            .expect("pass without error");
+        let (ctx, inspector) = evm.ctx_inspector();
+        let tx = ctx.tx().clone();
+        let block = ctx.block().clone();
+        serde_json::from_value(inspector.json_result(res, &tx, &block, ctx.db_mut()).unwrap())
+            .unwrap()
+    }
+
+    /// `SSTORE slot0 = 0`, then `op` (CALL or DELEGATECALL) to `target`, then `STOP`.
+    fn clear_then_call(op: u8, target: Address) -> Vec<u8> {
+        let mut code = hex!("6000600055").to_vec();
+        code.extend_from_slice(&hex!("6000600060006000"));
+        if op == 0xf1 {
+            code.extend_from_slice(&hex!("6000")); // value
+        }
+        code.push(0x73);
+        code.extend_from_slice(target.as_slice());
+        code.extend_from_slice(&hex!("61ffff"));
+        code.push(op);
+        code.push(0x00);
+        code
+    }
+
+    #[test]
+    fn test_get_refund_is_transaction_wide() {
+        // The outer frame clears its slot (+4800), then calls an inner frame that clears its own
+        // (+4800). Inside the inner frame the counter is 9600, not the inner frame's 4800; the
+        // SSTORE step already includes its own refund, as go-ethereum meters it before `OnOpcode`.
+        let (outer, inner) = (Address::repeat_byte(0xaa), Address::repeat_byte(0xbb));
+        let steps = refund_steps(
+            &[(outer, clear_then_call(0xf1, inner)), (inner, hex!("600060005500").to_vec())],
+            outer,
+        );
+        assert!(steps.contains(&"1:SSTORE:4800".to_string()), "{steps:?}");
+        assert!(steps.contains(&"2:SSTORE:9600".to_string()), "{steps:?}");
+        assert!(steps.contains(&"2:STOP:9600".to_string()), "{steps:?}");
+        assert_eq!(steps.last().unwrap(), "1:STOP:9600", "{steps:?}");
+    }
+
+    #[test]
+    fn test_get_refund_does_not_underflow_on_a_negative_frame_counter() {
+        // The outer frame clears slot 0 (+4800), then a delegate call writes it back, which takes
+        // the refund away again (-4800 + 2800). The delegated frame's own counter is -2000; the
+        // transaction-wide counter is 2800, not an underflowed u64.
+        let (outer, restorer) = (Address::repeat_byte(0xaa), Address::repeat_byte(0xcc));
+        let steps = refund_steps(
+            &[(outer, clear_then_call(0xf4, restorer)), (restorer, hex!("600160005500").to_vec())],
+            outer,
+        );
+        assert!(steps.contains(&"2:SSTORE:2800".to_string()), "{steps:?}");
+        assert!(steps.contains(&"2:STOP:2800".to_string()), "{steps:?}");
+        assert_eq!(steps.last().unwrap(), "1:STOP:2800", "{steps:?}");
+    }
+
+    #[test]
+    fn test_get_refund_drops_a_reverted_frame() {
+        // The inner frame clears its slot and reverts; its refund is discarded with it.
+        let (outer, inner) = (Address::repeat_byte(0xaa), Address::repeat_byte(0xbb));
+        let steps = refund_steps(
+            &[
+                (outer, clear_then_call(0xf1, inner)),
+                (inner, hex!("600060005560006000fd").to_vec()),
+            ],
+            outer,
+        );
+        assert!(steps.contains(&"2:SSTORE:9600".to_string()), "{steps:?}");
+        assert_eq!(steps.last().unwrap(), "1:STOP:4800", "{steps:?}");
     }
 
     #[test]

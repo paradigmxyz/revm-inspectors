@@ -181,12 +181,11 @@ impl ReusableStepLog {
 
     /// Records everything about a step that must be captured before the opcode executes.
     pub(crate) fn record_pre_execution(&self, step: PreStep<'_>) {
-        let PreStep { pc, op, gas_remaining, refund, stack, memory } = step;
+        let PreStep { pc, op, gas_remaining, stack, memory } = step;
         let mut state = self.state.borrow_mut();
         state.pc = pc;
         state.op = op;
         state.gas_remaining = gas_remaining;
-        state.refund = refund;
         state.stack.record(op, stack);
         state.memory.record(op, stack, memory);
     }
@@ -217,6 +216,7 @@ impl ReusableStepLog {
             state.stack.post = Some(stack);
             state.memory.post = Some(memory_slice);
             state.cost = info.cost;
+            state.refund = info.refund;
             state.depth = info.depth;
             state.error = info.error;
             if let Some(op) = info.op {
@@ -250,8 +250,6 @@ pub(crate) struct PreStep<'a> {
     pub(crate) op: u8,
     /// Remaining gas before step execution
     pub(crate) gas_remaining: u64,
-    /// Gas refund counter before step execution
-    pub(crate) refund: u64,
     /// Stack before step execution
     pub(crate) stack: &'a [U256],
     /// Memory before step execution
@@ -263,6 +261,8 @@ pub(crate) struct PreStep<'a> {
 pub(crate) struct StepInfo<'a> {
     /// Gas cost of step execution
     pub(crate) cost: u64,
+    /// Transaction-wide gas refund counter after step execution
+    pub(crate) refund: u64,
     /// Call depth
     pub(crate) depth: u64,
     /// Information about the error if one occurred
@@ -1068,7 +1068,6 @@ mod tests {
             pc: 0,
             op,
             gas_remaining: 0,
-            refund: 0,
             stack,
             memory: &memory.borrow(),
         });
@@ -1077,6 +1076,7 @@ mod tests {
             Ref::map(memory.borrow(), Vec::as_slice),
             StepInfo {
                 cost: 0,
+                refund: 0,
                 depth: 0,
                 error: None,
                 op: None,
