@@ -1,7 +1,6 @@
 //! Utility functions for revm related ops
 use crate::tracing::config::TraceStyle;
 use alloc::{
-    format,
     string::{String, ToString},
     vec::Vec,
 };
@@ -51,7 +50,12 @@ pub(crate) fn fmt_error_msg(res: InstructionResult, kind: TraceStyle) -> Option<
         InstructionResult::CreateInitCodeSizeLimit => {
             if kind.is_parity() { "Out of gas" } else { "max initcode size exceeded" }.to_string()
         }
-        InstructionResult::OpcodeNotFound | InstructionResult::NotActivated => {
+        // `InvalidImmediateEncoding` is a DUPN/SWAPN immediate geth rejects as an invalid opcode;
+        // EXTDELEGATECALL is an undefined opcode without EOF.
+        InstructionResult::OpcodeNotFound
+        | InstructionResult::NotActivated
+        | InstructionResult::InvalidImmediateEncoding
+        | InstructionResult::InvalidExtDelegateCallTarget => {
             if kind.is_parity() { "Bad instruction" } else { "invalid opcode" }.to_string()
         }
         InstructionResult::StackUnderflow => {
@@ -66,7 +70,9 @@ pub(crate) fn fmt_error_msg(res: InstructionResult, kind: TraceStyle) -> Option<
         InstructionResult::OutOfOffset => {
             if kind.is_parity() { "Out of bounds" } else { "return data out of bounds" }.to_string()
         }
-        InstructionResult::CreateContractStartingWithEF => {
+        InstructionResult::CreateContractStartingWithEF
+        | InstructionResult::CreateInitCodeStartingEF00
+        | InstructionResult::InvalidEOFInitCode => {
             if kind.is_parity() { "Invalid code" } else { "invalid code: must not begin with 0xef" }
                 .to_string()
         }
@@ -99,7 +105,19 @@ pub(crate) fn fmt_error_msg(res: InstructionResult, kind: TraceStyle) -> Option<
             "out of gas: not enough gas for reentrancy sentry"
         }
         .to_string(),
-        status => format!("{status:?}"),
+        InstructionResult::OverflowPayment => {
+            if kind.is_parity() { "Payment overflow" } else { "payment overflow" }.to_string()
+        }
+        InstructionResult::FatalExternalError => {
+            if kind.is_parity() { "Fatal external error" } else { "fatal external error" }
+                .to_string()
+        }
+        // Success codes returned early above. They are listed so that the match is exhaustive: a
+        // new revm variant fails to compile here instead of being reported as its Rust name.
+        InstructionResult::Stop
+        | InstructionResult::Return
+        | InstructionResult::SelfDestruct
+        | InstructionResult::Suspend => return None,
     };
 
     Some(msg)
@@ -261,5 +279,38 @@ mod tests {
                 "0x2000000000000000000000000000000000000000000000000000000000000000".to_string(),
             ]
         );
+    }
+
+    /// Every halt maps to a phrase, never to the variant's Rust name, in both trace styles.
+    #[test]
+    fn fmt_error_msg_has_a_phrase_for_every_halt() {
+        let cases = [
+            (InstructionResult::InvalidImmediateEncoding, "Bad instruction", "invalid opcode"),
+            (InstructionResult::InvalidExtDelegateCallTarget, "Bad instruction", "invalid opcode"),
+            (
+                InstructionResult::CreateInitCodeStartingEF00,
+                "Invalid code",
+                "invalid code: must not begin with 0xef",
+            ),
+            (
+                InstructionResult::InvalidEOFInitCode,
+                "Invalid code",
+                "invalid code: must not begin with 0xef",
+            ),
+            (InstructionResult::OverflowPayment, "Payment overflow", "payment overflow"),
+            (InstructionResult::FatalExternalError, "Fatal external error", "fatal external error"),
+        ];
+        for (res, parity, geth) in cases {
+            assert_eq!(fmt_error_msg(res, TraceStyle::Parity).as_deref(), Some(parity), "{res:?}");
+            assert_eq!(fmt_error_msg(res, TraceStyle::Geth).as_deref(), Some(geth), "{res:?}");
+        }
+        for res in [
+            InstructionResult::Stop,
+            InstructionResult::Return,
+            InstructionResult::SelfDestruct,
+            InstructionResult::Suspend,
+        ] {
+            assert_eq!(fmt_error_msg(res, TraceStyle::Geth), None, "{res:?}");
+        }
     }
 }
