@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.44.2](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.44.2) - 2026-10-14
+
+### Bug Fixes
+
+- [tracing] Honor legacy disableMemory ([#554](https://github.com/paradigmxyz/revm-inspectors/issues/554))
+- [geth] Skip selfdestruct frame with onlyTopCall ([#553](https://github.com/paradigmxyz/revm-inspectors/issues/553))
+- [js] Lower recursion limit to protect native stacks ([#548](https://github.com/paradigmxyz/revm-inspectors/issues/548))
+- [geth] Use transaction gas in mux roots ([#552](https://github.com/paradigmxyz/revm-inspectors/issues/552))
+- [geth] Omit empty prestate accounts ([#538](https://github.com/paradigmxyz/revm-inspectors/issues/538))
+- [js] Report create frame errors to the exit hook ([#537](https://github.com/paradigmxyz/revm-inspectors/issues/537))
+
+### Dependencies
+
+- [deps] Update Boa to 0.22 ([#547](https://github.com/paradigmxyz/revm-inspectors/issues/547))
+
+### Features
+
+- Add optional JS tracer interrupt ([#536](https://github.com/paradigmxyz/revm-inspectors/issues/536))
+
+### Miscellaneous Tasks
+
+- [ci] Use vendored dtolnay/rust-toolchain ([#539](https://github.com/paradigmxyz/revm-inspectors/issues/539))
+
 ## [0.44.1](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.44.1) - 2026-09-30
 
 ### Bug Fixes
@@ -20,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Miscellaneous Tasks
 
+- Release 0.44.1
 - Update gh-actions to ee2960a6 ([#534](https://github.com/paradigmxyz/revm-inspectors/issues/534))
 
 ## [0.44.0](https://github.com/paradigmxyz/revm-inspectors/releases/tag/v0.44.0) - 2026-09-25
