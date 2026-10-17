@@ -1744,7 +1744,7 @@ fn test_geth_halted_sstore_omits_storage() {
         );
         let sstore = frame.struct_logs.iter().find(|log| log.op == "SSTORE").unwrap();
         assert_eq!(sstore.depth, 2);
-        assert!(sstore.error.is_some(), "{spec:?}");
+        assert_eq!(sstore.error.as_deref(), Some("out of gas"), "{spec:?}");
         assert_eq!(sstore.storage, None, "{spec:?}");
 
         // The halted write must not leak into later snapshots of the same contract.
