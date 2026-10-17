@@ -108,7 +108,8 @@ pub struct CallTrace {
     pub gas_used: u64,
     /// The gas limit of the call.
     pub gas_limit: u64,
-    /// The cumulative refund counter for the entire transaction context at the end of this call.
+    /// The refund counter of this call's frame at its end, including refunds merged from
+    /// successful subcalls. It excludes the refunds of the enclosing frames.
     pub gas_refund_counter: u64,
     /// The final status of the call.
     pub status: Option<InstructionResult>,
@@ -675,7 +676,7 @@ pub struct CallTraceStep {
     pub returndata: Bytes,
     /// Remaining gas before step execution
     pub gas_remaining: u64,
-    /// Gas refund counter before step execution
+    /// Transaction-wide gas refund counter before step execution
     pub gas_refund_counter: u64,
     /// Total gas used before step execution
     pub gas_used: u64,
