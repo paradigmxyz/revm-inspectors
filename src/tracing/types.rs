@@ -720,14 +720,17 @@ impl CallTraceStep {
             state_gas_reservoir: self.state_gas_reservoir,
             op: if self.op.is_valid() { self.op.as_str().into() } else { "Unknown".into() },
             pc: self.pc as u64,
-            refund_counter: Some(self.gas_refund_counter),
+            refund_counter: (self.gas_refund_counter != 0).then_some(self.gas_refund_counter),
             stack: if opts.is_stack_enabled() {
                 self.stack.as_ref().map(|stack| stack.to_vec())
             } else {
                 None
             },
             memory: if opts.is_memory_enabled() {
-                self.memory.as_ref().map(RecordedMemory::memory_chunks)
+                self.memory
+                    .as_ref()
+                    .filter(|memory| !memory.is_empty())
+                    .map(RecordedMemory::memory_chunks)
             } else {
                 None
             },

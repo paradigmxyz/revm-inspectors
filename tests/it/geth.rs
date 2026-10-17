@@ -1035,7 +1035,7 @@ fn test_geth_prestate_diff_selfdestruct_cancun() {
 }
 
 #[test]
-fn test_geth_default_tracer_empty_return_data_is_serialized_when_enabled() {
+fn test_geth_default_tracer_omits_empty_memory_return_data_and_refund() {
     let contract = address!("0xc000000000000000000000000000000000000003");
     let caller = address!("0xa000000000000000000000000000000000000003");
     let code = hex!("00");
@@ -1057,7 +1057,8 @@ fn test_geth_default_tracer_empty_return_data_is_serialized_when_enabled() {
             );
         });
 
-    let mut insp = TracingInspector::new(TracingInspectorConfig::default_geth());
+    let opts = GethDefaultTracingOptions::default().enable_memory().enable_return_data();
+    let mut insp = TracingInspector::new(TracingInspectorConfig::from_geth_config(&opts));
     let mut evm = context.build_mainnet().with_inspector(&mut insp);
 
     let res = evm
@@ -1077,11 +1078,13 @@ fn test_geth_default_tracer_empty_return_data_is_serialized_when_enabled() {
         insp.with_transaction_gas_used(res.result.tx_gas_used()).geth_builder().geth_traces(
             res.result.tx_gas_used(),
             res.result.output().unwrap_or_default().clone(),
-            GethDefaultTracingOptions::default().enable_return_data(),
+            opts,
         );
 
     assert!(!frame.struct_logs.is_empty(), "Expected struct logs for STOP execution");
-    assert!(frame.struct_logs.iter().all(|log| log.return_data == Some(Bytes::default())));
+    assert!(frame.struct_logs.iter().all(|log| {
+        log.memory.is_none() && log.return_data.is_none() && log.refund_counter.is_none()
+    }));
 
     let struct_logs = serde_json::to_value(&frame)
         .unwrap()
@@ -1091,8 +1094,50 @@ fn test_geth_default_tracer_empty_return_data_is_serialized_when_enabled() {
         .unwrap();
 
     assert!(struct_logs.iter().all(|log| {
-        log.get("returnData") == Some(&serde_json::Value::String("0x".to_string()))
+        log.get("memory").is_none()
+            && log.get("returnData").is_none()
+            && log.get("refund").is_none()
     }));
+}
+
+#[test]
+fn test_geth_default_tracer_includes_nonzero_refund() {
+    let contract = address!("0xc000000000000000000000000000000000000004");
+    // Clear a non-zero storage slot to earn a refund: PUSH1 0, PUSH1 0, SSTORE, STOP.
+    let code = hex!("600060005500");
+
+    let context = Context::mainnet()
+        .with_db(CacheDB::<EmptyDB>::default())
+        .modify_cfg_chained(|cfg| cfg.spec = SpecId::LONDON)
+        .modify_db_chained(|db| {
+            db.insert_account_info(
+                contract,
+                AccountInfo { code: Some(Bytecode::new_raw(code.into())), ..Default::default() },
+            );
+            db.insert_account_storage(contract, U256::ZERO, U256::from(1)).unwrap();
+        });
+
+    let mut insp = TracingInspector::new(TracingInspectorConfig::default_geth());
+    let mut evm = context.build_mainnet().with_inspector(&mut insp);
+    let res = evm
+        .inspect_tx(TxEnv {
+            gas_limit: 100_000,
+            kind: TransactTo::Call(contract),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(res.result.is_success(), "Transaction should succeed: {res:#?}");
+
+    let frame =
+        insp.with_transaction_gas_used(res.result.tx_gas_used()).geth_builder().geth_traces(
+            res.result.tx_gas_used(),
+            res.result.output().unwrap_or_default().clone(),
+            GethDefaultTracingOptions::default(),
+        );
+    let struct_logs =
+        serde_json::to_value(&frame).unwrap()["structLogs"].as_array().cloned().unwrap();
+    let refunds: Vec<_> = struct_logs.iter().map(|log| log.get("refund").cloned()).collect();
+    assert_eq!(refunds, [None, None, None, Some(serde_json::json!(4800))]);
 }
 
 fn test_geth_prestate_diff_selfdestruct(spec_id: SpecId) {
