@@ -12,4 +12,5 @@ updates:
     schedule:
       interval: weekly
     cooldown:
-      default-days: 7
+      # Buffer the scanner's seven-day minimum: Dependabot reads date-only tag metadata.
+      default-days: 8

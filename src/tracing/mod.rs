@@ -84,14 +84,11 @@ pub struct TracingInspector {
     /// Records all call traces
     traces: CallTraceArena,
     /// Tracks active calls
-    trace_stack: Vec<usize>,
+    trace_stack: Vec<TraceStackEntry>,
     /// Tracks whether the next `step_end` should be recorded. Set in `start_step`.
     record_step_end: bool,
     /// Number of logs recorded so far, used as the index of the next log.
     log_count: usize,
-    /// The `log_count` at the start of each active call, restored when the call reverts because
-    /// its logs never take effect.
-    log_count_stack: Vec<usize>,
     /// Number of opcode steps captured across all calls since the last reset.
     recorded_steps: u64,
     /// Tracks the journal len in the step, used in step_end to check if the journal has changed
@@ -138,7 +135,6 @@ impl TracingInspector {
             traces,
             trace_stack,
             log_count,
-            log_count_stack,
             last_journal_len,
             spec_id,
             record_step_end,
@@ -162,7 +158,6 @@ impl TracingInspector {
 
         traces.clear();
         trace_stack.clear();
-        log_count_stack.clear();
         spec_id.take();
         *log_count = 0;
         *last_journal_len = 0;
@@ -345,7 +340,7 @@ impl TracingInspector {
     #[track_caller]
     #[inline]
     fn active_trace(&self) -> Option<&CallTraceNode> {
-        self.trace_stack.last().map(|idx| &self.traces.arena[*idx])
+        self.trace_stack.last().map(|entry| &self.traces.arena[entry.trace_idx])
     }
 
     /// Returns the last trace [CallTrace] index from the stack.
@@ -358,7 +353,7 @@ impl TracingInspector {
     #[track_caller]
     #[inline]
     fn last_trace_idx(&self) -> usize {
-        self.trace_stack.last().copied().expect("can't start step without starting a trace first")
+        self.trace_stack.last().expect("can't start step without starting a trace first").trace_idx
     }
 
     /// Returns a mutable reference to the last trace [CallTrace] from the stack.
@@ -368,14 +363,14 @@ impl TracingInspector {
         &mut self.traces.arena[idx]
     }
 
-    /// _Removes_ the last trace [CallTrace] index from the stack.
+    /// Removes the active call and its log-count checkpoint from the stack.
     ///
     /// # Panics
     ///
     /// If no [CallTrace] was pushed
     #[track_caller]
     #[inline]
-    fn pop_trace_idx(&mut self) -> usize {
+    fn pop_trace(&mut self) -> TraceStackEntry {
         self.trace_stack.pop().expect("more traces were filled than started")
     }
 
@@ -407,10 +402,9 @@ impl TracingInspector {
         let steps = self.reusable_step_vecs.pop().unwrap_or_default();
 
         // the currently active call is the parent of the new call
-        let parent = self.trace_stack.last().copied().unwrap_or_default();
+        let parent = self.trace_stack.last().map_or(0, |entry| entry.trace_idx);
 
-        self.log_count_stack.push(self.log_count);
-        self.trace_stack.push(self.traces.push_trace(
+        let trace_idx = self.traces.push_trace(
             parent,
             push_kind,
             CallTrace {
@@ -426,7 +420,8 @@ impl TracingInspector {
                 steps,
                 ..Default::default()
             },
-        ));
+        );
+        self.trace_stack.push(TraceStackEntry { trace_idx, log_count: self.log_count });
     }
 
     /// Fills the current trace with the outcome of a call.
@@ -443,8 +438,7 @@ impl TracingInspector {
     ) {
         let InterpreterResult { result, ref output, ref gas } = *result;
 
-        let trace_idx = self.pop_trace_idx();
-        let log_count = self.log_count_stack.pop().expect("more traces were filled than started");
+        let TraceStackEntry { trace_idx, log_count } = self.pop_trace();
         let trace = &mut self.traces.arena[trace_idx].trace;
 
         trace.gas_used = gas.total_gas_spent();
@@ -789,7 +783,6 @@ where
 
     fn log(&mut self, _context: &mut CTX, log: Log) {
         if self.config.record_logs {
-            // index starts at 0
             let log_count = self.log_count;
             self.log_count += 1;
             let trace = self.last_trace();
@@ -1011,4 +1004,11 @@ fn storage_write(op: u8, stack: &[U256]) -> Option<StorageDelta> {
         (opcode::SSTORE, [.., val, key]) => Some(StorageDelta { key: *key, val: *val }),
         _ => None,
     }
+}
+
+/// An active call and the log count to restore if it reverts.
+#[derive(Clone, Debug)]
+struct TraceStackEntry {
+    trace_idx: usize,
+    log_count: usize,
 }
