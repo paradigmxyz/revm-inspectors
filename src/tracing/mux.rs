@@ -114,6 +114,14 @@ impl MuxInspector {
         Ok(MuxInspector { four_byte, tracing, configs })
     }
 
+    /// Sets the index the next recorded log receives, see
+    /// [`TracingInspector::set_next_log_index`].
+    pub fn set_next_log_index(&mut self, index: usize) {
+        if let Some(tracing) = &mut self.tracing {
+            tracing.set_next_log_index(index);
+        }
+    }
+
     /// Try converting this [MuxInspector] into a [MuxFrame].
     pub fn try_into_mux_frame<DB: DatabaseRef>(
         &self,

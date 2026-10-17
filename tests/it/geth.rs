@@ -170,6 +170,8 @@ fn test_geth_calltracer_logs() {
 
     let mut insp =
         TracingInspector::new(TracingInspectorConfig::default_geth().set_record_logs(true));
+    // Three logs emitted by preceding transactions in the block.
+    insp.set_next_log_index(3);
 
     let mut evm = evm.with_inspector(&mut insp);
 
@@ -190,9 +192,11 @@ fn test_geth_calltracer_logs() {
         .geth_builder()
         .geth_call_traces(CallConfig::default().with_log(), res.result.tx_gas_used());
 
-    // top-level call succeeded, no log and three subcalls
+    // top-level call succeeded, one log and three subcalls
     assert_eq!(call_frame.calls.len(), 3);
     assert_eq!(call_frame.logs.len(), 1);
+    assert_eq!(call_frame.logs[0].index, Some(3));
+    assert_eq!(call_frame.logs[0].position, Some(0));
     assert!(call_frame.error.is_none());
 
     // first subcall failed, and no logs
@@ -209,9 +213,91 @@ fn test_geth_calltracer_logs() {
     assert!(call_frame.calls[1].calls[0].calls[0].logs.is_empty());
     assert!(call_frame.calls[1].calls[0].calls[0].error.is_none());
 
-    // third subcall succeeded, one log
+    // Third subcall succeeded, one log; reverted subcalls did not consume an index.
     assert_eq!(call_frame.calls[2].logs.len(), 1);
+    assert_eq!(call_frame.calls[2].logs[0].index, Some(4));
     assert!(call_frame.calls[2].error.is_none());
+}
+
+/// EIP-7708: a transfer log of a reverted call is rolled back and does not consume an index.
+#[test]
+fn test_geth_calltracer_log_index_eip7708_revert() {
+    // CALL 0x1111 with 1 wei, CALL 0x2222 with 1 wei, then LOG0.
+    let code = hex!("5f5f5f5f60016111115af1505f5f5f5f60016122225af1505f5fa000");
+    let contract = address!("1000000000000000000000000000000000000001");
+    let caller = address!("1000000000000000000000000000000000000002");
+    let succeeds = address!("0000000000000000000000000000000000001111");
+    let reverts = address!("0000000000000000000000000000000000002222");
+
+    let context = Context::mainnet()
+        .with_db(CacheDB::<EmptyDB>::default())
+        .modify_cfg_chained(|cfg| cfg.spec = SpecId::AMSTERDAM)
+        .modify_db_chained(|db| {
+            db.insert_account_info(
+                contract,
+                AccountInfo {
+                    balance: U256::from(2),
+                    code: Some(Bytecode::new_raw(code.into())),
+                    ..Default::default()
+                },
+            );
+            db.insert_account_info(
+                succeeds,
+                AccountInfo {
+                    code: Some(Bytecode::new_raw(Bytes::from_static(&[opcode::STOP]))),
+                    ..Default::default()
+                },
+            );
+            db.insert_account_info(
+                reverts,
+                AccountInfo {
+                    code: Some(Bytecode::new_raw(Bytes::from_static(&[
+                        opcode::PUSH0,
+                        opcode::PUSH0,
+                        opcode::REVERT,
+                    ]))),
+                    ..Default::default()
+                },
+            );
+        });
+
+    let mut insp =
+        TracingInspector::new(TracingInspectorConfig::default_geth().set_record_logs(true));
+    let mut evm = context.build_mainnet().with_inspector(&mut insp);
+
+    let res = evm
+        .inspect_tx(TxEnv {
+            caller,
+            gas_limit: 1_000_000,
+            kind: TransactTo::Call(contract),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(res.result.is_success(), "{res:#?}");
+    assert_eq!(res.result.logs().len(), 2);
+
+    let builder = insp.geth_builder();
+    let call_frame =
+        builder.geth_call_traces(CallConfig::default().with_log(), res.result.tx_gas_used());
+
+    assert_eq!(call_frame.calls.len(), 2);
+    assert_eq!(call_frame.calls[0].logs.len(), 1);
+    assert_eq!(call_frame.calls[0].logs[0].address, Some(ETH_TRANSFER_LOG_ADDRESS));
+    assert_eq!(call_frame.calls[0].logs[0].index, Some(0));
+    assert_eq!(call_frame.calls[1].error.as_deref(), Some("execution reverted"));
+    assert!(call_frame.calls[1].logs.is_empty());
+    assert_eq!(call_frame.logs.len(), 1);
+    assert_eq!(call_frame.logs[0].index, Some(1));
+    assert_eq!(call_frame.logs[0].position, Some(2));
+
+    let top_call = builder.geth_call_traces(
+        CallConfig::default().only_top_call().with_log(),
+        res.result.tx_gas_used(),
+    );
+    assert!(top_call.calls.is_empty());
+    assert_eq!(top_call.logs.len(), 1);
+    assert_eq!(top_call.logs[0].index, Some(1));
+    assert_eq!(top_call.logs[0].position, Some(0));
 }
 
 #[test]
@@ -1691,4 +1777,63 @@ fn test_geth_mux_root_gas_at_state_gas_boundary() {
     assert_eq!(frame["callTracer"]["gas"], serde_json::json!(U256::from(tx.gas_limit)));
     assert_eq!(frame["callTracer"]["gasUsed"], serde_json::json!(U256::from(204_600)));
     assert_eq!(frame["callTracer"].get("error"), None);
+}
+
+#[test]
+fn test_debug_call_log_index_seed_and_reset() {
+    let account = address!("1000000000000000000000000000000000000001");
+    for options in [
+        serde_json::json!({ "tracer": "callTracer", "tracerConfig": { "withLog": true } }),
+        serde_json::json!({ "tracer": "erc7562Tracer", "tracerConfig": { "withLog": true } }),
+        serde_json::json!({ "tracer": "muxTracer", "tracerConfig": {
+            "callTracer": { "withLog": true }
+        } }),
+    ] {
+        let mut inspector = DebugInspector::new(serde_json::from_value(options).unwrap()).unwrap();
+        for seed in [Some(3), None, Some(7)] {
+            if let Some(seed) = seed {
+                inspector.set_next_log_index(seed);
+            }
+            let context =
+                Context::mainnet().with_db(CacheDB::<EmptyDB>::default()).modify_db_chained(|db| {
+                    db.insert_account_info(
+                        account,
+                        AccountInfo {
+                            // PUSH0 PUSH0 LOG0 STOP.
+                            code: Some(Bytecode::new_raw(hex!("5f5fa000").into())),
+                            ..Default::default()
+                        },
+                    );
+                });
+            let mut evm = context.build_mainnet().with_inspector(&mut inspector);
+            let res = evm
+                .inspect_tx(TxEnv {
+                    kind: TxKind::Call(account),
+                    gas_limit: 100_000,
+                    ..Default::default()
+                })
+                .unwrap();
+            assert!(res.result.is_success());
+            let (ctx, inspector) = evm.ctx_inspector();
+            let tx = ctx.tx().clone();
+            let block = ctx.block().clone();
+            let trace = inspector.get_result(None, &tx, &block, &res, ctx.db_mut()).unwrap();
+            let logs = match trace {
+                GethTrace::CallTracer(frame) => frame.logs,
+                GethTrace::Erc7562Tracer(frame) => frame.logs,
+                GethTrace::MuxTracer(mut frame) => {
+                    let GethTrace::CallTracer(frame) =
+                        frame.0.remove(&GethDebugBuiltInTracerType::CallTracer.into()).unwrap()
+                    else {
+                        panic!("expected mux call trace")
+                    };
+                    frame.logs
+                }
+                _ => panic!("expected call logs"),
+            };
+            assert_eq!(logs.len(), 1);
+            assert_eq!(logs[0].index, Some(seed.unwrap_or_default() as u64));
+            inspector.fuse().unwrap();
+        }
+    }
 }
