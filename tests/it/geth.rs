@@ -1692,3 +1692,76 @@ fn test_geth_mux_root_gas_at_state_gas_boundary() {
     assert_eq!(frame["callTracer"]["gasUsed"], serde_json::json!(U256::from(204_600)));
     assert_eq!(frame["callTracer"].get("error"), None);
 }
+
+#[test]
+fn test_geth_halted_sstore_omits_storage() {
+    let caller = address!("1000000000000000000000000000000000000001");
+    let parent = address!("1000000000000000000000000000000000000002");
+    let child = address!("1000000000000000000000000000000000000003");
+    // DELEGATECALL the child with 5000 gas, then SLOAD slot 1 and slot 0.
+    let parent_code = [
+        &hex!("600060006000600073")[..],
+        child.as_slice(),
+        &hex!("611388f450600154506000545000")[..],
+    ]
+    .concat();
+    // PUSH1 42 PUSH1 0 SSTORE journals the write, then fails its gas charge.
+    let child_code = hex!("602a60005500");
+    for spec in [SpecId::OSAKA, SpecId::AMSTERDAM] {
+        let context = Context::mainnet()
+            .with_db(CacheDB::<EmptyDB>::default())
+            .modify_cfg_chained(|cfg| cfg.set_spec_and_mainnet_gas_params(spec))
+            .modify_db_chained(|db| {
+                for (address, code) in [(parent, &parent_code[..]), (child, &child_code[..])] {
+                    db.insert_account_info(
+                        address,
+                        AccountInfo {
+                            code: Some(Bytecode::new_raw(Bytes::copy_from_slice(code))),
+                            ..Default::default()
+                        },
+                    );
+                }
+            });
+        let opts = GethDefaultTracingOptions::default();
+        let mut insp = TracingInspector::new(TracingInspectorConfig::from_geth_config(&opts));
+        let res = context
+            .build_mainnet()
+            .with_inspector(&mut insp)
+            .inspect_tx(TxEnv {
+                caller,
+                kind: TxKind::Call(parent),
+                gas_limit: 100_000,
+                ..Default::default()
+            })
+            .unwrap()
+            .result;
+        assert!(res.is_success(), "{res:?}");
+
+        let frame = insp.geth_builder().geth_traces(
+            res.tx_gas_used(),
+            res.output().cloned().unwrap_or_default(),
+            opts,
+        );
+        let sstore = frame.struct_logs.iter().find(|log| log.op == "SSTORE").unwrap();
+        assert_eq!(sstore.depth, 2);
+        assert_eq!(sstore.error.as_deref(), Some("out of gas"), "{spec:?}");
+        assert_eq!(sstore.storage, None, "{spec:?}");
+
+        // The halted write must not leak into later snapshots of the same contract.
+        let sloads: Vec<_> = frame
+            .struct_logs
+            .iter()
+            .filter(|log| log.op == "SLOAD")
+            .map(|log| log.storage.clone().unwrap())
+            .collect();
+        let slot = |n: u64| B256::from(U256::from(n));
+        assert_eq!(
+            sloads,
+            [
+                [(slot(1), B256::ZERO)].into_iter().collect(),
+                [(slot(0), B256::ZERO), (slot(1), B256::ZERO)].into_iter().collect(),
+            ],
+            "{spec:?}"
+        );
+    }
+}

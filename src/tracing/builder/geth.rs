@@ -114,7 +114,7 @@ impl<'a> GethTraceBuilder<'a> {
                     contract_storage.insert(change.key.into(), change.value.into());
                 }
 
-                if matches!(step.op.get(), opcode::SLOAD | opcode::SSTORE) {
+                if matches!(step.op.get(), opcode::SLOAD | opcode::SSTORE) && !step.is_error() {
                     log.storage = Some(contract_storage.clone());
                 }
             }
