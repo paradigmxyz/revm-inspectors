@@ -659,10 +659,16 @@ impl TracingInspector {
             );
         }
 
+        step.status = interp.bytecode.action().as_ref().and_then(|i| i.instruction_result());
+
         let journal = context.journal_ref().journal();
 
-        // If journal has not changed, there is no state change to be recorded.
-        if self.config.record_state_diff && journal.len() != self.last_journal_len {
+        // If journal has not changed, there is no state change to be recorded. A halted SSTORE
+        // can journal its write before failing the dynamic gas check, so halts record nothing.
+        if self.config.record_state_diff
+            && journal.len() != self.last_journal_len
+            && !step.is_error()
+        {
             let op = step.op.get();
 
             step.storage_change = if matches!(op, opcode::SLOAD | opcode::SSTORE) {
@@ -703,9 +709,6 @@ impl TracingInspector {
         if step.state_gas_reservoir.is_some() && state_gas_delta != 0 {
             step.state_gas_cost = Some(state_gas_delta);
         }
-
-        // set the status
-        step.status = interp.bytecode.action().as_ref().and_then(|i| i.instruction_result());
 
         // Call-like steps write memory only once the parent frame resumes, see
         // `finish_call_step`.
