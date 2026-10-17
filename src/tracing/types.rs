@@ -108,7 +108,8 @@ pub struct CallTrace {
     pub gas_used: u64,
     /// The gas limit of the call.
     pub gas_limit: u64,
-    /// The cumulative refund counter for the entire transaction context at the end of this call.
+    /// The refund counter of this call's frame at its end, including refunds merged from
+    /// successful subcalls. It excludes the refunds of the enclosing frames.
     pub gas_refund_counter: u64,
     /// The final status of the call.
     pub status: Option<InstructionResult>,
@@ -675,7 +676,7 @@ pub struct CallTraceStep {
     pub returndata: Bytes,
     /// Remaining gas before step execution
     pub gas_remaining: u64,
-    /// Gas refund counter before step execution
+    /// Transaction-wide gas refund counter before step execution
     pub gas_refund_counter: u64,
     /// Total gas used before step execution
     pub gas_used: u64,
@@ -720,14 +721,17 @@ impl CallTraceStep {
             state_gas_reservoir: self.state_gas_reservoir,
             op: if self.op.is_valid() { self.op.as_str().into() } else { "Unknown".into() },
             pc: self.pc as u64,
-            refund_counter: Some(self.gas_refund_counter),
+            refund_counter: (self.gas_refund_counter != 0).then_some(self.gas_refund_counter),
             stack: if opts.is_stack_enabled() {
                 self.stack.as_ref().map(|stack| stack.to_vec())
             } else {
                 None
             },
             memory: if opts.is_memory_enabled() {
-                self.memory.as_ref().map(RecordedMemory::memory_chunks)
+                self.memory
+                    .as_ref()
+                    .filter(|memory| !memory.is_empty())
+                    .map(RecordedMemory::memory_chunks)
             } else {
                 None
             },

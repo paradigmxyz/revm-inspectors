@@ -1035,10 +1035,11 @@ fn test_geth_prestate_diff_selfdestruct_cancun() {
 }
 
 #[test]
-fn test_geth_default_tracer_empty_return_data_is_serialized_when_enabled() {
+fn test_geth_default_tracer_omits_empty_memory_return_data_and_refund() {
     let contract = address!("0xc000000000000000000000000000000000000003");
     let caller = address!("0xa000000000000000000000000000000000000003");
-    let code = hex!("00");
+    // PUSH1 0x2a, PUSH1 0, MSTORE, STOP: only STOP sees non-empty memory.
+    let code = hex!("602a60005200");
 
     let context = Context::mainnet()
         .with_db(CacheDB::<EmptyDB>::default())
@@ -1057,7 +1058,8 @@ fn test_geth_default_tracer_empty_return_data_is_serialized_when_enabled() {
             );
         });
 
-    let mut insp = TracingInspector::new(TracingInspectorConfig::default_geth());
+    let opts = GethDefaultTracingOptions::default().enable_memory().enable_return_data();
+    let mut insp = TracingInspector::new(TracingInspectorConfig::from_geth_config(&opts));
     let mut evm = context.build_mainnet().with_inspector(&mut insp);
 
     let res = evm
@@ -1077,11 +1079,16 @@ fn test_geth_default_tracer_empty_return_data_is_serialized_when_enabled() {
         insp.with_transaction_gas_used(res.result.tx_gas_used()).geth_builder().geth_traces(
             res.result.tx_gas_used(),
             res.result.output().unwrap_or_default().clone(),
-            GethDefaultTracingOptions::default().enable_return_data(),
+            opts,
         );
 
-    assert!(!frame.struct_logs.is_empty(), "Expected struct logs for STOP execution");
-    assert!(frame.struct_logs.iter().all(|log| log.return_data == Some(Bytes::default())));
+    let memory: Vec<_> = frame.struct_logs.iter().map(|log| log.memory.clone()).collect();
+    let word = "0x000000000000000000000000000000000000000000000000000000000000002a".to_string();
+    assert_eq!(memory, [None, None, None, Some(vec![word])]);
+    assert!(frame
+        .struct_logs
+        .iter()
+        .all(|log| log.return_data.is_none() && log.refund_counter.is_none()));
 
     let struct_logs = serde_json::to_value(&frame)
         .unwrap()
@@ -1090,9 +1097,174 @@ fn test_geth_default_tracer_empty_return_data_is_serialized_when_enabled() {
         .cloned()
         .unwrap();
 
-    assert!(struct_logs.iter().all(|log| {
-        log.get("returnData") == Some(&serde_json::Value::String("0x".to_string()))
-    }));
+    let has_memory: Vec<_> = struct_logs.iter().map(|log| log.get("memory").is_some()).collect();
+    assert_eq!(has_memory, [false, false, false, true]);
+    assert!(struct_logs
+        .iter()
+        .all(|log| log.get("returnData").is_none() && log.get("refund").is_none()));
+}
+
+#[test]
+fn test_geth_default_tracer_includes_nonzero_refund() {
+    let contract = address!("0xc000000000000000000000000000000000000004");
+    // Clear a non-zero storage slot to earn a refund: PUSH1 0, PUSH1 0, SSTORE, STOP.
+    let code = hex!("600060005500");
+
+    let context = Context::mainnet()
+        .with_db(CacheDB::<EmptyDB>::default())
+        .modify_cfg_chained(|cfg| cfg.spec = SpecId::LONDON)
+        .modify_db_chained(|db| {
+            db.insert_account_info(
+                contract,
+                AccountInfo { code: Some(Bytecode::new_raw(code.into())), ..Default::default() },
+            );
+            db.insert_account_storage(contract, U256::ZERO, U256::from(1)).unwrap();
+        });
+
+    let mut insp = TracingInspector::new(TracingInspectorConfig::default_geth());
+    let mut evm = context.build_mainnet().with_inspector(&mut insp);
+    let res = evm
+        .inspect_tx(TxEnv {
+            gas_limit: 100_000,
+            kind: TransactTo::Call(contract),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(res.result.is_success(), "Transaction should succeed: {res:#?}");
+
+    let frame =
+        insp.with_transaction_gas_used(res.result.tx_gas_used()).geth_builder().geth_traces(
+            res.result.tx_gas_used(),
+            res.result.output().unwrap_or_default().clone(),
+            GethDefaultTracingOptions::default(),
+        );
+    let struct_logs =
+        serde_json::to_value(&frame).unwrap()["structLogs"].as_array().cloned().unwrap();
+    let refunds: Vec<_> = struct_logs.iter().map(|log| log.get("refund").cloned()).collect();
+    assert_eq!(refunds, [None, None, None, Some(serde_json::json!(4800))]);
+}
+
+#[test]
+fn test_geth_default_tracer_refund_spans_call_frames() {
+    let parent = address!("0x00000000000000000000000000000000000000b0");
+    let child = address!("0x00000000000000000000000000000000000000c1");
+    let reverting_child = address!("0x00000000000000000000000000000000000000c2");
+    // Each contract first clears its non-zero slot 0: PUSH1 0, PUSH1 0, SSTORE.
+    let clear_slot = "6000600055";
+    // PUSH1 0 (x5), PUSH20 target, GAS, CALL, POP.
+    let call = |target: Address| format!("60006000600060006000{}{target:x}5af150", "73");
+    let parent_code = format!("{clear_slot}{}{}00", call(child), call(reverting_child));
+    let child_code = format!("{clear_slot}00");
+    // Ends with PUSH1 0, PUSH1 0, REVERT.
+    let reverting_child_code = format!("{clear_slot}60006000fd");
+
+    let context = Context::mainnet()
+        .with_db(CacheDB::<EmptyDB>::default())
+        .modify_cfg_chained(|cfg| cfg.spec = SpecId::LONDON)
+        .modify_db_chained(|db| {
+            for (address, code) in [
+                (parent, parent_code),
+                (child, child_code),
+                (reverting_child, reverting_child_code),
+            ] {
+                db.insert_account_info(
+                    address,
+                    AccountInfo {
+                        code: Some(Bytecode::new_raw(hex::decode(code).unwrap().into())),
+                        ..Default::default()
+                    },
+                );
+                db.insert_account_storage(address, U256::ZERO, U256::from(1)).unwrap();
+            }
+        });
+
+    let mut insp = TracingInspector::new(TracingInspectorConfig::default_geth());
+    let mut evm = context.build_mainnet().with_inspector(&mut insp);
+    let res = evm
+        .inspect_tx(TxEnv {
+            gas_limit: 1_000_000,
+            kind: TransactTo::Call(parent),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(res.result.is_success(), "Transaction should succeed: {res:#?}");
+
+    let frame =
+        insp.with_transaction_gas_used(res.result.tx_gas_used()).geth_builder().geth_traces(
+            res.result.tx_gas_used(),
+            res.result.output().unwrap_or_default().clone(),
+            GethDefaultTracingOptions::default(),
+        );
+    let refunds: Vec<_> = frame
+        .struct_logs
+        .iter()
+        .map(|log| (log.depth, log.op.as_ref(), log.refund_counter.unwrap_or_default()))
+        .collect();
+
+    let clear = |depth, refund| {
+        [(depth, "PUSH1", refund), (depth, "PUSH1", refund), (depth, "SSTORE", refund)]
+    };
+    let call = |refund| {
+        let mut steps = vec![(1, "PUSH1", refund); 5];
+        steps.extend([(1, "PUSH20", refund), (1, "GAS", refund), (1, "CALL", refund)]);
+        steps
+    };
+    let mut expected = clear(1, 0).to_vec();
+    // The child starts from the parent's refund and adds its own.
+    expected.extend(call(4800));
+    expected.extend(clear(2, 4800));
+    expected.push((2, "STOP", 9600));
+    expected.push((1, "POP", 9600));
+    // The reverted child's refund is discarded on return.
+    expected.extend(call(9600));
+    expected.extend(clear(2, 9600));
+    expected.extend([(2, "PUSH1", 14400), (2, "PUSH1", 14400), (2, "REVERT", 14400)]);
+    expected.extend([(1, "POP", 9600), (1, "STOP", 9600)]);
+    assert_eq!(refunds, expected);
+}
+
+#[test]
+fn test_geth_refund_resets_between_top_level_calls() {
+    let clearing = address!("0x00000000000000000000000000000000000000d1");
+    let stopping = address!("0x00000000000000000000000000000000000000d2");
+
+    let context = Context::mainnet()
+        .with_db(CacheDB::<EmptyDB>::default())
+        .modify_cfg_chained(|cfg| cfg.spec = SpecId::LONDON)
+        .modify_db_chained(|db| {
+            db.insert_account_info(
+                clearing,
+                AccountInfo {
+                    code: Some(Bytecode::new_raw(hex!("600060005500").into())),
+                    ..Default::default()
+                },
+            );
+            db.insert_account_storage(clearing, U256::ZERO, U256::from(1)).unwrap();
+            db.insert_account_info(
+                stopping,
+                AccountInfo {
+                    code: Some(Bytecode::new_raw(hex!("00").into())),
+                    ..Default::default()
+                },
+            );
+        });
+
+    let mut insp = TracingInspector::new(TracingInspectorConfig::default_geth());
+    let mut evm = context.build_mainnet().with_inspector(&mut insp);
+    for target in [clearing, stopping] {
+        let res = evm
+            .inspect_tx(TxEnv {
+                gas_limit: 100_000,
+                kind: TransactTo::Call(target),
+                ..Default::default()
+            })
+            .unwrap();
+        assert!(res.result.is_success(), "Transaction should succeed: {res:#?}");
+    }
+
+    let last = &insp.traces().nodes().last().unwrap().trace;
+    assert_eq!(last.address, stopping);
+    assert!(last.steps.iter().all(|step| step.gas_refund_counter == 0));
 }
 
 fn test_geth_prestate_diff_selfdestruct(spec_id: SpecId) {
