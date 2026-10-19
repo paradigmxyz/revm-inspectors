@@ -15,14 +15,17 @@ use core::{borrow::Borrow, mem, ops::Range};
 use revm::{
     bytecode::opcode::{self, OpCode},
     context::{JournalTr, LocalContextTr},
-    context_interface::{Cfg, ContextTr},
+    context_interface::{
+        result::{ExecutionResult, HaltReason, HaltReasonTr, OutOfGasError},
+        Cfg, ContextTr, Transaction,
+    },
     inspector::JournalExt,
     interpreter::{
         interpreter_types::{Immediates, Jumps, LoopControl, ReturnData, RuntimeFlag},
         CallInput, CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome,
         InstructionResult, Interpreter, InterpreterResult,
     },
-    primitives::{hardfork::SpecId, Address, Bytes, Log, B256, U256},
+    primitives::{hardfork::SpecId, Address, Bytes, Log, TxKind, B256, U256},
     Inspector, JournalEntry,
 };
 
@@ -729,6 +732,40 @@ impl TracingInspector {
                 );
             }
         }
+    }
+
+    /// Restores a root omitted when revm halts during runtime gas charging, before its hooks run.
+    pub(crate) fn recover_runtime_oog_root<H: HaltReasonTr>(
+        &mut self,
+        tx: &impl Transaction,
+        result: &ExecutionResult<H>,
+    ) {
+        // The arena starts with a default root. After execution, call_end/create_end have set
+        // its status if the root was recorded, even when it executed no opcodes.
+        if self.traces.arena[0].trace.status.is_some()
+            || !matches!(result, ExecutionResult::Halt { reason, .. }
+                if reason == &H::from(HaltReason::OutOfGas(OutOfGasError::Basic)))
+        {
+            return;
+        }
+
+        let (kind, address) = match tx.kind() {
+            TxKind::Call(address) => (CallKind::Call, address),
+            TxKind::Create => (CallKind::Create, tx.caller().create(tx.nonce())),
+        };
+        self.traces.arena[0].trace = CallTrace {
+            caller: tx.caller(),
+            address,
+            kind,
+            value: tx.value(),
+            data: if self.config.record_inputs { tx.input().clone() } else { Bytes::new() },
+            gas_limit: tx.gas_limit(),
+            gas_used: result.tx_gas_used(),
+            status: Some(InstructionResult::OutOfGas),
+            ..Default::default()
+        };
+        // Do not guess the execution spec from the halt or its gas accounting. The normal
+        // hooks did not run, and the transaction result does not identify the active fork.
     }
 }
 
