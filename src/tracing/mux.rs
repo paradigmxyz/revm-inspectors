@@ -9,8 +9,8 @@ use alloy_rpc_types_trace::geth::{
 };
 use revm::{
     context_interface::{
-        result::{HaltReasonTr, ResultAndState},
-        ContextTr,
+        result::{ExecutionResult, HaltReasonTr, ResultAndState},
+        ContextTr, Transaction,
     },
     handler::FrameResult,
     inspector::JournalExt,
@@ -180,10 +180,16 @@ impl MuxInspector {
         Ok(MuxFrame(frame))
     }
 
-    /// Sets the root gas limit for tracers sharing the tracing inspector.
-    pub(crate) fn set_transaction_gas_limit(&mut self, gas_limit: u64) {
+    /// Finalizes the transaction root for tracers sharing the tracing inspector.
+    pub(crate) fn finalize_transaction(
+        &mut self,
+        tx: &impl Transaction,
+        result: &ExecutionResult<impl HaltReasonTr>,
+    ) {
         if let Some(inspector) = &mut self.tracing {
-            inspector.set_transaction_gas_limit(gas_limit);
+            inspector.recover_runtime_oog_root(tx, result);
+            inspector.set_transaction_gas_limit(tx.gas_limit());
+            inspector.set_transaction_caller(tx.caller());
         }
     }
 }
