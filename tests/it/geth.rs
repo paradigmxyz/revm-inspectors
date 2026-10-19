@@ -1692,3 +1692,18 @@ fn test_geth_mux_root_gas_at_state_gas_boundary() {
     assert_eq!(frame["callTracer"]["gasUsed"], serde_json::json!(U256::from(204_600)));
     assert_eq!(frame["callTracer"].get("error"), None);
 }
+
+#[test]
+fn test_geth_4byte_tracer_skips_precompiles() {
+    // STATICCALL the sha256 precompile with 36 bytes, then an empty account with 4 bytes.
+    let code = hex!("600060006024600060025afa50600060006004600061dead5afa5000").into();
+    let opts = serde_json::from_value(serde_json::json!({ "tracer": "4byteTracer" })).unwrap();
+    let (trace, _) = trace_contract(SpecId::PRAGUE, opts, code);
+
+    match trace {
+        GethTrace::FourByteTracer(frame) => {
+            assert_eq!(frame.0, std::collections::BTreeMap::from([("0x00000000-0".into(), 1)]));
+        }
+        _ => panic!("Expected FourByteTracer"),
+    }
+}

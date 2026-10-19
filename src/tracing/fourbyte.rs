@@ -7,7 +7,8 @@
 //! The 4byteTracer collects the function selectors of every function executed in the lifetime of a
 //! transaction, along with the size of the supplied call data. The result is a map of
 //! SELECTOR-CALLDATASIZE to number of occurrences entries, where the keys are SELECTOR-CALLDATASIZE
-//! and the values are number of occurrences of this key. For example:
+//! and the values are number of occurrences of this key. Calls to precompiles are skipped. For
+//! example:
 //!
 //! ```json
 //! {
@@ -24,7 +25,7 @@ use alloc::format;
 use alloy_primitives::{hex, map::HashMap, Selector};
 use alloy_rpc_types_trace::geth::FourByteFrame;
 use revm::{
-    context::{ContextTr, LocalContextTr},
+    context::{ContextTr, JournalTr, LocalContextTr},
     interpreter::{CallInput, CallInputs, CallOutcome},
     Inspector,
 };
@@ -45,7 +46,10 @@ impl FourByteInspector {
 
 impl<CTX: ContextTr> Inspector<CTX> for FourByteInspector {
     fn call(&mut self, context: &mut CTX, inputs: &mut CallInputs) -> Option<CallOutcome> {
-        if inputs.input.len() >= 4 {
+        // Skip precompile invocations, matching geth's 4byteTracer
+        if inputs.input.len() >= 4
+            && !context.journal_ref().precompile_addresses().contains(&inputs.bytecode_address)
+        {
             let r;
             let input_bytes = match &inputs.input {
                 CallInput::SharedBuffer(range) => {
