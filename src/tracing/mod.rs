@@ -88,8 +88,6 @@ pub struct TracingInspector {
     traces: CallTraceArena,
     /// Tracks active calls
     trace_stack: Vec<usize>,
-    /// Whether a call/create hook started a trace for this transaction.
-    root_recorded: bool,
     /// Tracks whether the next `step_end` should be recorded. Set in `start_step`.
     record_step_end: bool,
     /// Number of logs recorded so far, used as the index of the next log.
@@ -139,7 +137,6 @@ impl TracingInspector {
         let Self {
             traces,
             trace_stack,
-            root_recorded,
             log_count,
             last_journal_len,
             spec_id,
@@ -164,7 +161,6 @@ impl TracingInspector {
 
         traces.clear();
         trace_stack.clear();
-        *root_recorded = false;
         spec_id.take();
         *log_count = 0;
         *last_journal_len = 0;
@@ -386,7 +382,6 @@ impl TracingInspector {
         gas_limit: u64,
         maybe_precompile: Option<bool>,
     ) {
-        self.root_recorded = true;
         // This will only be true if the inspector is configured to exclude precompiles and the call
         // is to a precompile
         let push_kind = if maybe_precompile.unwrap_or(false) {
@@ -745,7 +740,9 @@ impl TracingInspector {
         tx: &impl Transaction,
         result: &ExecutionResult<H>,
     ) {
-        if self.root_recorded
+        // The arena starts with a default root. After execution, call_end/create_end have set
+        // its status if the root was recorded, even when it executed no opcodes.
+        if self.traces.arena[0].trace.status.is_some()
             || !matches!(result, ExecutionResult::Halt { reason, .. }
                 if reason == &H::from(HaltReason::OutOfGas(OutOfGasError::Basic)))
         {
@@ -769,7 +766,6 @@ impl TracingInspector {
         };
         // Do not guess the execution spec from the halt or its gas accounting. The normal
         // hooks did not run, and the transaction result does not identify the active fork.
-        self.root_recorded = true;
     }
 }
 
