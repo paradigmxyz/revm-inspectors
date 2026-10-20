@@ -3,7 +3,7 @@ use crate::tracing::{
     types::{CallKind, CallTraceNode, CallTraceStepStackItem},
     utils::load_account_code,
 };
-use alloc::{borrow::Cow, collections::BTreeMap, format, vec, vec::Vec};
+use alloc::{borrow::Cow, boxed::Box, collections::BTreeMap, format, vec, vec::Vec};
 use alloy_primitives::{
     map::{Entry, HashMap},
     Address, Bytes, B256, U256,
@@ -23,6 +23,9 @@ use revm::{
 
 #[cfg(test)]
 mod steps_tests;
+
+/// The stack snapshots taken from one node's steps, in step order.
+pub(crate) type StackSnapshots = vec::IntoIter<Option<Box<[U256]>>>;
 
 /// A frame awaiting tree assembly, with visibility inherited by children in the forward pass.
 struct PendingCallFrame<T> {
@@ -82,6 +85,7 @@ impl<'a> GethTraceBuilder<'a> {
         opts: &GethDefaultTracingOptions,
         storage: &mut HashMap<Address, BTreeMap<B256, B256>>,
         struct_logs: &mut Vec<StructLog>,
+        mut stacks: Option<&mut [StackSnapshots]>,
     ) {
         // Suspend only the parent iterator when entering a child. Scratch space scales with
         // call depth rather than step count, and a trace without subcalls needs no allocation.
@@ -102,7 +106,15 @@ impl<'a> GethTraceBuilder<'a> {
             // We increment the depth by one because steps that are part of call at depth N should
             // have depth N + 1. For example, steps inside of a top-level call should
             // have depth 1.
-            let mut log = step.convert_to_geth_struct_log(opts, trace_node.trace.depth as u64 + 1);
+            let stack = if !opts.is_stack_enabled() {
+                None
+            } else if let Some(stacks) = stacks.as_deref_mut() {
+                stacks[trace_node.idx].next().flatten().map(Vec::from)
+            } else {
+                step.stack.as_deref().map(<[U256]>::to_vec)
+            };
+            let mut log =
+                step.convert_to_geth_struct_log(opts, trace_node.trace.depth as u64 + 1, stack);
 
             // Only touch the storage cache when updating it or emitting a storage snapshot.
             if opts.is_storage_enabled()
@@ -145,7 +157,7 @@ impl<'a> GethTraceBuilder<'a> {
         return_value: Bytes,
         opts: GethDefaultTracingOptions,
     ) -> DefaultFrame {
-        self.geth_traces_inner(receipt_gas_used, None, return_value, opts)
+        self.geth_traces_inner(receipt_gas_used, None, return_value, opts, None)
     }
 
     /// Generate a geth-style trace with EIP-8037 transaction gas accounting.
@@ -155,15 +167,20 @@ impl<'a> GethTraceBuilder<'a> {
         return_value: Bytes,
         opts: GethDefaultTracingOptions,
     ) -> DefaultFrame {
-        self.geth_traces_inner(gas.tx_gas_used(), Some(gas), return_value, opts)
+        self.geth_traces_inner(gas.tx_gas_used(), Some(gas), return_value, opts, None)
     }
 
-    fn geth_traces_inner(
+    /// Generate a geth-style trace.
+    ///
+    /// If `stacks` is set, the struct log stacks are taken from it instead of copied from the
+    /// steps. It holds the stack snapshots of each node's steps in step order, indexed by node.
+    pub(crate) fn geth_traces_inner(
         &self,
         receipt_gas_used: u64,
         gas: Option<ResultGas>,
         return_value: Bytes,
         opts: GethDefaultTracingOptions,
+        stacks: Option<&mut [StackSnapshots]>,
     ) -> DefaultFrame {
         if self.nodes.is_empty() {
             return Default::default();
@@ -180,7 +197,7 @@ impl<'a> GethTraceBuilder<'a> {
         );
         let mut struct_logs = Vec::with_capacity(capacity);
         let mut storage = HashMap::default();
-        self.fill_geth_trace(main_trace_node, &opts, &mut storage, &mut struct_logs);
+        self.fill_geth_trace(main_trace_node, &opts, &mut storage, &mut struct_logs, stacks);
 
         let gas = gas.filter(|_| self.is_eip8037_enabled());
 

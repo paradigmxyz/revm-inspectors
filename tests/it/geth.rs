@@ -105,6 +105,56 @@ fn test_debug_empty_tracer() {
     }
 }
 
+/// The default tracer moves the recorded stacks into the struct logs, matching the copied ones.
+#[test]
+fn test_debug_default_tracer_moves_stacks() {
+    let caller = address!("1000000000000000000000000000000000000001");
+    let callee = address!("1000000000000000000000000000000000000002");
+    // Call the callee with zero arguments, then push a value.
+    let mut caller_code = hex!("6000600060006000600073").to_vec();
+    caller_code.extend_from_slice(callee.as_slice());
+    caller_code.extend_from_slice(&hex!("5af150600700"));
+    let context =
+        Context::mainnet().with_db(CacheDB::<EmptyDB>::default()).modify_db_chained(|db| {
+            for (address, code) in [(caller, caller_code), (callee, hex!("6001600201").to_vec())] {
+                db.insert_account_info(
+                    address,
+                    AccountInfo {
+                        code: Some(Bytecode::new_raw(code.into())),
+                        ..Default::default()
+                    },
+                );
+            }
+        });
+    let mut inspector = DebugInspector::new(Default::default()).unwrap();
+    let mut evm = context.build_mainnet().with_inspector(&mut inspector);
+    let res = evm
+        .inspect_tx(TxEnv {
+            gas_limit: 100000,
+            kind: TransactTo::Call(caller),
+            ..Default::default()
+        })
+        .unwrap();
+    assert!(res.result.is_success());
+
+    let (ctx, inspector) = evm.ctx_inspector();
+    let DebugInspector::Default(tracer, config) = &*inspector else {
+        panic!("expected the default opcode logger");
+    };
+    let expected = tracer.geth_builder().geth_traces_with_result_gas(
+        *res.result.gas(),
+        res.result.output().unwrap_or_default().clone(),
+        *config,
+    );
+    assert!(expected.struct_logs.iter().any(|log| log.depth == 2));
+    assert!(expected.struct_logs.iter().all(|log| log.stack.is_some()));
+
+    let tx = ctx.tx().clone();
+    let block = ctx.block().clone();
+    let result = inspector.get_result(None, &tx, &block, &res, ctx.db_mut()).unwrap();
+    assert_eq!(result, GethTrace::Default(expected));
+}
+
 #[test]
 fn test_debug_nonempty_tracer() {
     let opts = serde_json::from_value(serde_json::json!({"tracer": "callTracer"})).unwrap();
