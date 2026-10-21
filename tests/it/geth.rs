@@ -1,6 +1,7 @@
 //! Geth tests
 
 mod runtime_oog;
+mod state_diff_selfdestruct;
 
 use crate::utils::deploy_contract;
 use alloy_primitives::{address, hex, map::HashMap, Address, Bytes, TxKind, B256, U256};

@@ -3,6 +3,7 @@ use alloy_rpc_types_trace::parity::{Delta, StateDiff, TraceType};
 use revm::{
     context::TxEnv,
     database::{CacheDB, EmptyDB},
+    primitives::hardfork::SpecId,
     state::AccountInfo,
     Context, DatabaseCommit, InspectEvm, MainBuilder, MainContext,
 };
@@ -80,6 +81,51 @@ fn zero_value_call_does_not_create_account() {
     let diff = trace(&mut db, TxEnv::builder().to(recipient).build_fill(), beneficiary);
     assert!(!diff.contains_key(&recipient));
     assert!(!diff.contains_key(&beneficiary));
+}
+
+#[test]
+fn empty_account_clearing_respects_spurious_dragon() {
+    let recipient = Address::with_last_byte(0x42);
+    for spec in [SpecId::HOMESTEAD, SpecId::SPURIOUS_DRAGON] {
+        for existed in [false, true] {
+            let mut db = CacheDB::<EmptyDB>::default();
+            if existed {
+                db.insert_account_info(recipient, AccountInfo::default());
+            }
+            let mut evm = Context::mainnet()
+                .modify_cfg_chained(|cfg| cfg.set_spec_and_mainnet_gas_params(spec))
+                .with_db(db)
+                .build_mainnet_with_inspector(TracingInspector::new(
+                    TracingInspectorConfig::default_parity(),
+                ));
+            let result = evm.inspect_tx(TxEnv::builder().to(recipient).build_fill()).unwrap();
+            assert!(result.result.is_success());
+            let diff = evm
+                .inspector
+                .into_parity_builder()
+                .into_trace_results_with_state(
+                    &result,
+                    &HashSet::from_iter([TraceType::StateDiff]),
+                    &evm.ctx.journaled_state.database,
+                )
+                .unwrap()
+                .state_diff
+                .unwrap();
+            match (spec, existed) {
+                (SpecId::HOMESTEAD, false) => {
+                    assert_eq!(diff[&recipient].balance, Delta::Added(U256::ZERO));
+                    assert_eq!(diff[&recipient].nonce, Delta::Added(U64::ZERO));
+                    assert_eq!(diff[&recipient].code, Delta::Added(Default::default()));
+                }
+                (SpecId::SPURIOUS_DRAGON, true) => {
+                    assert_eq!(diff[&recipient].balance, Delta::Removed(U256::ZERO));
+                    assert_eq!(diff[&recipient].nonce, Delta::Removed(U64::ZERO));
+                    assert_eq!(diff[&recipient].code, Delta::Removed(Default::default()));
+                }
+                _ => assert!(!diff.contains_key(&recipient)),
+            }
+        }
+    }
 }
 
 #[test]
