@@ -1,8 +1,4 @@
-#[cfg(feature = "std")]
-use alloc::string::ToString;
 use alloy_primitives::map::HashMap;
-#[cfg(feature = "std")]
-use alloy_rpc_types_trace::opcode::OpcodeGas;
 use revm::{
     bytecode::opcode::{self, OpCode},
     context::{ContextTr, JournalTr},
@@ -55,11 +51,15 @@ impl OpcodeGasInspector {
     ///
     /// Note: this returns in no particular order.
     #[cfg(feature = "std")]
-    pub fn opcode_gas_iter(&self) -> impl Iterator<Item = OpcodeGas> + '_ {
-        self.opcode_iter().map(|(opcode, (count, gas_used))| OpcodeGas {
-            opcode: opcode.to_string(),
-            count,
-            gas_used,
+    pub fn opcode_gas_iter(
+        &self,
+    ) -> impl Iterator<Item = alloy_rpc_types_trace::opcode::OpcodeGas> + '_ {
+        self.opcode_iter().map(|(opcode, (count, gas_used))| {
+            alloy_rpc_types_trace::opcode::OpcodeGas {
+                opcode: alloc::string::ToString::to_string(&opcode),
+                count,
+                gas_used,
+            }
         })
     }
 
