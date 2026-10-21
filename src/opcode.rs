@@ -1,5 +1,7 @@
+#[cfg(feature = "std")]
 use alloc::string::ToString;
 use alloy_primitives::map::HashMap;
+#[cfg(feature = "std")]
 use alloy_rpc_types_trace::opcode::OpcodeGas;
 use revm::{
     bytecode::opcode::{self, OpCode},
@@ -52,6 +54,7 @@ impl OpcodeGasInspector {
     /// Returns an iterator over all opcodes with their count and combined gas usage.
     ///
     /// Note: this returns in no particular order.
+    #[cfg(feature = "std")]
     pub fn opcode_gas_iter(&self) -> impl Iterator<Item = OpcodeGas> + '_ {
         self.opcode_iter().map(|(opcode, (count, gas_used))| OpcodeGas {
             opcode: opcode.to_string(),

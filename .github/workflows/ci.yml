@@ -63,6 +63,7 @@ jobs:
       - uses: tempoxyz/gh-actions/vendor/dtolnay/rust-toolchain@d5402286a7abdfb7232173b3228d56473feb8a66 # 2026-09-29T02-04-45Z-d5402286
         with:
           toolchain: stable
+          targets: riscv32imac-unknown-none-elf
       - name: Install cargo-hack
         uses: tempoxyz/gh-actions/vendor/taiki-e/install-action@d5402286a7abdfb7232173b3228d56473feb8a66 # 2026-09-29T02-04-45Z-d5402286
         with:
@@ -74,6 +75,10 @@ jobs:
           cache-on-failure: true
       - name: cargo hack
         run: cargo hack check --feature-powerset --depth 2
+      - name: no_std
+        run: |
+          cargo check --no-default-features --target riscv32imac-unknown-none-elf
+          cargo check --no-default-features --features serde --target riscv32imac-unknown-none-elf
 
   clippy:
     permissions:

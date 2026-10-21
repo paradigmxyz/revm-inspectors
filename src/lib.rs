@@ -2,8 +2,12 @@
 //!
 //! ## Feature Flags
 //!
+//! - `std` (default): Enables RPC tracing, Otterscan internal operations, opcode gas RPC output,
+//!   and trace writing. These require `alloy-rpc-types-trace`, which depends on the standard
+//!   library. Disable default features for `no_std` access list, opcode gas, storage, and transfer
+//!   inspectors.
 //! - `js-tracer`: Enables a JavaScript tracer implementation. This pulls in extra dependencies
-//!   (such as `boa`, `tokio` and `serde_json`).
+//!   (such as `boa` and `serde_json`) and enables `std`.
 
 #![doc = include_str!("../README.md")]
 #![doc(
@@ -25,9 +29,11 @@ pub mod access_list;
 pub mod opcode;
 
 /// An inspector for recording Otterscan internal operations.
+#[cfg(feature = "std")]
 pub mod otterscan;
 
 /// An inspector for recording traces
+#[cfg(feature = "std")]
 pub mod tracing;
 
 /// An inspector for recording internal transfers.

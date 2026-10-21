@@ -20,7 +20,7 @@ pub const TRANSFER_EVENT_TOPIC: B256 =
 /// An [Inspector] that collects internal ETH transfers.
 ///
 /// This can be used to construct an `eth_simulateV1` response. For `ots_getInternalOperations`,
-/// use [InternalOperationsInspector](crate::otterscan::InternalOperationsInspector).
+/// use `otterscan::InternalOperationsInspector` (requires the `std` feature).
 #[derive(Debug, Default, Clone)]
 pub struct TransferInspector {
     internal_only: bool,
