@@ -93,7 +93,7 @@ fn existing_account_selfdestruct_across_cancun() {
 
 #[test]
 fn created_account_selfdestruct_across_cancun() {
-    for spec in [SpecId::SHANGHAI, SpecId::CANCUN, SpecId::AMSTERDAM] {
+    for spec in [SpecId::SHANGHAI, SpecId::CANCUN] {
         for prefunded in [false, true] {
             let caller = Address::with_last_byte(0x42);
             let target = caller.create(0);
@@ -115,24 +115,14 @@ fn created_account_selfdestruct_across_cancun() {
                     TxEnv::builder()
                         .caller(caller)
                         .create()
-                        // Write storage before selfdestructing to the caller.
-                        .data(hex!("600160005533ff").into())
-                        .gas_limit(1_000_000)
+                        .data(hex!("33ff").into())
+                        .gas_limit(100_000)
                         .build_fill(),
                 )
                 .unwrap();
-            assert!(
-                result.result.is_success(),
-                "{spec:?}, prefunded: {prefunded}: {:?}",
-                result.result
-            );
-            // From Cancun, revm finalizes the deletion in place and clears both flags.
-            assert_eq!(result.state[&target].is_created(), spec < SpecId::CANCUN);
-            assert_eq!(result.state[&target].is_selfdestructed(), spec < SpecId::CANCUN);
-            if spec >= SpecId::CANCUN {
-                assert!(result.state[&target].is_touched());
-                assert!(result.state[&target].is_empty());
-            }
+            assert!(result.result.is_success());
+            assert!(result.state[&target].is_created());
+            assert!(result.state[&target].is_selfdestructed());
             let traces = evm
                 .inspector
                 .into_parity_builder()

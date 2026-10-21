@@ -1,5 +1,4 @@
 //! Geth trace builder
-use super::is_account_deleted;
 use crate::tracing::{
     types::{CallKind, CallTraceNode, CallTraceStepStackItem},
     utils::load_account_code,
@@ -365,11 +364,6 @@ impl<'a> GethTraceBuilder<'a> {
             HashMap::with_capacity_and_hasher(account_diffs.len(), Default::default());
         for (addr, changed_acc) in account_diffs {
             let db_acc = db.basic_ref(addr)?.unwrap_or_default();
-            let deleted = is_account_deleted(changed_acc);
-            // An account created and deleted in the same transaction has no pre or post state.
-            if deleted && account_was_empty(&db_acc) {
-                continue;
-            }
 
             let pre_code = code_enabled.then(|| load_account_code(&db, &db_acc)).flatten();
 
@@ -412,13 +406,16 @@ impl<'a> GethTraceBuilder<'a> {
             } else {
                 AccountChangeKind::Modify
             };
-            let post_change =
-                if deleted { AccountChangeKind::SelfDestruct } else { AccountChangeKind::Modify };
+            let post_change = if changed_acc.is_selfdestructed() {
+                AccountChangeKind::SelfDestruct
+            } else {
+                AccountChangeKind::Modify
+            };
 
             account_change_kinds.insert(addr, (pre_change, post_change));
 
-            // Don't insert deleted accounts into post state.
-            if !deleted {
+            // Don't insert selfdestructed accounts into post state
+            if !changed_acc.is_selfdestructed() {
                 state_diff.post.insert(addr, post_state);
             }
         }

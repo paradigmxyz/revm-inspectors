@@ -1,4 +1,3 @@
-use super::is_account_deleted;
 use crate::tracing::{
     types::{CallTraceNode, CallTraceStep, StepDelta, TraceMemberOrder},
     utils::load_account_code,
@@ -510,11 +509,10 @@ where
     for (addr, changed_acc) in account_diffs.into_iter() {
         let addr = *addr;
         let db_acc = db.basic_ref(addr)?;
-        let deleted = is_account_deleted(changed_acc);
 
         // An account created and destroyed in this transaction has no net change unless it
         // already existed, for example with a prefunded balance.
-        if deleted && db_acc.is_none() {
+        if changed_acc.is_selfdestructed() && db_acc.is_none() {
             continue;
         }
 
@@ -522,7 +520,8 @@ where
         let db_acc = db_acc.unwrap_or_default();
         let entry = state_diff.entry(addr).or_default();
 
-        if deleted {
+        // Revm only sets this flag for actual deletions under the active fork rules.
+        if changed_acc.is_selfdestructed() {
             entry.balance = Delta::Removed(db_acc.balance);
             entry.nonce = Delta::Removed(U64::from(db_acc.nonce));
             entry.code = Delta::Removed(load_account_code(&db, &db_acc).unwrap_or_default());
@@ -564,7 +563,10 @@ where
             }
 
             // check if the account was changed at all
-            if entry.storage.is_empty() && db_acc == changed_acc.info {
+            if entry.storage.is_empty()
+                && db_acc == changed_acc.info
+                && !changed_acc.is_selfdestructed()
+            {
                 // clear the entry if the account was not changed
                 state_diff.remove(&addr);
                 continue;
