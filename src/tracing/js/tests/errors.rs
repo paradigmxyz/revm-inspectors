@@ -1,4 +1,5 @@
 use super::*;
+use revm::context_interface::result::HaltReason;
 
 #[test]
 fn test_hook_error_is_reported_instead_of_result() {
@@ -364,5 +365,58 @@ fn static_write_errors_follow_the_opcode_validation_stage() {
                 "{opcode}, step callback: {has_step}",
             );
         }
+    }
+}
+
+#[test]
+fn sparse_aggregate_hook_errors_preserve_execution() {
+    let target = Address::repeat_byte(0xaa);
+    let child = Address::repeat_byte(0xbb);
+    for hook in ["step", "enter", "exit", "fault"] {
+        let script = format!(
+            "{{enter:function(){{}},exit:function(){{}},fault:function(){{}},result:function(){{return 42}},{hook}:function(){{let e=new AggregateError([], 'boom');e.errors.length=4294967295;throw e}}}}"
+        );
+        let mut code = hex!("6000600060006000600073").to_vec();
+        code.extend_from_slice(child.as_slice());
+        code.extend_from_slice(&hex!("61fffff15000"));
+        if hook == "fault" {
+            code = hex!("60ff56").to_vec();
+        }
+        let mut db = CacheDB::new(EmptyDB::default());
+        db.insert_account_info(
+            target,
+            AccountInfo::default().with_code(Bytecode::new_raw(code.into())),
+        );
+        db.insert_account_info(
+            child,
+            AccountInfo::default().with_code(Bytecode::new_raw(hex!("600160005500").into())),
+        );
+        let inspector = JsInspector::new(script, json!(null)).unwrap();
+        let mut evm = revm::Context::mainnet()
+            .modify_cfg_chained(|cfg| cfg.set_spec_and_mainnet_gas_params(SpecId::CANCUN))
+            .with_db(db)
+            .build_mainnet_with_inspector(inspector);
+        let tx =
+            TxEnv { kind: TransactTo::Call(target), gas_limit: 1_000_000, ..Default::default() };
+        let result = evm.inspect_tx(tx.clone()).unwrap();
+        if hook == "fault" {
+            assert!(matches!(
+                result.result,
+                ExecutionResult::Halt { reason: HaltReason::InvalidJump, .. }
+            ));
+        } else {
+            assert!(result.result.is_success());
+            assert_eq!(result.state[&child].storage[&U256::ZERO].present_value, U256::ONE);
+        }
+        let (ctx, inspector) = evm.ctx_inspector();
+        let block = ctx.block().clone();
+        let JsInspectorError::JsError(error) =
+            inspector.json_result(result, &tx, &block, ctx.db_mut()).unwrap_err()
+        else {
+            panic!("expected hook error");
+        };
+        let native = error.as_native().unwrap();
+        assert_eq!(native.kind().to_string(), "AggregateError");
+        assert_eq!(native.message(), format!("boom    in server-side tracer function '{hook}'"));
     }
 }

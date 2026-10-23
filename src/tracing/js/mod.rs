@@ -20,7 +20,8 @@ use alloc::{
 };
 use alloy_primitives::{Address, Bytes, U256};
 use boa_engine::{
-    error::EngineError, js_string, Context, JsError, JsNativeError, JsObject, JsResult, JsValue,
+    builtins::error::Error, error::EngineError, js_string, object::builtins::JsArray,
+    property::PropertyDescriptor, Context, JsError, JsNativeError, JsObject, JsResult, JsValue,
     Script, Source,
 };
 use core::sync::atomic::{AtomicBool, Ordering};
@@ -1013,12 +1014,54 @@ fn with_message_suffix(err: JsError, suffix: &str, ctx: &mut Context) -> JsError
         }
         None => {}
     }
-    let Ok(native) = err.try_native(ctx) else {
+    let native = if let Some(native) = err.as_native() {
+        native.clone()
+    } else if let Some((object, data)) =
+        err.as_opaque().and_then(JsValue::as_object).and_then(|object| {
+            let data = object.downcast_ref::<Error>()?.clone();
+            Some((object, data))
+        })
+    {
+        // Boa converts aggregate entries and invokes getters; only give it inert own properties.
+        let message = core::iter::successors(Some(object.clone()), JsObject::prototype)
+            .take(RECURSION_LIMIT)
+            .find_map(|object| object.borrow().properties().get(&js_string!("message").into()))
+            .and_then(|property| property.value().and_then(JsValue::as_string))
+            .map(|message| message.to_std_string_escaped())
+            .unwrap_or_default();
+        let shallow = JsObject::from_proto_and_data(None, data);
+        shallow.insert_property(
+            js_string!("message"),
+            PropertyDescriptor::builder()
+                .value(js_string!(message.as_str()))
+                .complete_with_defaults(),
+        );
+        shallow.insert_property(
+            js_string!("errors"),
+            PropertyDescriptor::builder()
+                .value(JsArray::from_iter([], ctx))
+                .complete_with_defaults(),
+        );
+        shallow.insert_property(
+            js_string!("constructor"),
+            PropertyDescriptor::builder()
+                .value(ctx.intrinsics().constructors().error().constructor())
+                .complete_with_defaults(),
+        );
+        JsError::from_opaque(shallow.into())
+            .try_native(ctx)
+            .unwrap_or_else(|_| JsNativeError::error())
+    } else {
         let thrown = err
             .as_opaque()
-            .and_then(|value| value.to_string(ctx).ok())
-            .map(|s| s.to_std_string_escaped())
-            .unwrap_or_else(|| err.to_string());
+            .filter(|value| !value.is_object())
+            .map(|value| {
+                value
+                    .to_string(ctx)
+                    .map(|s| s.to_std_string_escaped())
+                    .unwrap_or_else(|_| value.display().to_string())
+            })
+            .unwrap_or_else(|| "[object Object]".to_string());
         return JsNativeError::error().with_message(format!("{thrown}{suffix}")).into();
     };
     let message = format!("{}{suffix}", native.message());
@@ -1827,5 +1870,102 @@ mod tests {
             .unwrap()
             .join()
             .unwrap();
+    }
+
+    #[test]
+    fn test_hook_error_does_not_read_aggregate_contents() {
+        let mut ctx = Context::default();
+        let err = ctx
+            .eval(Source::from_bytes(
+                r#"
+            globalThis.reads = 0;
+            const error = new AggregateError([], 'boom');
+            Object.defineProperty(error.errors, 0, {get() { reads++; return 'nested'; }});
+            throw error;
+        "#,
+            ))
+            .unwrap_err();
+        let error = with_message_suffix(err, " suffix", &mut ctx);
+        assert_eq!(ctx.eval(Source::from_bytes("reads")).unwrap(), JsValue::from(0));
+        let native = error.as_native().unwrap();
+        assert_eq!(native.kind().to_string(), "AggregateError");
+        assert_eq!(native.message(), "boom suffix");
+    }
+
+    #[test]
+    fn test_hook_error_does_not_invoke_properties_or_coercions() {
+        for property in ["message", "cause", "errors", "constructor"] {
+            let mut ctx = Context::default();
+            let script = format!(
+                r#"
+                globalThis.reads = 0;
+                const error = new AggregateError([], 'boom');
+                Object.defineProperty(error, '{property}', {{get() {{ reads++; throw 0; }}}});
+                throw error;
+            "#
+            );
+            let err = ctx.eval(Source::from_bytes(&script)).unwrap_err();
+            let error = with_message_suffix(err, " suffix", &mut ctx);
+            assert_eq!(ctx.eval(Source::from_bytes("reads")).unwrap(), JsValue::from(0));
+            let native = error.as_native().unwrap();
+            assert_eq!(native.kind().to_string(), "AggregateError");
+            assert_eq!(
+                native.message(),
+                if property == "message" { " suffix" } else { "boom suffix" }
+            );
+            assert!(native.cause().is_none());
+        }
+        for script in [
+            "const e = new Error(); e.message = e; e.toString = () => { throw 0 }; throw e;",
+            "throw { toString() { while (true) {} } };",
+            "throw new Proxy({}, { get() { while (true) {} } });",
+            "throw new Array(4294967295);",
+        ] {
+            let mut ctx = Context::default();
+            let err = ctx.eval(Source::from_bytes(script)).unwrap_err();
+            let error = with_message_suffix(err, " suffix", &mut ctx);
+            assert_eq!(
+                error.as_native().unwrap().message(),
+                if script.starts_with("const e") { " suffix" } else { "[object Object] suffix" }
+            );
+        }
+    }
+
+    #[test]
+    fn test_hook_error_preserves_kind_and_location() {
+        for constructor in [
+            "Error",
+            "TypeError",
+            "RangeError",
+            "ReferenceError",
+            "SyntaxError",
+            "EvalError",
+            "URIError",
+            "AggregateError",
+        ] {
+            let mut ctx = Context::default();
+            let args = if constructor == "AggregateError" { "[], 'boom'" } else { "'boom'" };
+            let script = format!("throw new {constructor}({args})");
+            let err = ctx.eval(Source::from_bytes(&script)).unwrap_err();
+            let expected = err.try_native(&mut ctx).unwrap().with_message("boom suffix");
+            let actual = with_message_suffix(err, " suffix", &mut ctx);
+            assert_eq!(actual.as_native().unwrap(), &expected);
+            assert_eq!(actual.to_string(), expected.to_string());
+        }
+    }
+
+    #[test]
+    fn test_hook_error_inherited_messages_are_bounded() {
+        for (script, expected) in [
+            ("class E extends Error {}; E.prototype.message = 'inherited'; throw new E();", "inherited suffix"),
+            ("const e = new TypeError(); Object.setPrototypeOf(e, {message:'inherited'}); throw e;", "inherited suffix"),
+            ("const e = new Error(); let p = {message:'hidden'}; for (let i=0;i<1024;i++) p=Object.create(p); Object.setPrototypeOf(e,p); throw e;", " suffix"),
+            ("const e = new Error('boom'); Object.defineProperty(Object.prototype, 'cause', {get(){throw 0}}); throw e;", "boom suffix"),
+        ] {
+            let mut ctx = Context::default();
+            let err = ctx.eval(Source::from_bytes(script)).unwrap_err();
+            let error = with_message_suffix(err, " suffix", &mut ctx);
+            assert_eq!(error.as_native().unwrap().message(), expected);
+        }
     }
 }
