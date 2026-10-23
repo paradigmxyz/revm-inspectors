@@ -40,7 +40,7 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-on-failure: true
-      # Only run tests on latest stable and above
+      - run: bash .github/scripts/pin-ci-dependencies.sh
       - name: build
         if: ${{ matrix.rust == '1.94' }} # MSRV
         run: cargo build --workspace ${{ matrix.flags }}
@@ -74,7 +74,9 @@ jobs:
         with:
           cache-on-failure: true
       - name: cargo hack
-        run: cargo hack check --feature-powerset --depth 2
+        run: |
+          bash .github/scripts/pin-ci-dependencies.sh
+          cargo hack check --feature-powerset --depth 2
       - name: no_std
         run: |
           cargo check --no-default-features --target riscv32imac-unknown-none-elf
@@ -99,7 +101,9 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-on-failure: true
-      - run: cargo clippy --workspace --all-targets --all-features
+      - run: |
+          bash .github/scripts/pin-ci-dependencies.sh
+          cargo clippy --workspace --all-targets --all-features
         env:
           RUSTFLAGS: -Dwarnings
 
@@ -121,7 +125,9 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           cache-on-failure: true
-      - run: cargo doc --workspace --all-features --no-deps --document-private-items
+      - run: |
+          bash .github/scripts/pin-ci-dependencies.sh
+          cargo doc --workspace --all-features --no-deps --document-private-items
         env:
           RUSTDOCFLAGS: "--cfg docsrs -D warnings"
 
