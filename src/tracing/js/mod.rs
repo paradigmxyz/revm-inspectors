@@ -19,10 +19,12 @@ use alloc::{
     vec::Vec,
 };
 use alloy_primitives::{Address, Bytes, U256};
-use boa_engine::{js_string, Context, JsError, JsObject, JsResult, JsValue, Script, Source};
+use boa_engine::{
+    error::EngineError, js_string, Context, JsError, JsNativeError, JsObject, JsResult, JsValue,
+    Script, Source,
+};
 use core::sync::atomic::{AtomicBool, Ordering};
 use revm::{
-    bytecode::opcode,
     context::JournalTr,
     context_interface::{
         result::{ExecutionResult, HaltReasonTr, Output, ResultAndState},
@@ -33,7 +35,7 @@ use revm::{
     interpreter::{
         interpreter_types::{Jumps, LoopControl},
         CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, Gas, InstructionResult,
-        Interpreter, InterpreterAction, InterpreterResult,
+        Interpreter, InterpreterResult,
     },
     DatabaseRef, Inspector,
 };
@@ -116,8 +118,17 @@ pub struct JsInspector {
     gas_spent_before: u64,
     /// Cached because call/create hooks cannot access the parent interpreter's refund.
     last_frame_refund: i64,
+    /// The first error thrown by one of the tracer's hooks, if any. Mirrors go-ethereum's
+    /// `jsTracer.err`: once a hook throws, the remaining hooks are skipped and [`Self::result`]
+    /// reports the error instead of a trace that silently omits whatever the hook did not record.
+    hook_error: Option<JsError>,
+    /// Cheap pre-execution metadata for tracers without a step callback.
+    fault_step: FaultStep,
     /// Optional cancellation signal shared with the caller.
     interrupt: Option<JsInspectorInterrupt>,
+    /// The [`InstructionResult`] the root call ended with, captured when it exits. `ctx.error` is
+    /// built from it to preserve the same error labels as step and frame callbacks.
+    root_instruction_result: Option<InstructionResult>,
 }
 
 impl core::fmt::Debug for JsInspector {
@@ -211,7 +222,10 @@ impl JsInspector {
             step_pending: false,
             gas_spent_before: 0,
             last_frame_refund: 0,
+            hook_error: None,
+            fault_step: FaultStep::default(),
             interrupt: None,
+            root_instruction_result: None,
         })
     }
 
@@ -266,6 +280,9 @@ impl JsInspector {
         self.step_pending = false;
         self.gas_spent_before = 0;
         self.last_frame_refund = 0;
+        self.hook_error = None;
+        self.fault_step = FaultStep::default();
+        self.root_instruction_result = None;
         Ok(())
     }
 
@@ -320,6 +337,13 @@ impl JsInspector {
         DB: DatabaseRef,
         <DB as DatabaseRef>::Error: core::fmt::Display,
     {
+        // A hook that threw leaves the trace half-built, so report the failure instead of a
+        // result that silently omits whatever the hook did not record. Cloned rather than taken,
+        // so asking for the result twice answers the same way.
+        if let Some(err) = &self.hook_error {
+            return Err(JsInspectorError::JsError(err.clone()));
+        }
+
         self.ensure_not_interrupted()?;
         let ResultAndState { result, state } = res;
         let mut db = WrapDatabaseRef(db);
@@ -343,7 +367,13 @@ impl JsInspector {
                 output_bytes = Some(output);
             }
             ExecutionResult::Halt { reason, .. } => {
-                error = Some(format!("execution halted: {reason:?}"));
+                // Use the phrase the root frame reports elsewhere, not the halt reason's `Debug`
+                // output, which is a Rust type name.
+                error = Some(
+                    self.root_instruction_result
+                        .and_then(|res| utils::fmt_error_msg(res, TraceStyle::Geth))
+                        .unwrap_or_else(|| halt_error_message(&reason)),
+                );
             }
         };
 
@@ -382,6 +412,67 @@ impl JsInspector {
         });
         self.ensure_not_interrupted()?;
         Ok(result?)
+    }
+
+    /// Records the first error thrown by a tracer hook, tagged with the hook's name.
+    ///
+    /// Later errors are dropped: the first one explains the rest. The hook name goes into the
+    /// message rather than a dedicated error variant so callers mapping [`JsInspectorError`] onto
+    /// their own error types treat it as the JavaScript failure it is.
+    fn record_hook_error(&mut self, hook: &'static str, err: JsError) {
+        if self.hook_error.is_none() {
+            let suffix = format!("    in server-side tracer function '{hook}'");
+            let err = with_message_suffix(err, &suffix, &mut self.ctx);
+            self.hook_error = Some(err);
+        }
+    }
+
+    /// Whether a hook has already thrown, in which case the remaining hooks are skipped.
+    const fn hook_errored(&self) -> bool {
+        self.hook_error.is_some()
+    }
+
+    fn invoke_step_hook<CTX: ContextTr<Journal: JournalExt>>(
+        &mut self,
+        interp: &Interpreter,
+        context: &mut CTX,
+        fault: bool,
+        error: Option<String>,
+    ) {
+        let callback = if fault { &self.fault_fn } else { self.step_fn.as_ref().unwrap() };
+        let call = self.call_stack.last().expect("call stack is empty");
+        // Geth meters dynamic gas, including SSTORE refunds, before OnOpcode.
+        let refund = call.enclosing_refund + interp.gas.refunded();
+        debug_assert!(refund >= 0, "transaction-wide refund counter went negative: {refund}");
+        let info = StepInfo {
+            refund: refund.max(0) as u64,
+            cost: interp.gas.total_gas_spent().saturating_sub(self.gas_spent_before),
+            depth: context.journal_ref().depth() as u64,
+            error,
+            caller: interp.input.caller_address,
+            contract: interp.input.target_address,
+            value: call.contract.value,
+            input: &call.contract.input,
+            call_id: call.id,
+        };
+        let (db, state) = context.journal_mut().db_and_state_mut();
+        let result = self.reusable_db.with_scope(state, db, || {
+            self.reusable_step_log.with_scope(
+                interp.stack.data(),
+                interp.memory.context_memory(),
+                info,
+                || {
+                    callback.call(
+                        &self.this,
+                        &[self.reusable_step_log.value(), self.reusable_db.value()],
+                        &mut self.ctx,
+                    )
+                },
+            )
+        });
+        if let Err(err) = result {
+            self.record_hook_error(if fault { "fault" } else { "step" }, err);
+        }
     }
 
     fn try_enter(&mut self, frame: CallFrame) -> JsResult<()> {
@@ -558,19 +649,20 @@ where
     CTX: ContextTr<Journal: JournalExt>,
 {
     fn step(&mut self, interp: &mut Interpreter, context: &mut CTX) {
-        if self.check_and_halt(context, interp) {
+        if self.check_and_halt(context, interp) || self.hook_errored() {
             return;
         }
         self.last_frame_refund = interp.gas.refunded();
+        self.gas_spent_before = interp.gas.total_gas_spent();
         if self.step_fn.is_none() {
+            // A fault-only tracer does not copy stack or memory on successful steps.
+            self.fault_step = FaultStep {
+                pc: interp.bytecode.pc() as u64,
+                op: interp.bytecode.opcode(),
+                gas: interp.gas.remaining(),
+            };
             return;
         }
-
-        // The JS step callback expects the pre-execution stack and memory but the gas cost of the
-        // opcode, which is only known after it executed. Instead of copying the stack and memory,
-        // only the parts the opcode can overwrite are saved here and the callback is invoked in
-        // `step_end`.
-        self.gas_spent_before = interp.gas.total_gas_spent();
         self.step_pending = true;
         let memory = interp.memory.context_memory();
         self.reusable_step_log.record_pre_execution(PreStep {
@@ -586,60 +678,41 @@ where
         if self.check_and_halt(context, interp) {
             return;
         }
-        let Some(step_fn) = &self.step_fn else {
-            return;
-        };
-        if !core::mem::take(&mut self.step_pending) {
-            return;
-        }
-
         let result = interp.bytecode.action().as_ref().and_then(|a| a.instruction_result());
-        let is_revert = result.is_some_and(|r| r.is_revert());
-
-        // Compute the actual gas cost now that the opcode has executed
-        let cost = interp.gas.total_gas_spent().saturating_sub(self.gas_spent_before);
-        let depth = context.journal_ref().depth() as u64;
-        let call = self.call_stack.last().expect("call stack is empty");
-        // Geth meters dynamic gas, including SSTORE refunds, before OnOpcode.
-        let refund = call.enclosing_refund + interp.gas.refunded();
-        debug_assert!(refund >= 0, "transaction-wide refund counter went negative: {refund}");
-        let info = StepInfo {
-            cost,
-            refund: refund.max(0) as u64,
-            depth,
-            error: if is_revert { result.map(|result| format!("{result:?}")) } else { None },
-            op: is_revert.then_some(opcode::REVERT),
-            caller: interp.input.caller_address,
-            contract: interp.input.target_address,
-            value: call.contract.value,
-            input: &call.contract.input,
-            call_id: call.id,
-        };
-
-        let (db, state) = context.journal_mut().db_and_state_mut();
-        let res = self.reusable_db.with_scope(state, db, || {
-            self.reusable_step_log.with_scope(
-                interp.stack.data(),
-                interp.memory.context_memory(),
-                info,
-                || {
-                    let args = [self.reusable_step_log.value(), self.reusable_db.value()];
-                    let f = if is_revert { &self.fault_fn } else { step_fn };
-                    f.call(&self.this, &args, &mut self.ctx)
-                },
-            )
-        });
-
-        if self.check_and_halt(context, interp) {
+        let is_fault = result.is_some_and(should_fault);
+        let recorded_step = core::mem::take(&mut self.step_pending);
+        if self.hook_errored() || (!recorded_step && !is_fault) {
             return;
         }
-
-        // Only set revert if the opcode didn't already set an action (e.g. STOP/RETURN).
-        // If the opcode completed successfully, we can't revert it after the fact.
-        if !is_revert && res.is_err() && interp.bytecode.action().is_none() {
-            interp
-                .bytecode
-                .set_action(InterpreterAction::new_halt(InstructionResult::Revert, interp.gas));
+        let error = result.and_then(|result| utils::fmt_error_msg(result, TraceStyle::Geth));
+        if !recorded_step {
+            // Keep the faulting instruction's metadata. Stack and memory are post-execution
+            // for a fault-only tracer; geth leaves these fields stale without a step callback.
+            let memory = interp.memory.context_memory();
+            self.reusable_step_log.record_pre_execution(PreStep {
+                pc: self.fault_step.pc,
+                op: self.fault_step.op,
+                gas_remaining: self.fault_step.gas,
+                stack: interp.stack.data(),
+                memory: &memory,
+            });
+        }
+        if recorded_step {
+            // Geth emits OnOpcode before executing an instruction, then OnFault if it fails.
+            // Stack/gas validation failures instead reach OnOpcode with the error attached.
+            self.invoke_step_hook(
+                interp,
+                context,
+                false,
+                if is_fault { None } else { error.clone() },
+            );
+            if self.check_and_halt(context, interp) || self.hook_errored() {
+                return;
+            }
+        }
+        if is_fault {
+            self.invoke_step_hook(interp, context, true, error);
+            self.check_and_halt(context, interp);
         }
     }
 
@@ -667,34 +740,37 @@ where
             inputs.gas_limit,
         );
 
-        let mut result = None;
-        if self.can_call_enter() {
+        if self.can_call_enter() && !self.hook_errored() {
             let call = self.active_call();
             let frame = CallFrame {
                 contract: call.contract.clone(),
                 kind: FrameKind::Call(call.kind),
                 gas: inputs.gas_limit,
             };
-            result = self.try_enter(frame).err().map(js_error_to_revert);
+            if let Err(err) = self.try_enter(frame) {
+                self.record_hook_error("enter", err);
+            }
         }
 
         self.interrupt_result(context, inputs.gas_limit)
-            .or(result)
             .map(|result| CallOutcome::new(result, inputs.return_memory_offset.clone()))
     }
 
     fn call_end(&mut self, context: &mut CTX, _inputs: &CallInputs, outcome: &mut CallOutcome) {
+        if self.is_root_call_active() {
+            self.root_instruction_result = Some(outcome.result.result);
+        }
         if self.check_interrupt(context) {
             return;
         }
-        if self.can_call_exit() {
+        if self.can_call_exit() && !self.hook_errored() {
             let frame_result = FrameResult {
                 gas_used: outcome.result.gas.total_gas_spent(),
                 output: outcome.result.output.clone(),
                 error: utils::fmt_error_msg(outcome.result.result, TraceStyle::Geth),
             };
             if let Err(err) = self.try_exit(frame_result) {
-                outcome.result = js_error_to_revert(err);
+                self.record_hook_error("exit", err);
             }
         }
 
@@ -719,19 +795,19 @@ where
             inputs.gas_limit(),
         );
 
-        let mut result = None;
-        if self.can_call_enter() {
+        if self.can_call_enter() && !self.hook_errored() {
             let call = self.active_call();
             let frame = CallFrame {
                 contract: call.contract.clone(),
                 kind: FrameKind::Call(call.kind),
                 gas: call.gas_limit,
             };
-            result = self.try_enter(frame).err().map(js_error_to_revert);
+            if let Err(err) = self.try_enter(frame) {
+                self.record_hook_error("enter", err);
+            }
         }
 
         self.interrupt_result(context, inputs.gas_limit())
-            .or(result)
             .map(|result| CreateOutcome::new(result, None))
     }
 
@@ -741,17 +817,20 @@ where
         _inputs: &CreateInputs,
         outcome: &mut CreateOutcome,
     ) {
+        if self.is_root_call_active() {
+            self.root_instruction_result = Some(outcome.result.result);
+        }
         if self.check_interrupt(context) {
             return;
         }
-        if self.can_call_exit() {
+        if self.can_call_exit() && !self.hook_errored() {
             let frame_result = FrameResult {
                 gas_used: outcome.result.gas.total_gas_spent(),
                 output: outcome.result.output.clone(),
                 error: utils::fmt_error_msg(outcome.result.result, TraceStyle::Geth),
             };
             if let Err(err) = self.try_exit(frame_result) {
-                outcome.result = js_error_to_revert(err);
+                self.record_hook_error("exit", err);
             }
         }
 
@@ -765,7 +844,7 @@ where
         }
         // This is exempt from the root call constraint, because selfdestruct is treated as a
         // new scope that is entered and immediately exited.
-        if self.enter_fn.is_some() {
+        if self.enter_fn.is_some() && !self.hook_errored() {
             let frame = CallFrame {
                 contract: Contract {
                     caller: contract,
@@ -776,13 +855,17 @@ where
                 kind: FrameKind::SelfDestruct,
                 gas: 0,
             };
-            let _ = self.try_enter(frame);
+            if let Err(err) = self.try_enter(frame) {
+                self.record_hook_error("enter", err);
+            }
         }
 
         // exit with empty frame result ref <https://github.com/ethereum/go-ethereum/blob/0004c6b229b787281760b14fb9460ffd9c2496f1/core/vm/instructions.go#L829-L829>
-        if !self.is_interrupted() && self.exit_fn.is_some() {
+        if !self.is_interrupted() && self.exit_fn.is_some() && !self.hook_errored() {
             let frame_result = FrameResult { gas_used: 0, output: Bytes::new(), error: None };
-            let _ = self.try_exit(frame_result);
+            if let Err(err) = self.try_exit(frame_result) {
+                self.record_hook_error("exit", err);
+            }
         }
     }
 }
@@ -919,6 +1002,56 @@ struct CallStackItem {
     enclosing_refund: i64,
 }
 
+/// Instruction metadata retained without copying stack or memory.
+#[derive(Debug, Default)]
+struct FaultStep {
+    pc: u64,
+    op: u8,
+    gas: u64,
+}
+
+/// Some halts occur before root hooks, notably Amsterdam runtime gas exhaustion. The generic
+/// halt trait supports comparing known reasons; retain diagnostics for chain-specific reasons.
+fn halt_error_message(reason: &impl HaltReasonTr) -> String {
+    use revm::context_interface::result::{HaltReason, OutOfGasError};
+    if reason == &HaltReason::OutOfGas(OutOfGasError::Basic).into() {
+        "out of gas".to_string()
+    } else {
+        format!("execution halted: {reason:?}")
+    }
+}
+
+/// Appends `suffix` to the message of `err`, e.g. `Error: boom    in server-side tracer function
+/// 'step'`.
+///
+/// The message is changed on the error itself, so its kind and source position are kept and
+/// only the backtrace, which Boa prints across further lines, is dropped. Wrapping `err` in a
+/// fresh `Error` instead would print a second kind (`Error: Error: boom`). A runtime limit, which
+/// Boa raises as an engine error rather than a JS one, is reported as a `RangeError`, the kind JS
+/// engines use for an exhausted call stack. A script may throw any value, not just an `Error`;
+/// such a value becomes the message of a plain `Error`.
+fn with_message_suffix(err: JsError, suffix: &str, ctx: &mut Context) -> JsError {
+    match err.as_engine() {
+        Some(EngineError::RuntimeLimit(limit)) => {
+            return JsNativeError::range().with_message(format!("{limit}{suffix}")).into();
+        }
+        Some(engine) => {
+            return JsNativeError::error().with_message(format!("{engine}{suffix}")).into();
+        }
+        None => {}
+    }
+    let Ok(native) = err.try_native(ctx) else {
+        let thrown = err
+            .as_opaque()
+            .and_then(|value| value.to_string(ctx).ok())
+            .map(|s| s.to_std_string_escaped())
+            .unwrap_or_else(|| err.to_string());
+        return JsNativeError::error().with_message(format!("{thrown}{suffix}")).into();
+    };
+    let message = format!("{}{suffix}", native.message());
+    native.with_message(message).into()
+}
+
 /// Error variants that can occur during JavaScript inspection.
 #[derive(Debug, thiserror::Error)]
 pub enum JsInspectorError {
@@ -959,15 +1092,30 @@ pub enum JsInspectorError {
     Interrupted,
 }
 
-/// Converts a JavaScript error into a [InstructionResult::Revert] [InterpreterResult].
-#[inline]
-fn js_error_to_revert(err: JsError) -> InterpreterResult {
-    let output = err.to_string().as_bytes().to_vec();
-    InterpreterResult { result: InstructionResult::Revert, output: output.into(), gas: Gas::new(0) }
+/// Whether an instruction result also needs a `fault` callback after `step`.
+///
+/// Mirrors go-ethereum, which faults on errors raised while executing the opcode (after
+/// `OnOpcode`) and routes the checks that precede execution — stack validation and gas — to
+/// `step` instead. Successful terminations never fault.
+fn should_fault(result: InstructionResult) -> bool {
+    use InstructionResult::*;
+    !result.is_ok()
+        && !matches!(
+            result,
+            StackUnderflow
+                | StackOverflow
+                | OutOfGas
+                | MemoryOOG
+                | MemoryLimitOOG
+                | PrecompileOOG
+                | InvalidOperandOOG
+                | ReentrancySentryOOG
+        )
 }
 
 #[cfg(test)]
 mod tests {
+    mod errors;
     mod values;
     use super::*;
 
@@ -1014,6 +1162,20 @@ mod tests {
 
     // Helper function to run a trace and return the result
     fn run_trace(code: &str, contract: Option<Bytes>, success: bool) -> serde_json::Value {
+        try_run_trace(code, contract, success).unwrap()
+    }
+
+    /// Like [`run_trace`] but expects the trace to fail (e.g. a hook threw) and returns the error
+    /// message.
+    fn run_trace_err(code: &str, contract: Option<Bytes>, success: bool) -> String {
+        try_run_trace(code, contract, success).expect_err("expected the trace to fail").to_string()
+    }
+
+    fn try_run_trace(
+        code: &str,
+        contract: Option<Bytes>,
+        success: bool,
+    ) -> Result<serde_json::Value, JsInspectorError> {
         let addr = Address::repeat_byte(0x01);
         let mut db = CacheDB::new(EmptyDB::default());
 
@@ -1055,7 +1217,7 @@ mod tests {
         let (ctx, inspector) = evm.ctx_inspector();
         let tx = ctx.tx().clone();
         let block = ctx.block().clone();
-        inspector.json_result(res, &tx, &block, ctx.db_mut()).unwrap()
+        inspector.json_result(res, &tx, &block, ctx.db_mut())
     }
 
     #[test]
@@ -1078,8 +1240,8 @@ mod tests {
             fault: function() {},
             result: function() { return this.depths; }
         }"#;
-        let res = run_trace(code, None, false);
-        assert_eq!(res.as_array().unwrap().len(), 0);
+        let err = run_trace_err(code, None, true);
+        assert!(err.contains("in server-side tracer function 'step'"), "{err}");
     }
 
     #[test]
@@ -1090,8 +1252,8 @@ mod tests {
             fault: function() {},
             result: function() { return this.depths; }
         }"#;
-        let res = run_trace(code, None, false);
-        assert_eq!(res.as_array().unwrap().len(), 0);
+        let err = run_trace_err(code, None, true);
+        assert!(err.contains("in server-side tracer function 'step'"), "{err}");
     }
 
     #[test]
@@ -1102,8 +1264,8 @@ mod tests {
             fault: function() {},
             result: function() { return this.depths; }
         }"#;
-        let res = run_trace(code, None, false);
-        assert_eq!(res.as_array().unwrap().len(), 0);
+        let err = run_trace_err(code, None, true);
+        assert!(err.contains("in server-side tracer function 'step'"), "{err}");
     }
 
     #[test]
@@ -1126,8 +1288,8 @@ mod tests {
             fault: function() {},
             result: function() { return this.depths; }
         }"#;
-        let res = run_trace(code, None, false);
-        assert_eq!(res.as_array().unwrap().len(), 0);
+        let err = run_trace_err(code, None, true);
+        assert!(err.contains("in server-side tracer function 'step'"), "{err}");
     }
 
     #[test]
@@ -1138,8 +1300,8 @@ mod tests {
             fault: function() {},
             result: function() { return this.depths; }
         }"#;
-        let res = run_trace(code, None, false);
-        assert_eq!(res.as_array().unwrap().len(), 0);
+        let err = run_trace_err(code, None, true);
+        assert!(err.contains("in server-side tracer function 'step'"), "{err}");
     }
 
     #[test]
@@ -1150,8 +1312,8 @@ mod tests {
             fault: function() {},
             result: function() { return this.depths; }
         }"#;
-        let res = run_trace(code, None, false);
-        assert_eq!(res.as_array().unwrap().len(), 0);
+        let err = run_trace_err(code, None, true);
+        assert!(err.contains("in server-side tracer function 'step'"), "{err}");
     }
 
     #[test]
@@ -1162,8 +1324,8 @@ mod tests {
             fault: function() {},
             result: function() { return this.depths; }
         }"#;
-        let res = run_trace(code, None, false);
-        assert_eq!(res.as_array().unwrap().len(), 0);
+        let err = run_trace_err(code, None, true);
+        assert!(err.contains("in server-side tracer function 'step'"), "{err}");
     }
 
     #[test]
@@ -1174,8 +1336,8 @@ mod tests {
             fault: function() {},
             result: function() { return this.depths; }
         }"#;
-        let res = run_trace(code, None, false);
-        assert_eq!(res.as_array().unwrap().len(), 0);
+        let err = run_trace_err(code, None, true);
+        assert!(err.contains("in server-side tracer function 'step'"), "{err}");
     }
 
     #[test]
@@ -1186,8 +1348,8 @@ mod tests {
             fault: function() {},
             result: function() { return this.depths; }
         }"#;
-        let res = run_trace(code, None, false);
-        assert_eq!(res.as_array().unwrap().len(), 0);
+        let err = run_trace_err(code, None, true);
+        assert!(err.contains("in server-side tracer function 'step'"), "{err}");
     }
 
     #[test]
@@ -1198,8 +1360,8 @@ mod tests {
             fault: function() {},
             result: function() { return this.depths; }
         }"#;
-        let res = run_trace(code, None, false);
-        assert_eq!(res.as_array().unwrap().len(), 0);
+        let err = run_trace_err(code, None, true);
+        assert!(err.contains("in server-side tracer function 'step'"), "{err}");
     }
 
     #[test]
@@ -1315,18 +1477,15 @@ mod tests {
 
     #[test]
     fn test_memory_limit() {
-        // Accessing out-of-bounds memory in the tracer results in an empty array.
-        // Since we invoke the JS step callback in step_end (after the opcode executes),
-        // a JS error on the final STOP opcode cannot revert the transaction — it has
-        // already completed. The transaction succeeds but the trace result is empty.
+        // Excessive padding fails the trace while the EVM transaction still succeeds.
         let code = r#"{
             res: [],
             step: function(log) { if (log.op.toString() === 'STOP') { this.res.push(log.memory.slice(5, 1025 * 1024)) } },
             fault: function() {},
             result: function() { return this.res }
         }"#;
-        let res = run_trace(code, None, true);
-        assert_eq!(res, json!([]));
+        let err = run_trace_err(code, None, true);
+        assert!(err.contains("in server-side tracer function 'step'"), "{err}");
     }
 
     #[test]
