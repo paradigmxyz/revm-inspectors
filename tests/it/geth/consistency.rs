@@ -1,4 +1,3 @@
-//! Standalone and multiplexed tracers must use the same config and root accounting.
 use super::*;
 use alloy_rpc_types_trace::parity::Action;
 use serde_json::{json, Value};
@@ -46,7 +45,6 @@ fn mux_config_matches_standalone() {
             trace(options(Value::Null), hex!("600160005500").into(), false).0,
             trace(options(json!({})), hex!("600160005500").into(), false).0,
         );
-        // Configurable tracers must still reject malformed configs.
         assert!(DebugInspector::new(serde_json::from_value(options(json!("invalid"))).unwrap())
             .is_err());
     }
