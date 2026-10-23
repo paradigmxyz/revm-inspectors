@@ -1,9 +1,7 @@
-//! Hook errors and execution failures must remain distinguishable.
 use super::*;
 
 #[test]
 fn test_hook_error_is_reported_instead_of_result() {
-    // Every `step` throws; geth reports the error rather than the tracer's `result`.
     let code = r#"{step:function(){throw new Error('boom')},fault:function(){},result:function(){return 'unreachable'}}"#;
 
     let addr = Address::repeat_byte(0x01);
@@ -45,7 +43,6 @@ fn test_hook_error_is_reported_instead_of_result() {
 
 #[test]
 fn test_hook_error_keeps_the_error_kind() {
-    // The thrown error's own kind leads the message, on one line without Boa's backtrace.
     let cases = [
         ("null.x", "TypeError: cannot convert 'null' or 'undefined' to object"),
         ("throw 'plain'", "Error: plain"),
@@ -67,11 +64,9 @@ fn test_hook_error_keeps_the_error_kind() {
 
 #[test]
 fn test_fault_fires_for_non_revert_execution_errors() {
-    // A tracer that counts fault callbacks and records the last error. The step function is
-    // present but does nothing, matching the common geth pattern.
     let code = r#"{n:0,e:null,step:function(){},fault:function(log){this.n++;this.e=log.getError()},result:function(){return {faults:this.n,err:this.e}}}"#;
 
-    // PUSH1 0xff, JUMP -> invalid jump destination (an execution error, not a revert).
+    // PUSH1 0xff, JUMP
     let res = run_trace(code, Some(hex!("60ff56").into()), false);
     assert_eq!(res["faults"], json!(1), "invalid jump must fire fault: {res}");
     assert_eq!(res["err"], json!("invalid jump destination"), "{res}");
@@ -80,20 +75,17 @@ fn test_fault_fires_for_non_revert_execution_errors() {
     let res = run_trace(code, Some(hex!("0c").into()), false);
     assert_eq!(res["faults"], json!(1), "undefined opcode must fire fault: {res}");
 
-    // REVERT still faults (regression guard).
+    // PUSH1 0, PUSH1 0, REVERT
     let res = run_trace(code, Some(hex!("60006000fd").into()), false);
     assert_eq!(res["faults"], json!(1), "revert must still fire fault: {res}");
     assert_eq!(res["err"], json!("execution reverted"), "{res}");
 
-    // A normal STOP does not fault.
     let res = run_trace(code, Some(hex!("00").into()), true);
     assert_eq!(res["faults"], json!(0), "a clean stop must not fault: {res}");
 }
 
 #[test]
 fn test_fault_fires_without_a_step_function() {
-    // A tracer that defines `fault` and `result` but no `step`. go-ethereum still delivers
-    // fault callbacks to it on execution errors.
     let code = r#"{n:0,e:null,fault:function(log){this.n++;this.e=log.getError()},result:function(){return {faults:this.n,err:this.e}}}"#;
 
     // PUSH1 0xff, JUMP -> invalid jump destination.
@@ -101,13 +93,10 @@ fn test_fault_fires_without_a_step_function() {
     assert_eq!(res["faults"], json!(1), "invalid jump must fault without a step fn: {res}");
     assert_eq!(res["err"], json!("invalid jump destination"), "{res}");
 
-    // A clean STOP does not fault.
     let res = run_trace(code, Some(hex!("00").into()), true);
     assert_eq!(res["faults"], json!(0), "a clean stop must not fault: {res}");
 }
 
-/// `ctx.error` for a halting execution is the phrase the root frame reports elsewhere, not the
-/// halt reason's Rust type name such as `OutOfGas(Basic)` or `StackUnderflow`.
 #[test]
 fn test_ctx_error_is_a_stable_phrase() {
     let code = r#"{step:function(){},fault:function(){},result:function(ctx){return ctx.error}}"#;
@@ -123,9 +112,6 @@ fn test_ctx_error_is_a_stable_phrase() {
     assert_eq!(run_trace(code, Some(hex!("fe").into()), false), json!("invalid opcode: INVALID"));
 }
 
-/// `fuse` clears the recorded root result, so a later transaction that halts without running a
-/// frame (e.g. an OP deposit rejected before execution) does not report the previous
-/// transaction's error.
 #[test]
 fn test_ctx_error_does_not_leak_across_fuse() {
     use revm::context_interface::result::{HaltReason, ResultGas};
@@ -159,7 +145,7 @@ fn test_ctx_error_does_not_leak_across_fuse() {
     );
 
     inspector.fuse().unwrap();
-    // A halt for which no frame ran, so no root result was recorded.
+    // Model a halt before root hooks run.
     let halted = ResultAndState {
         result: ExecutionResult::Halt {
             reason: HaltReason::InvalidFEOpcode,
@@ -181,7 +167,7 @@ fn fault_follows_step_without_dropping_the_failed_instruction() {
         run_trace(script, Some(hex!("60ff56").into()), false),
         json!([["step", 0, null], ["step", 2, null], ["fault", 2, "invalid jump destination"]])
     );
-    // Validation failures go to step with an error, without a subsequent fault.
+    // ADD with an empty stack.
     assert_eq!(
         run_trace(script, Some(hex!("01").into()), false),
         json!([["step", 0, "stack underflow"]])

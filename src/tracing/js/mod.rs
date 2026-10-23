@@ -118,16 +118,12 @@ pub struct JsInspector {
     gas_spent_before: u64,
     /// Cached because call/create hooks cannot access the parent interpreter's refund.
     last_frame_refund: i64,
-    /// The first error thrown by one of the tracer's hooks, if any. Mirrors go-ethereum's
-    /// `jsTracer.err`: once a hook throws, the remaining hooks are skipped and [`Self::result`]
-    /// reports the error instead of a trace that silently omits whatever the hook did not record.
+    /// Retained until `fuse`; result collection prioritizes it over cancellation.
     hook_error: Option<JsError>,
-    /// Cheap pre-execution metadata for tracers without a step callback.
     fault_step: FaultStep,
     /// Optional cancellation signal shared with the caller.
     interrupt: Option<JsInspectorInterrupt>,
-    /// The [`InstructionResult`] the root call ended with, captured when it exits. `ctx.error` is
-    /// built from it to preserve the same error labels as step and frame callbacks.
+    /// Supplies stable `ctx.error` labels unavailable through the generic halt reason.
     root_instruction_result: Option<InstructionResult>,
 }
 
@@ -337,9 +333,6 @@ impl JsInspector {
         DB: DatabaseRef,
         <DB as DatabaseRef>::Error: core::fmt::Display,
     {
-        // A hook that threw leaves the trace half-built, so report the failure instead of a
-        // result that silently omits whatever the hook did not record. Cloned rather than taken,
-        // so asking for the result twice answers the same way.
         if let Some(err) = &self.hook_error {
             return Err(JsInspectorError::JsError(err.clone()));
         }
@@ -367,8 +360,6 @@ impl JsInspector {
                 output_bytes = Some(output);
             }
             ExecutionResult::Halt { reason, .. } => {
-                // Use the phrase the root frame reports elsewhere, not the halt reason's `Debug`
-                // output, which is a Rust type name.
                 error = Some(
                     self.root_instruction_result
                         .and_then(|res| utils::fmt_error_msg(res, TraceStyle::Geth))
@@ -414,11 +405,6 @@ impl JsInspector {
         Ok(result?)
     }
 
-    /// Records the first error thrown by a tracer hook, tagged with the hook's name.
-    ///
-    /// Later errors are dropped: the first one explains the rest. The hook name goes into the
-    /// message rather than a dedicated error variant so callers mapping [`JsInspectorError`] onto
-    /// their own error types treat it as the JavaScript failure it is.
     fn record_hook_error(&mut self, hook: &'static str, err: JsError) {
         if self.hook_error.is_none() {
             let suffix = format!("    in server-side tracer function '{hook}'");
@@ -427,7 +413,6 @@ impl JsInspector {
         }
     }
 
-    /// Whether a hook has already thrown, in which case the remaining hooks are skipped.
     const fn hook_errored(&self) -> bool {
         self.hook_error.is_some()
     }
@@ -655,7 +640,6 @@ where
         self.last_frame_refund = interp.gas.refunded();
         self.gas_spent_before = interp.gas.total_gas_spent();
         if self.step_fn.is_none() {
-            // A fault-only tracer does not copy stack or memory on successful steps.
             self.fault_step = FaultStep {
                 pc: interp.bytecode.pc() as u64,
                 op: interp.bytecode.opcode(),
@@ -686,8 +670,7 @@ where
         }
         let error = result.and_then(|result| utils::fmt_error_msg(result, TraceStyle::Geth));
         if !recorded_step {
-            // Keep the faulting instruction's metadata. Stack and memory are post-execution
-            // for a fault-only tracer; geth leaves these fields stale without a step callback.
+            // Fault-only tracers expose post-execution stack and memory.
             let memory = interp.memory.context_memory();
             self.reusable_step_log.record_pre_execution(PreStep {
                 pc: self.fault_step.pc,
@@ -698,8 +681,7 @@ where
             });
         }
         if recorded_step {
-            // Geth emits OnOpcode before executing an instruction, then OnFault if it fails.
-            // Stack/gas validation failures instead reach OnOpcode with the error attached.
+            // Geth reports execution faults after the opcode's step callback.
             self.invoke_step_hook(
                 interp,
                 context,
@@ -1002,7 +984,6 @@ struct CallStackItem {
     enclosing_refund: i64,
 }
 
-/// Instruction metadata retained without copying stack or memory.
 #[derive(Debug, Default)]
 struct FaultStep {
     pc: u64,
@@ -1010,8 +991,7 @@ struct FaultStep {
     gas: u64,
 }
 
-/// Some halts occur before root hooks, notably Amsterdam runtime gas exhaustion. The generic
-/// halt trait supports comparing known reasons; retain diagnostics for chain-specific reasons.
+// Amsterdam runtime gas exhaustion can halt before root hooks run.
 fn halt_error_message(reason: &impl HaltReasonTr) -> String {
     use revm::context_interface::result::{HaltReason, OutOfGasError};
     if reason == &HaltReason::OutOfGas(OutOfGasError::Basic).into() {
@@ -1021,15 +1001,7 @@ fn halt_error_message(reason: &impl HaltReasonTr) -> String {
     }
 }
 
-/// Appends `suffix` to the message of `err`, e.g. `Error: boom    in server-side tracer function
-/// 'step'`.
-///
-/// The message is changed on the error itself, so its kind and source position are kept and
-/// only the backtrace, which Boa prints across further lines, is dropped. Wrapping `err` in a
-/// fresh `Error` instead would print a second kind (`Error: Error: boom`). A runtime limit, which
-/// Boa raises as an engine error rather than a JS one, is reported as a `RangeError`, the kind JS
-/// engines use for an exhausted call stack. A script may throw any value, not just an `Error`;
-/// such a value becomes the message of a plain `Error`.
+// Preserve native error kinds and source positions, but omit Boa's multiline backtrace.
 fn with_message_suffix(err: JsError, suffix: &str, ctx: &mut Context) -> JsError {
     match err.as_engine() {
         Some(EngineError::RuntimeLimit(limit)) => {
@@ -1092,11 +1064,7 @@ pub enum JsInspectorError {
     Interrupted,
 }
 
-/// Whether an instruction result also needs a `fault` callback after `step`.
-///
-/// Mirrors go-ethereum, which faults on errors raised while executing the opcode (after
-/// `OnOpcode`) and routes the checks that precede execution — stack validation and gas — to
-/// `step` instead. Successful terminations never fault.
+// Geth sends stack/gas validation errors to `step` and execution errors to `fault`.
 fn should_fault(result: InstructionResult) -> bool {
     use InstructionResult::*;
     !result.is_ok()
@@ -1130,7 +1098,6 @@ mod tests {
         state::{AccountInfo, Bytecode},
         InspectEvm, MainBuilder, MainContext,
     };
-    //use revm_inspector::{inspector_handler, InspectorContext, InspectorMainEvm};
     use serde_json::json;
 
     #[test]
@@ -1160,13 +1127,10 @@ mod tests {
         assert!(matches!(result, Err(JsInspectorError::FaultFunctionMissing)));
     }
 
-    // Helper function to run a trace and return the result
     fn run_trace(code: &str, contract: Option<Bytes>, success: bool) -> serde_json::Value {
         try_run_trace(code, contract, success).unwrap()
     }
 
-    /// Like [`run_trace`] but expects the trace to fail (e.g. a hook threw) and returns the error
-    /// message.
     fn run_trace_err(code: &str, contract: Option<Bytes>, success: bool) -> String {
         try_run_trace(code, contract, success).expect_err("expected the trace to fail").to_string()
     }
@@ -1477,7 +1441,6 @@ mod tests {
 
     #[test]
     fn test_memory_limit() {
-        // Excessive padding fails the trace while the EVM transaction still succeeds.
         let code = r#"{
             res: [],
             step: function(log) { if (log.op.toString() === 'STOP') { this.res.push(log.memory.slice(5, 1025 * 1024)) } },
