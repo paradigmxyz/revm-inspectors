@@ -25,6 +25,7 @@ use boa_engine::{
 };
 use core::sync::atomic::{AtomicBool, Ordering};
 use revm::{
+    bytecode::opcode,
     context::JournalTr,
     context_interface::{
         result::{ExecutionResult, HaltReasonTr, Output, ResultAndState},
@@ -639,20 +640,20 @@ where
         }
         self.last_frame_refund = interp.gas.refunded();
         self.gas_spent_before = interp.gas.total_gas_spent();
+        self.fault_step = FaultStep {
+            pc: interp.bytecode.pc() as u64,
+            op: interp.bytecode.opcode(),
+            gas: interp.gas.remaining(),
+        };
         if self.step_fn.is_none() {
-            self.fault_step = FaultStep {
-                pc: interp.bytecode.pc() as u64,
-                op: interp.bytecode.opcode(),
-                gas: interp.gas.remaining(),
-            };
             return;
         }
         self.step_pending = true;
         let memory = interp.memory.context_memory();
         self.reusable_step_log.record_pre_execution(PreStep {
-            pc: interp.bytecode.pc() as u64,
-            op: interp.bytecode.opcode(),
-            gas_remaining: interp.gas.remaining(),
+            pc: self.fault_step.pc,
+            op: self.fault_step.op,
+            gas_remaining: self.fault_step.gas,
             stack: interp.stack.data(),
             memory: &memory,
         });
@@ -663,7 +664,7 @@ where
             return;
         }
         let result = interp.bytecode.action().as_ref().and_then(|a| a.instruction_result());
-        let is_fault = result.is_some_and(should_fault);
+        let is_fault = result.is_some_and(|result| should_fault(result, self.fault_step.op));
         let recorded_step = core::mem::take(&mut self.step_pending);
         if self.hook_errored() || (!recorded_step && !is_fault) {
             return;
@@ -1064,21 +1065,26 @@ pub enum JsInspectorError {
     Interrupted,
 }
 
-// Geth sends stack/gas validation errors to `step` and execution errors to `fault`.
-fn should_fault(result: InstructionResult) -> bool {
+// Geth reports validation failures through step; execution failures also invoke fault.
+fn should_fault(result: InstructionResult, op: u8) -> bool {
     use InstructionResult::*;
-    !result.is_ok()
-        && !matches!(
-            result,
-            StackUnderflow
-                | StackOverflow
-                | OutOfGas
-                | MemoryOOG
-                | MemoryLimitOOG
-                | PrecompileOOG
-                | InvalidOperandOOG
-                | ReentrancySentryOOG
-        )
+    match result {
+        StackUnderflow
+        | StackOverflow
+        | OutOfGas
+        | MemoryOOG
+        | MemoryLimitOOG
+        | PrecompileOOG
+        | InvalidOperandOOG
+        | ReentrancySentryOOG
+        | CreateInitCodeSizeLimit
+        | CallNotAllowedInsideStatic => false,
+        // LOG and TSTORE check write protection during execution, unlike these opcodes.
+        StateChangeDuringStaticCall => {
+            !matches!(op, opcode::SSTORE | opcode::CREATE | opcode::CREATE2 | opcode::SELFDESTRUCT)
+        }
+        _ => !result.is_ok(),
+    }
 }
 
 #[cfg(test)]

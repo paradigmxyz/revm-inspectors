@@ -284,3 +284,85 @@ fn throwing_fault_is_reported() {
         "{error}"
     );
 }
+
+fn error_events_tracer(has_step: bool) -> String {
+    let step = if has_step {
+        "step:function(l){if(l.getError())this.e.push(['step',l.op.toString(),l.getError()])},"
+    } else {
+        ""
+    };
+    format!(
+        "{{e:[],{step}fault:function(l){{this.e.push(['fault',l.op.toString(),l.getError()])}},result:function(){{return this.e}}}}"
+    )
+}
+
+fn trace_static_child(script: &str, child_code: &[u8]) -> serde_json::Value {
+    let target = Address::repeat_byte(0xaa);
+    let child = Address::repeat_byte(0xbb);
+    let mut parent = hex!("600060006000600073").to_vec();
+    parent.extend_from_slice(child.as_slice());
+    parent.extend_from_slice(&hex!("61fffffa00"));
+    let mut db = CacheDB::new(EmptyDB::default());
+    for (address, code) in [(target, parent), (child, child_code.to_vec())] {
+        db.insert_account_info(
+            address,
+            AccountInfo::default().with_code(Bytecode::new_raw(code.into())),
+        );
+    }
+    let inspector = JsInspector::new(script.into(), json!(null)).unwrap();
+    let mut evm = revm::Context::mainnet()
+        .modify_cfg_chained(|cfg| cfg.set_spec_and_mainnet_gas_params(SpecId::CANCUN))
+        .with_db(db)
+        .build_mainnet_with_inspector(inspector);
+    let tx = TxEnv { kind: TransactTo::Call(target), gas_limit: 1_000_000, ..Default::default() };
+    let result = evm.inspect_tx(tx.clone()).unwrap();
+    assert!(result.result.is_success());
+    let (ctx, inspector) = evm.ctx_inspector();
+    let block = ctx.block().clone();
+    inspector.json_result(result, &tx, &block, ctx.db_mut()).unwrap()
+}
+
+#[test]
+fn oversized_initcode_is_reported_by_step() {
+    for (code, opcode) in
+        [(&hex!("61c00160006000f0")[..], "CREATE"), (&hex!("600061c00160006000f5")[..], "CREATE2")]
+    {
+        for has_step in [true, false] {
+            let script = error_events_tracer(has_step);
+            assert_eq!(
+                run_trace(&script, Some(code.to_vec().into()), false),
+                if has_step {
+                    json!([["step", opcode, "max initcode size exceeded"]])
+                } else {
+                    json!([])
+                },
+            );
+        }
+    }
+}
+
+#[test]
+fn static_write_errors_follow_the_opcode_validation_stage() {
+    for (child, opcode, callback) in [
+        (&hex!("6000600055")[..], "SSTORE", "step"),
+        (&hex!("600060006000f0")[..], "CREATE", "step"),
+        (&hex!("6000600060006000f5")[..], "CREATE2", "step"),
+        (&hex!("6000ff")[..], "SELFDESTRUCT", "step"),
+        (&hex!("60006000600060006001600061fffff1")[..], "CALL", "step"),
+        (&hex!("600060005d")[..], "TSTORE", "fault"),
+        (&hex!("60006000a0")[..], "LOG0", "fault"),
+    ] {
+        for has_step in [true, false] {
+            let script = error_events_tracer(has_step);
+            assert_eq!(
+                trace_static_child(&script, child),
+                if has_step || callback == "fault" {
+                    json!([[callback, opcode, "write protection"]])
+                } else {
+                    json!([])
+                },
+                "{opcode}, step callback: {has_step}",
+            );
+        }
+    }
+}
