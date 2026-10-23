@@ -261,8 +261,7 @@ pub(crate) struct PreStep<'a> {
 pub(crate) struct StepInfo<'a> {
     /// Gas cost of step execution
     pub(crate) cost: u64,
-    /// Accumulated execution refund after the opcode. revm applies EIP-7702 authorization
-    /// refunds after execution, so they are not included in this counter.
+    /// Execution refund after the opcode, excluding EIP-7702 authorization refunds.
     pub(crate) refund: u64,
     /// Call depth
     pub(crate) depth: u64,
@@ -754,7 +753,6 @@ impl MemoryView {
             0,
             range.map(|i| {
                 if i >= self.len {
-                    // Beyond the pre-execution memory, which the EVM reads as zero.
                     0
                 } else if patch.contains(&i) {
                     self.patch[i - self.patch_offset]
@@ -850,9 +848,6 @@ fn build_step_memory_object(state: Shared<StepLogState>, ctx: &mut Context) -> J
         if end < start {
             return Err(memory_out_of_bounds_error(len, start, end.saturating_sub(start)));
         }
-        // Reading past the end of memory is not an error: the EVM's memory is conceptually
-        // infinite and zero-filled, so the gap is zero-padded, up to a cap on how much padding a
-        // single read may request.
         if end > len {
             let padding = end - len;
             if padding > MEMORY_PAD_LIMIT {
@@ -921,8 +916,7 @@ fn invalid_memory_index_error(name: &str, index: impl core::fmt::Display) -> JsE
     type_error(format!("invalid memory {name}: {index}"))
 }
 
-/// Maximum number of zero bytes a single `memory.slice` call may pad past the end of memory,
-/// matching go-ethereum's `memoryPadLimit`.
+// Matches Geth's memoryPadLimit.
 const MEMORY_PAD_LIMIT: usize = 1024 * 1024;
 
 fn memory_out_of_bounds_error(len: usize, offset: usize, size: usize) -> JsError {
@@ -944,11 +938,6 @@ fn parse_memory_index(
     Ok(index)
 }
 
-/// Parses a memory offset without bounding it to the current memory length.
-///
-/// `slice` accepts offsets past the end of memory and zero-pads the gap, so the length check that
-/// [`parse_memory_index`] applies is left to the caller. Negative and non-finite inputs are
-/// rejected here, before the saturating `as usize` cast could turn them into a valid-looking index.
 fn parse_memory_offset(value: &JsValue, name: &str, ctx: &mut Context) -> JsResult<usize> {
     if value.is_undefined() {
         return Err(invalid_memory_index_error(name, "undefined"));
@@ -991,15 +980,10 @@ pub(crate) struct CallFrame {
     pub(crate) gas: u64,
 }
 
-/// The type an `enter` frame reports through `getType()`.
-///
-/// A selfdestruct is reported as its own frame, but it has no [`CallKind`]: that enum is public and
-/// matched by the non-JS tracers, where a selfdestruct is not a call, so it is kept out of it.
+/// Includes the synthetic SELFDESTRUCT frames used by Geth's enter/exit hooks.
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum FrameKind {
-    /// A call or create frame.
     Call(CallKind),
-    /// The scope go-ethereum enters and immediately exits for `SELFDESTRUCT`.
     SelfDestruct,
 }
 

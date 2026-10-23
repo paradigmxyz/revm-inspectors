@@ -1,7 +1,5 @@
-//! JS frame values, bounded memory reads and execution refunds.
 use super::*;
 
-/// Runs a tracer over `tx` against `db`, returning the tracer's result.
 fn trace_tx(code: &str, db: CacheDB<EmptyDB>, tx: TxEnv) -> serde_json::Value {
     let insp = JsInspector::new(code.to_string(), serde_json::Value::Null).unwrap();
     let mut evm = revm::Context::mainnet()
@@ -114,8 +112,6 @@ fn test_ctx_to_is_set_for_a_failed_creation() {
 
 #[test]
 fn test_memory_slice_zero_pads_out_of_bounds() {
-    // Read 32 bytes of still-empty memory on the first step. go-ethereum zero-pads rather
-    // than erroring, so the slice has length 32.
     let code = r#"{r:null,step:function(log){if(this.r!==null)return;this.r='len='+log.memory.slice(0,32).length},fault:function(){},result:function(){return this.r}}"#;
     let res = run_trace(code, Some(hex!("600160015500").into()), true);
     assert_eq!(res, json!("len=32"));
@@ -123,14 +119,12 @@ fn test_memory_slice_zero_pads_out_of_bounds() {
 
 #[test]
 fn test_memory_slice_padding_has_a_limit() {
-    // Padding beyond the 1 MiB limit is rejected.
     let code = r#"{r:null,step:function(log){if(this.r!==null)return;try{log.memory.slice(0, 1024*1024 + 1);this.r='ok'}catch(e){this.r='threw'}},fault:function(){},result:function(){return this.r}}"#;
     let res = run_trace(code, Some(hex!("600160015500").into()), true);
     assert_eq!(res, json!("threw"));
 }
 
-/// Runs `outer` with slot 0 of every listed account preset to 1, returning one
-/// `depth:op:refund` entry per step.
+// Slot 0 starts at 1 in every account so SSTORE-to-zero earns a refund.
 fn refund_steps(accounts: &[(Address, Vec<u8>)], outer: Address) -> Vec<String> {
     let mut db = CacheDB::new(EmptyDB::default());
     db.insert_account_info(
@@ -173,9 +167,7 @@ fn clear_then_call(op: u8, target: Address) -> Vec<u8> {
 
 #[test]
 fn test_get_refund_is_transaction_wide() {
-    // The outer frame clears its slot (+4800), then calls an inner frame that clears its own
-    // (+4800). Inside the inner frame the counter is 9600, not the inner frame's 4800; the
-    // SSTORE step already includes its own refund, as go-ethereum meters it before `OnOpcode`.
+    // Each frame earns 4800 for clearing its own slot.
     let (outer, inner) = (Address::repeat_byte(0xaa), Address::repeat_byte(0xbb));
     let steps = refund_steps(
         &[(outer, clear_then_call(0xf1, inner)), (inner, hex!("600060005500").to_vec())],
@@ -189,9 +181,7 @@ fn test_get_refund_is_transaction_wide() {
 
 #[test]
 fn test_get_refund_does_not_underflow_on_a_negative_frame_counter() {
-    // The outer frame clears slot 0 (+4800), then a delegate call writes it back, which takes
-    // the refund away again (-4800 + 2800). The delegated frame's own counter is -2000; the
-    // transaction-wide counter is 2800, not an underflowed u64.
+    // Restoring the cleared slot refunds -4800 + 2800: the child counter is negative.
     let (outer, restorer) = (Address::repeat_byte(0xaa), Address::repeat_byte(0xcc));
     let steps = refund_steps(
         &[(outer, clear_then_call(0xf4, restorer)), (restorer, hex!("600160005500").to_vec())],
@@ -204,7 +194,6 @@ fn test_get_refund_does_not_underflow_on_a_negative_frame_counter() {
 
 #[test]
 fn test_get_refund_drops_a_reverted_frame() {
-    // The inner frame clears its slot and reverts; its refund is discarded with it.
     let (outer, inner) = (Address::repeat_byte(0xaa), Address::repeat_byte(0xbb));
     let steps = refund_steps(
         &[(outer, clear_then_call(0xf1, inner)), (inner, hex!("600060005560006000fd").to_vec())],
