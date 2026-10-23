@@ -112,8 +112,6 @@ pub(crate) fn fmt_error_msg(res: InstructionResult, kind: TraceStyle) -> Option<
             if kind.is_parity() { "Fatal external error" } else { "fatal external error" }
                 .to_string()
         }
-        // Success codes returned early above. They are listed so that the match is exhaustive: a
-        // new revm variant fails to compile here instead of being reported as its Rust name.
         InstructionResult::Stop
         | InstructionResult::Return
         | InstructionResult::SelfDestruct
@@ -281,7 +279,6 @@ mod tests {
         );
     }
 
-    /// Every halt maps to a phrase, never to the variant's Rust name, in both trace styles.
     #[test]
     fn fmt_error_msg_has_a_phrase_for_every_halt() {
         let cases = [

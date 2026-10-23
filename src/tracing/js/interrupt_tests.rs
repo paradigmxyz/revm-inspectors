@@ -182,8 +182,6 @@ fn interrupt_rejects_result_collection() {
     }
 }
 
-/// A hook error recorded before the interrupt is reported instead of the interrupt: once a hook
-/// throws the remaining hooks are skipped, so the error is what ended the trace.
 #[test]
 fn hook_error_takes_precedence_over_a_later_interrupt() {
     let script = "{step: function() { throw new Error('boom'); }, fault: function() {}, result: function() { return 42; }}";
