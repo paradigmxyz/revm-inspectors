@@ -4,7 +4,7 @@ use crate::tracing::{
     config::TraceStyle,
     js::{
         bindings::{
-            CallFrame, Contract, FrameResult, JsEvmContext, OpcodeNames, PreStep,
+            CallFrame, Contract, FrameKind, FrameResult, JsEvmContext, OpcodeNames, PreStep,
             ReusableCallFrame, ReusableEvmDb, ReusableFrameResult, ReusableStepLog, StepInfo,
         },
         builtins::{register_builtins, to_serde_value, PrecompileList},
@@ -114,6 +114,9 @@ pub struct JsInspector {
     step_pending: bool,
     /// Total gas spent before the pending step, to compute the step's cost in `step_end`.
     gas_spent_before: u64,
+    /// The active frame's own refund counter as of its last step, used to seed a child frame's
+    /// [`CallStackItem::enclosing_refund`].
+    last_frame_refund: i64,
     /// Optional cancellation signal shared with the caller.
     interrupt: Option<JsInspectorInterrupt>,
 }
@@ -208,6 +211,7 @@ impl JsInspector {
             precompiles_registered: false,
             step_pending: false,
             gas_spent_before: 0,
+            last_frame_refund: 0,
             interrupt: None,
         })
     }
@@ -262,6 +266,7 @@ impl JsInspector {
         self.precompiles_registered = false;
         self.step_pending = false;
         self.gas_spent_before = 0;
+        self.last_frame_refund = 0;
         Ok(())
     }
 
@@ -343,8 +348,11 @@ impl JsInspector {
             }
         };
 
-        if let TransactTo::Call(target) = tx.kind() {
-            to = Some(target);
+        match tx.kind() {
+            TransactTo::Call(target) => to = Some(target),
+            // A failed creation has no output address, but its target is still determined by the
+            // sender and nonce; report it rather than `null`.
+            TransactTo::Create => to = to.or_else(|| Some(tx.caller().create(tx.nonce()))),
         }
 
         let ctx = JsEvmContext {
@@ -436,11 +444,18 @@ impl JsInspector {
         caller: Address,
         gas_limit: u64,
     ) -> &CallStackItem {
+        // The call and create hooks do not see the parent's interpreter, so the parent's own
+        // counter is taken from its last step.
+        let enclosing_refund = self
+            .call_stack
+            .last()
+            .map_or(0, |parent| parent.enclosing_refund + self.last_frame_refund);
         let call = CallStackItem {
             id: self.next_call_id,
             contract: Contract { caller, contract, value, input },
             kind,
             gas_limit,
+            enclosing_refund,
         };
         self.next_call_id += 1;
         self.call_stack.push(call);
@@ -548,7 +563,11 @@ where
     CTX: ContextTr<Journal: JournalExt>,
 {
     fn step(&mut self, interp: &mut Interpreter, context: &mut CTX) {
-        if self.check_and_halt(context, interp) || self.step_fn.is_none() {
+        if self.check_and_halt(context, interp) {
+            return;
+        }
+        self.last_frame_refund = interp.gas.refunded();
+        if self.step_fn.is_none() {
             return;
         }
 
@@ -563,7 +582,6 @@ where
             pc: interp.bytecode.pc() as u64,
             op: interp.bytecode.opcode(),
             gas_remaining: interp.gas.remaining(),
-            refund: interp.gas.refunded() as u64,
             stack: interp.stack.data(),
             memory: &memory,
         });
@@ -587,8 +605,14 @@ where
         let cost = interp.gas.total_gas_spent().saturating_sub(self.gas_spent_before);
         let depth = context.journal_ref().depth() as u64;
         let call = self.call_stack.last().expect("call stack is empty");
+        // Read after the opcode ran: go-ethereum meters an opcode's dynamic gas, which applies an
+        // SSTORE's refund, before it calls `OnOpcode`, so the step reports the counter including
+        // that opcode's own refund change.
+        let refund = call.enclosing_refund + interp.gas.refunded();
+        debug_assert!(refund >= 0, "transaction-wide refund counter went negative: {refund}");
         let info = StepInfo {
             cost,
+            refund: refund.max(0) as u64,
             depth,
             error: if is_revert { result.map(|result| format!("{result:?}")) } else { None },
             op: is_revert.then_some(opcode::REVERT),
@@ -640,7 +664,9 @@ where
             _ => (inputs.caller, inputs.target_address),
         };
 
-        let value = inputs.transfer_value().unwrap_or_default();
+        // A delegate call transfers nothing but inherits its parent's value, which revm keeps as
+        // the apparent value; `transfer_value` alone would report it as zero.
+        let value = inputs.call_value();
         self.push_call(
             contract,
             inputs.input_data(context),
@@ -655,7 +681,7 @@ where
             let call = self.active_call();
             let frame = CallFrame {
                 contract: call.contract.clone(),
-                kind: call.kind,
+                kind: FrameKind::Call(call.kind),
                 gas: inputs.gas_limit,
             };
             result = self.try_enter(frame).err().map(js_error_to_revert);
@@ -705,8 +731,11 @@ where
         let mut result = None;
         if self.can_call_enter() {
             let call = self.active_call();
-            let frame =
-                CallFrame { contract: call.contract.clone(), kind: call.kind, gas: call.gas_limit };
+            let frame = CallFrame {
+                contract: call.contract.clone(),
+                kind: FrameKind::Call(call.kind),
+                gas: call.gas_limit,
+            };
             result = self.try_enter(frame).err().map(js_error_to_revert);
         }
 
@@ -739,16 +768,26 @@ where
         self.check_interrupt(context);
     }
 
-    fn selfdestruct(&mut self, _contract: Address, _target: Address, _value: U256) {
+    fn selfdestruct(&mut self, contract: Address, target: Address, value: U256) {
         if self.is_interrupted() {
             return;
         }
         // This is exempt from the root call constraint, because selfdestruct is treated as a
         // new scope that is entered and immediately exited.
         if self.enter_fn.is_some() {
-            let call = self.active_call();
-            let frame =
-                CallFrame { contract: call.contract.clone(), kind: call.kind, gas: call.gas_limit };
+            // The frame describes the destruction itself: the destroyed contract sends its balance
+            // to the beneficiary, with no input and no gas. Reusing the enclosing call's frame
+            // reported the outer caller and callee instead.
+            let frame = CallFrame {
+                contract: Contract {
+                    caller: contract,
+                    contract: target,
+                    value,
+                    input: Bytes::new(),
+                },
+                kind: FrameKind::SelfDestruct,
+                gas: 0,
+            };
             let _ = self.try_enter(frame);
         }
 
@@ -888,6 +927,12 @@ struct CallStackItem {
     contract: Contract,
     kind: CallKind,
     gas_limit: u64,
+    /// The transaction-wide refund counter when this frame began.
+    ///
+    /// revm keeps a refund counter per frame, starting at zero, and merges a child's into its
+    /// parent only when the child succeeds. Adding this to the frame's own counter gives the
+    /// single transaction-wide counter go-ethereum exposes.
+    enclosing_refund: i64,
 }
 
 /// Error variants that can occur during JavaScript inspection.
@@ -939,6 +984,7 @@ fn js_error_to_revert(err: JsError) -> InterpreterResult {
 
 #[cfg(test)]
 mod tests {
+    mod values;
     use super::*;
 
     use alloy_primitives::{bytes, hex, Address};
@@ -1277,9 +1323,13 @@ mod tests {
             fault: function() {},
             result: function() { return this.res }
         }"#;
-        let contract = hex!("60ff60005300"); // PUSH1, 0xff, PUSH1, 0x00, MSTORE8, STOP
-        let res = run_trace(code, Some(contract.into()), false);
-        assert_eq!(res, json!([]));
+        // PUSH1 0xff, PUSH1 0x00, MSTORE8, STOP
+        let contract = hex!("60ff60005300");
+        // At MSTORE8 memory is still empty, so slice(0, 2) zero-pads; at STOP it reads the byte
+        // MSTORE8 wrote. go-ethereum pads out-of-bounds reads rather than erroring, so neither
+        // slice throws and execution runs to completion.
+        let res = run_trace(code, Some(contract.into()), true);
+        assert_eq!(res, json!([{"0": 0, "1": 0}, {"0": 255, "1": 0}]));
     }
 
     #[test]
