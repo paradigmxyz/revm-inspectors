@@ -88,6 +88,13 @@ pub struct TracingInspector {
     traces: CallTraceArena,
     /// Tracks active calls
     trace_stack: Vec<usize>,
+    /// Refund counter accumulated by the enclosing frames of each active call.
+    ///
+    /// revm tracks the refund per frame and merges it into the parent only on success, so the
+    /// transaction-wide counter is the active frame's refund plus this base.
+    refund_bases: Vec<i64>,
+    /// Refund counter of the active frame, as of its last step.
+    frame_refund: i64,
     /// Tracks whether the next `step_end` should be recorded. Set in `start_step`.
     record_step_end: bool,
     /// Number of logs recorded so far, used as the index of the next log.
@@ -137,6 +144,8 @@ impl TracingInspector {
         let Self {
             traces,
             trace_stack,
+            refund_bases,
+            frame_refund,
             log_count,
             last_journal_len,
             spec_id,
@@ -161,6 +170,8 @@ impl TracingInspector {
 
         traces.clear();
         trace_stack.clear();
+        refund_bases.clear();
+        *frame_refund = 0;
         spec_id.take();
         *log_count = 0;
         *last_journal_len = 0;
@@ -356,6 +367,11 @@ impl TracingInspector {
         &mut self.traces.arena[idx]
     }
 
+    /// Returns the refund counter accumulated by the frames enclosing the active call.
+    fn refund_base(&self) -> i64 {
+        self.refund_bases.last().copied().unwrap_or_default()
+    }
+
     /// _Removes_ the last trace [CallTrace] index from the stack.
     ///
     /// # Panics
@@ -396,6 +412,8 @@ impl TracingInspector {
 
         // the currently active call is the parent of the new call
         let parent = self.trace_stack.last().copied().unwrap_or_default();
+        self.refund_bases.push(self.refund_base() + self.frame_refund);
+        self.frame_refund = 0;
 
         self.trace_stack.push(self.traces.push_trace(
             parent,
@@ -430,6 +448,10 @@ impl TracingInspector {
     ) {
         let InterpreterResult { result, ref output, ref gas } = *result;
 
+        self.refund_bases.pop();
+        if self.refund_bases.is_empty() {
+            self.frame_refund = 0;
+        }
         let trace_idx = self.pop_trace_idx();
         let trace = &mut self.traces.arena[trace_idx].trace;
 
@@ -480,6 +502,7 @@ impl TracingInspector {
         }
 
         self.recorded_steps += 1;
+        let gas_refund_counter = (self.refund_base() + interp.gas.refunded()).max(0) as u64;
         let trace_idx = self.last_trace_idx();
         let node = &mut self.traces.arena[trace_idx];
 
@@ -547,7 +570,7 @@ impl TracingInspector {
             memory,
             returndata,
             gas_remaining: interp.gas.remaining(),
-            gas_refund_counter: interp.gas.refunded() as u64,
+            gas_refund_counter,
             gas_used,
             immediate_bytes,
             state_gas_cost: None,
@@ -787,6 +810,7 @@ where
     fn step(&mut self, interp: &mut Interpreter, context: &mut CTX) {
         // revm invokes this even if initialize_interp already halted.
         if self.config.record_steps {
+            self.frame_refund = interp.gas.refunded();
             if self.budget.exceeded() {
                 self.record_step_end = false;
             } else {
