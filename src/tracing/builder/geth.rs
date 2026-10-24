@@ -27,7 +27,7 @@ mod steps_tests;
 /// A frame awaiting tree assembly, with visibility inherited by children in the forward pass.
 struct PendingCallFrame<T> {
     /// Whether this call and its ancestors permit descendant logs. Independent of whether
-    /// the frame itself contains logs; root-frame logs retain their existing special handling.
+    /// the frame itself contains logs.
     logs_visible: bool,
     frame: T,
 }
@@ -227,7 +227,9 @@ impl<'a> GethTraceBuilder<'a> {
         let include_logs = opts.with_log.unwrap_or_default();
         // first fill up the root
         let main_trace_node = &self.nodes[0];
-        let mut root_call_frame = main_trace_node.geth_empty_call_frame(include_logs);
+        // like any other failed call, a failed root drops its own logs
+        let root_logs_visible = include_logs && !main_trace_node.trace.is_error();
+        let mut root_call_frame = main_trace_node.geth_empty_call_frame(root_logs_visible);
         root_call_frame.gas_used = U256::from(gas_used);
         if let Some(gas) = gas.filter(|_| self.is_eip8037_enabled()) {
             root_call_frame.execution_gas_used = Some(U256::from(gas.block_regular_gas_used()));
@@ -249,10 +251,8 @@ impl<'a> GethTraceBuilder<'a> {
         // traces are identified by their index in the arena
         // so we can populate the call frame tree by walking up the call tree
         let mut call_frames = Vec::with_capacity(self.nodes.len());
-        call_frames.push(PendingCallFrame {
-            logs_visible: include_logs && !main_trace_node.trace.is_error(),
-            frame: root_call_frame,
-        });
+        call_frames
+            .push(PendingCallFrame { logs_visible: root_logs_visible, frame: root_call_frame });
 
         for trace in self.nodes.iter().skip(1) {
             // Parents precede their children, so inherit log visibility without walking back
@@ -470,7 +470,8 @@ impl<'a> GethTraceBuilder<'a> {
 
         // only the root frame's own fields are needed, its children are assembled below
         let mut top_call = {
-            let mut root = self.nodes[0].geth_empty_call_frame(include_logs);
+            let root_logs_visible = include_logs && !self.nodes[0].trace.is_error();
+            let mut root = self.nodes[0].geth_empty_call_frame(root_logs_visible);
             root.gas_used = U256::from(gas_used);
             Some(root)
         };
@@ -743,7 +744,7 @@ mod tests {
                     visited.push(idx);
                     assert_eq!(call.to, erc.to);
                     assert_eq!(call.logs, erc.logs);
-                    let visible = with_log && (idx == 0 || (idx >= 5 && !root_failed));
+                    let visible = with_log && !root_failed && (idx == 0 || idx >= 5);
                     assert_eq!(call.logs.len(), if visible { 2 } else { 0 }, "node {idx}");
                     if visible {
                         for (log_idx, log) in call.logs.iter().enumerate() {
