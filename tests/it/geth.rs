@@ -1710,3 +1710,73 @@ fn test_geth_4byte_tracer_skips_precompiles() {
         _ => panic!("Expected FourByteTracer"),
     }
 }
+
+#[test]
+fn test_geth_failed_root_logs() {
+    let contract = address!("1000000000000000000000000000000000000001");
+    for (code, error) in [
+        ("60006000a000", None),
+        ("60006000a060006000fd", Some("execution reverted")),
+        ("60006000a0fe", Some("invalid opcode: INVALID")),
+        ("60006000a05b600556", Some("out of gas")),
+    ] {
+        let code = code.parse::<Bytes>().unwrap();
+        for create in [false, true] {
+            let context = Context::mainnet()
+                .with_db(CacheDB::<EmptyDB>::default())
+                .modify_cfg_chained(|cfg| cfg.set_spec_and_mainnet_gas_params(SpecId::LONDON))
+                .modify_db_chained(|db| {
+                    db.insert_account_info(
+                        contract,
+                        AccountInfo {
+                            code: Some(Bytecode::new_raw(code.clone())),
+                            ..Default::default()
+                        },
+                    );
+                });
+            let mut inspector = TracingInspector::new(
+                TracingInspectorConfig::from_geth_call_config(&CallConfig::default().with_log()),
+            );
+            let mut evm = context.build_mainnet().with_inspector(&mut inspector);
+            let res = evm
+                .inspect_tx(TxEnv {
+                    kind: if create { TxKind::Create } else { TxKind::Call(contract) },
+                    data: if create { code.clone() } else { Bytes::new() },
+                    gas_limit: 100_000,
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(res.result.is_success(), error.is_none());
+            assert_eq!(res.result.logs().len(), usize::from(error.is_none()));
+            // The inspector records the emitted log even when execution rolls it back.
+            assert_eq!(inspector.traces().nodes()[0].logs.len(), 1);
+            let builder = inspector.geth_builder();
+
+            for with_log in [false, true] {
+                let expected_logs = usize::from(with_log && error.is_none());
+                for only_top_call in [false, true] {
+                    let frame = builder.geth_call_traces(
+                        CallConfig { with_log: Some(with_log), only_top_call: Some(only_top_call) },
+                        res.result.tx_gas_used(),
+                    );
+                    assert_eq!(frame.error.as_deref(), error);
+                    assert_eq!(frame.logs.len(), expected_logs);
+                    if expected_logs == 0 {
+                        assert_eq!(serde_json::to_value(frame).unwrap().get("logs"), None);
+                    }
+                }
+
+                let frame = builder.geth_erc7562_traces(
+                    Erc7562Config { with_log: Some(with_log), ..Default::default() },
+                    res.result.tx_gas_used(),
+                    EmptyDB::default(),
+                );
+                assert_eq!(frame.error.as_deref(), error);
+                assert_eq!(frame.logs.len(), expected_logs);
+                if expected_logs == 0 {
+                    assert_eq!(serde_json::to_value(frame).unwrap().get("logs"), None);
+                }
+            }
+        }
+    }
+}
