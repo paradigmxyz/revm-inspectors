@@ -219,9 +219,6 @@ impl ReusableStepLog {
             state.refund = info.refund;
             state.depth = info.depth;
             state.error = info.error;
-            if let Some(op) = info.op {
-                state.op = op;
-            }
             state.contract.caller = info.caller;
             state.contract.contract = info.contract;
             state.contract.value = info.value;
@@ -267,8 +264,6 @@ pub(crate) struct StepInfo<'a> {
     pub(crate) depth: u64,
     /// Information about the error if one occurred
     pub(crate) error: Option<String>,
-    /// Overrides the recorded opcode, faults are reported as `REVERT`.
-    pub(crate) op: Option<u8>,
     /// Caller of the current call
     pub(crate) caller: Address,
     /// Address of the current call
@@ -1116,7 +1111,6 @@ mod tests {
                 refund: 0,
                 depth: 0,
                 error: None,
-                op: None,
                 caller: contract.caller,
                 contract: contract.contract,
                 value: contract.value,

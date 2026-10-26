@@ -9,6 +9,7 @@ use revm::{
     context::TxEnv,
     context_interface::result::EVMError,
     database::{CacheDB, EmptyDB},
+    interpreter::InterpreterAction,
     state::{AccountInfo, Bytecode},
     InspectEvm, MainBuilder, MainContext,
 };
@@ -179,6 +180,27 @@ fn interrupt_rejects_result_collection() {
             Err(JsInspectorError::Interrupted)
         ));
     }
+}
+
+#[test]
+fn hook_error_takes_precedence_over_a_later_interrupt() {
+    let script = "{step: function() { throw new Error('boom'); }, fault: function() {}, result: function() { return 42; }}";
+    let (mut inspector, result) =
+        run(interruptible(script), &hex!("60015000"), TransactTo::Call(TARGET));
+    let result = result.unwrap();
+    inspector.interrupt.as_ref().unwrap().interrupt();
+    let err = inspector
+        .json_result(
+            result,
+            &TxEnv::default(),
+            &revm::context::BlockEnv::default(),
+            &EmptyDB::default(),
+        )
+        .unwrap_err();
+    assert!(
+        matches!(&err, JsInspectorError::JsError(_)) && err.to_string().contains("boom"),
+        "{err}"
+    );
 }
 
 #[test]
