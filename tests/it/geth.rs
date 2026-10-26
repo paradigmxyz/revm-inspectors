@@ -1,5 +1,6 @@
 //! Geth tests
 
+mod consistency;
 mod runtime_oog;
 
 use crate::utils::deploy_contract;

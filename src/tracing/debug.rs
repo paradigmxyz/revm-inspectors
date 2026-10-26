@@ -276,6 +276,7 @@ impl DebugInspector {
                 inspector
                     .clone()
                     .into_parity_builder()
+                    .with_transaction_gas_used(res.result.tx_gas_used())
                     .into_localized_transaction_traces(tx_info)
                     .into()
             }
