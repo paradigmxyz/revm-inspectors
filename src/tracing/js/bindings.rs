@@ -181,12 +181,11 @@ impl ReusableStepLog {
 
     /// Records everything about a step that must be captured before the opcode executes.
     pub(crate) fn record_pre_execution(&self, step: PreStep<'_>) {
-        let PreStep { pc, op, gas_remaining, refund, stack, memory } = step;
+        let PreStep { pc, op, gas_remaining, stack, memory } = step;
         let mut state = self.state.borrow_mut();
         state.pc = pc;
         state.op = op;
         state.gas_remaining = gas_remaining;
-        state.refund = refund;
         state.stack.record(op, stack);
         state.memory.record(op, stack, memory);
     }
@@ -217,6 +216,7 @@ impl ReusableStepLog {
             state.stack.post = Some(stack);
             state.memory.post = Some(memory_slice);
             state.cost = info.cost;
+            state.refund = info.refund;
             state.depth = info.depth;
             state.error = info.error;
             if let Some(op) = info.op {
@@ -250,8 +250,6 @@ pub(crate) struct PreStep<'a> {
     pub(crate) op: u8,
     /// Remaining gas before step execution
     pub(crate) gas_remaining: u64,
-    /// Gas refund counter before step execution
-    pub(crate) refund: u64,
     /// Stack before step execution
     pub(crate) stack: &'a [U256],
     /// Memory before step execution
@@ -263,6 +261,8 @@ pub(crate) struct PreStep<'a> {
 pub(crate) struct StepInfo<'a> {
     /// Gas cost of step execution
     pub(crate) cost: u64,
+    /// Execution refund after the opcode, excluding EIP-7702 authorization refunds.
+    pub(crate) refund: u64,
     /// Call depth
     pub(crate) depth: u64,
     /// Information about the error if one occurred
@@ -322,7 +322,11 @@ impl ReusableCallFrame {
         });
         let get_gas = state_fn(ctx, state.clone(), 0, |state, _, _| Ok(state.borrow().gas.into()));
         let get_type = state_fn(ctx, state.clone(), 0, |state, _, _| {
-            Ok(call_kind_js_string(state.borrow().kind).into())
+            Ok(match state.borrow().kind {
+                FrameKind::Call(kind) => call_kind_js_string(kind),
+                FrameKind::SelfDestruct => js_string!("SELFDESTRUCT"),
+            }
+            .into())
         });
 
         object.set(js_string!("getFrom"), get_from, false, ctx)?;
@@ -748,7 +752,9 @@ impl MemoryView {
         Ok(AlignedVec::from_iter(
             0,
             range.map(|i| {
-                if patch.contains(&i) {
+                if i >= self.len {
+                    0
+                } else if patch.contains(&i) {
                     self.patch[i - self.patch_offset]
                 } else {
                     post.get(i).copied().unwrap_or_default()
@@ -784,7 +790,7 @@ struct CallFrameState {
     value: U256,
     input: Bytes,
     gas: u64,
-    kind: CallKind,
+    kind: FrameKind,
 }
 
 #[derive(Debug, Default)]
@@ -834,10 +840,21 @@ fn build_step_memory_object(state: Shared<StepLogState>, ctx: &mut Context) -> J
     });
     let slice = state_fn(ctx, state.clone(), 2, |state, args, ctx| {
         let len = state.borrow().memory.len();
-        let start = parse_memory_index(args.get_or_undefined(0), "start", len, ctx)?;
-        let end = parse_memory_index(args.get_or_undefined(1), "end", len, ctx)?;
-        if end < start || end > len {
+        let start = parse_memory_offset(args.get_or_undefined(0), "start", ctx)?;
+        let end = parse_memory_offset(args.get_or_undefined(1), "end", ctx)?;
+        if end == start {
+            return uint8_array_from_block(AlignedVec::from_iter(0, core::iter::empty()), ctx);
+        }
+        if end < start {
             return Err(memory_out_of_bounds_error(len, start, end.saturating_sub(start)));
+        }
+        if end > len {
+            let padding = end - len;
+            if padding > MEMORY_PAD_LIMIT {
+                return Err(type_error(format!(
+                    "reached limit for padding memory slice: {padding}"
+                )));
+            }
         }
         let bytes = state.borrow().memory.bytes(start..end)?;
         uint8_array_from_block(bytes, ctx)
@@ -899,6 +916,9 @@ fn invalid_memory_index_error(name: &str, index: impl core::fmt::Display) -> JsE
     type_error(format!("invalid memory {name}: {index}"))
 }
 
+// Matches Geth's memoryPadLimit.
+const MEMORY_PAD_LIMIT: usize = 1024 * 1024;
+
 fn memory_out_of_bounds_error(len: usize, offset: usize, size: usize) -> JsError {
     type_error(format!(
         "tracer accessed out of bound memory: available {len}, offset {offset}, size {size}"
@@ -911,6 +931,14 @@ fn parse_memory_index(
     len: usize,
     ctx: &mut Context,
 ) -> JsResult<usize> {
+    let index = parse_memory_offset(value, name, ctx)?;
+    if index > len {
+        return Err(invalid_memory_index_error(name, index));
+    }
+    Ok(index)
+}
+
+fn parse_memory_offset(value: &JsValue, name: &str, ctx: &mut Context) -> JsResult<usize> {
     if value.is_undefined() {
         return Err(invalid_memory_index_error(name, "undefined"));
     }
@@ -919,18 +947,14 @@ fn parse_memory_index(
             return Err(invalid_memory_index_error(name, index));
         }
     }
-    let index = if let Some(index) = value.as_bigint() {
+    if let Some(index) = value.as_bigint() {
         // Boa's `ToIndex` rejects BigInt, but stack-derived tracer values are BigInt.
         let index = index.to_string();
-        index.parse::<usize>().map_err(|_| invalid_memory_index_error(name, &index))?
+        index.parse::<usize>().map_err(|_| invalid_memory_index_error(name, &index))
     } else {
         let index = value.to_index(ctx)?;
-        usize::try_from(index).map_err(|_| invalid_memory_index_error(name, index))?
-    };
-    if index > len {
-        return Err(invalid_memory_index_error(name, index));
+        usize::try_from(index).map_err(|_| invalid_memory_index_error(name, index))
     }
-    Ok(index)
 }
 
 /// Represents the contract object
@@ -952,8 +976,21 @@ pub(crate) struct FrameResult {
 /// Represents the call frame object for enter functions
 pub(crate) struct CallFrame {
     pub(crate) contract: Contract,
-    pub(crate) kind: CallKind,
+    pub(crate) kind: FrameKind,
     pub(crate) gas: u64,
+}
+
+/// Includes the synthetic SELFDESTRUCT frames used by Geth's enter/exit hooks.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum FrameKind {
+    Call(CallKind),
+    SelfDestruct,
+}
+
+impl Default for FrameKind {
+    fn default() -> Self {
+        Self::Call(CallKind::default())
+    }
 }
 
 /// The `ctx` object that represents the context in which the transaction is executed.
@@ -1068,7 +1105,6 @@ mod tests {
             pc: 0,
             op,
             gas_remaining: 0,
-            refund: 0,
             stack,
             memory: &memory.borrow(),
         });
@@ -1077,6 +1113,7 @@ mod tests {
             Ref::map(memory.borrow(), Vec::as_slice),
             StepInfo {
                 cost: 0,
+                refund: 0,
                 depth: 0,
                 error: None,
                 op: None,
