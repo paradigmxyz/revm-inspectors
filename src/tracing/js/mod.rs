@@ -36,8 +36,8 @@ use revm::{
     inspector::JournalExt,
     interpreter::{
         interpreter_types::{Jumps, LoopControl},
-        CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, Gas, InstructionResult,
-        Interpreter, InterpreterResult,
+        CallInputs, CallOutcome, CallScheme, CreateInputs, CreateOutcome, FrameInput, Gas,
+        InstructionResult, Interpreter, InterpreterAction, InterpreterResult,
     },
     DatabaseRef, Inspector,
 };
@@ -431,9 +431,18 @@ impl JsInspector {
         // Geth meters dynamic gas, including SSTORE refunds, before OnOpcode.
         let refund = call.enclosing_refund + interp.gas.refunded();
         debug_assert!(refund >= 0, "transaction-wide refund counter went negative: {refund}");
+        // Unlike a CALL's, the gas forwarded to a CREATE frame is taken after OnOpcode in geth.
+        let forwarded_gas = match &interp.bytecode.action {
+            Some(InterpreterAction::NewFrame(FrameInput::Create(inputs))) => inputs.gas_limit(),
+            _ => 0,
+        };
         let info = StepInfo {
             refund: refund.max(0) as u64,
-            cost: interp.gas.total_gas_spent().saturating_sub(self.gas_spent_before),
+            cost: interp
+                .gas
+                .total_gas_spent()
+                .saturating_sub(self.gas_spent_before)
+                .saturating_sub(forwarded_gas),
             depth: context.journal_ref().depth() as u64,
             error,
             caller: interp.input.caller_address,
@@ -1530,6 +1539,41 @@ mod tests {
             res.as_array().unwrap().iter().map(|v| v.as_u64().unwrap_or(0)).collect::<Vec<u64>>(),
             vec![3, 3, 0]
         );
+    }
+
+    #[test]
+    fn test_create_cost_excludes_forwarded_gas() {
+        let code = r#"{
+            res: [],
+            step: function(log) {
+                if (log.op.toString() == "CREATE") this.res.push(log.getCost());
+            },
+            fault: function() {},
+            result: function() { return this.res }
+        }"#;
+        // PUSH1 0, PUSH1 0, PUSH1 0, CREATE, STOP
+        let res = run_trace(code, Some(bytes!("0x600060006000f000")), true);
+        assert_eq!(res, json!([32000]));
+    }
+
+    #[test]
+    fn test_db_get_state_reads_writes_of_the_transaction() {
+        let code = r#"{
+            res: [],
+            step: function(log, db) {
+                if (log.op.toString() == "STOP")
+                    this.res.push(toHex(db.getState(log.contract.getAddress(), toWord("0x00"))));
+            },
+            fault: function() {},
+            result: function(ctx, db) {
+                this.res.push(toHex(db.getState(ctx.to, toWord("0x00"))));
+                return this.res;
+            }
+        }"#;
+        // PUSH1 0x2a, PUSH1 0, SSTORE, STOP
+        let res = run_trace(code, Some(bytes!("0x602a60005500")), true);
+        let written = format!("0x{:064x}", 0x2a);
+        assert_eq!(res, json!([written, written]));
     }
 
     #[test]
