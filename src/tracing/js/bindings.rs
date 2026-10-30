@@ -563,7 +563,10 @@ impl EvmDbState {
     }
 
     fn read_state(&mut self, address: Address, slot: B256) -> JsResult<U256> {
-        let (_, db) = self.active()?;
+        let (state, db) = self.active()?;
+        if let Some(value) = state.get(&address).and_then(|acc| acc.storage.get(&slot.into())) {
+            return Ok(value.present_value());
+        }
         db.storage(address, slot.into()).map_err(|err| {
             JsError::from_native(JsNativeError::error().with_message(format!(
                 "Failed to read state for {address:?} at {slot:?} from database: {err}"
