@@ -32,10 +32,19 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Check the tagged commit is on main
+      # Not a security boundary: a tag runs the workflow file at its own commit, so the
+      # tag ruleset and the release environment's required reviewers gate publishing.
+      - name: Check the tagged commit is on main or a backport branch
         run: |
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main
+          for branch in refs/remotes/origin/main $(git for-each-ref --format='%(refname)' refs/remotes/origin | grep backport || true); do
+            if git merge-base --is-ancestor "$GITHUB_SHA" "$branch"; then
+              echo "release commit is on ${branch#refs/remotes/origin/}"
+              exit 0
+            fi
+          done
+          echo "error: ${GITHUB_SHA} is not on main or a backport branch" >&2
+          exit 1
       - uses: tempoxyz/gh-actions/vendor/dtolnay/rust-toolchain@763efe11a9d8333bcbf0bb2f5ab80f21961c48fd # 2026-11-02T08-44-18Z-763efe11
         with:
           toolchain: 1.99.1
@@ -101,12 +110,20 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "release ${TAG} already exists"
+            exit 0
+          fi
           prev="$(git describe --tags --abbrev=0 --match "v*" "${TAG}^" 2>/dev/null || true)"
           args=(--verify-tag --generate-notes --title "${TAG}")
           version="${TAG#v}"
           version="${version%%+*}"
           if [[ "$version" == *-* ]]; then
             args+=(--prerelease)
+          fi
+          # Backport releases must not become the repository's latest release.
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/main; then
+            args+=(--latest=false)
           fi
           if [[ -n "$prev" ]]; then
             args+=(--notes-start-tag "$prev")
