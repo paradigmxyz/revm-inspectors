@@ -173,9 +173,9 @@ fn test_get_refund_is_transaction_wide() {
         &[(outer, clear_then_call(0xf1, inner)), (inner, hex!("600060005500").to_vec())],
         outer,
     );
-    assert!(steps.contains(&"1:SSTORE:4800".to_string()), "{steps:?}");
-    assert!(steps.contains(&"2:SSTORE:9600".to_string()), "{steps:?}");
-    assert!(steps.contains(&"2:STOP:9600".to_string()), "{steps:?}");
+    assert!(steps.iter().any(|i| i == "1:SSTORE:4800"), "{steps:?}");
+    assert!(steps.iter().any(|i| i == "2:SSTORE:9600"), "{steps:?}");
+    assert!(steps.iter().any(|i| i == "2:STOP:9600"), "{steps:?}");
     assert_eq!(steps.last().unwrap(), "1:STOP:9600", "{steps:?}");
 }
 
@@ -187,8 +187,8 @@ fn test_get_refund_does_not_underflow_on_a_negative_frame_counter() {
         &[(outer, clear_then_call(0xf4, restorer)), (restorer, hex!("600160005500").to_vec())],
         outer,
     );
-    assert!(steps.contains(&"2:SSTORE:2800".to_string()), "{steps:?}");
-    assert!(steps.contains(&"2:STOP:2800".to_string()), "{steps:?}");
+    assert!(steps.iter().any(|i| i == "2:SSTORE:2800"), "{steps:?}");
+    assert!(steps.iter().any(|i| i == "2:STOP:2800"), "{steps:?}");
     assert_eq!(steps.last().unwrap(), "1:STOP:2800", "{steps:?}");
 }
 
@@ -199,7 +199,7 @@ fn test_get_refund_drops_a_reverted_frame() {
         &[(outer, clear_then_call(0xf1, inner)), (inner, hex!("600060005560006000fd").to_vec())],
         outer,
     );
-    assert!(steps.contains(&"2:SSTORE:9600".to_string()), "{steps:?}");
+    assert!(steps.iter().any(|i| i == "2:SSTORE:9600"), "{steps:?}");
     assert_eq!(steps.last().unwrap(), "1:STOP:4800", "{steps:?}");
 }
 
